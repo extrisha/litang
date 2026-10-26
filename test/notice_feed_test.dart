@@ -159,15 +159,14 @@ void main() {
       expect(withCollege.first.title, '本院通知');
     });
 
-    test('collegeOnly 只留本院', () {
+    test('filterCollege 只留指定学院', () {
       final list = [
         n('本院通知', '通知', 0, dept: '管理学院'),
         n('外院通知', '通知', 0, dept: '外语学院'),
       ];
       final ranked = NoticeRanker.rank(
         list,
-        college: '管理学院',
-        collegeOnly: true,
+        filterCollege: '管理学院',
         now: now,
       );
       expect(ranked.map((e) => e.dept).toSet(), {'管理学院'});

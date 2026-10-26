@@ -52,14 +52,14 @@ class NoticeRanker {
   static List<Notice> rank(
     List<Notice> all, {
     String? college,
+    String? filterCollege,
     String? kind,
-    bool collegeOnly = false,
     DateTime? now,
   }) {
     final at = now ?? DateTime.now();
     Iterable<Notice> list = all;
-    if (collegeOnly && college != null && college.isNotEmpty) {
-      list = list.where((n) => n.dept == college);
+    if (filterCollege != null && filterCollege.isNotEmpty) {
+      list = list.where((n) => n.dept == filterCollege);
     }
     if (kind == null || kind == '全部') {
       list = list.where((n) => !offFeedKinds.contains(n.kind));

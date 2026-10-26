@@ -3,106 +3,77 @@ import 'package:flutter/foundation.dart';
 import 'cache_store.dart';
 import 'jwc/course_repository.dart';
 
-/// 首页通知流的本地偏好：本院（用于「本院优先」排序 / 「只看本院」筛选）。
+/// 首页通知流的学院偏好。
 ///
-/// 两种来源：
-///   - 默认从教务的课表缓存里读（`CourseSnapshot.collegeName`，教务首页用户信息里带着），
-///     读到就存下来，每次启动读一遍对比，换账号/转专业会自动跟上；
-///   - 用户手动选了之后就以用户为准（可以随时再改，也可以「恢复自动识别」）。
+/// 两个不同的东西，别混：
+///   - [detected]：从教务课表缓存里读到的学院（`CourseSnapshot.collegeName`），
+///     只用来做「本院优先」排序，以及在选择框里置顶；
+///   - [selected]：用户手动选的学院，用来**筛选**通知流；null 表示「全部学院」。
 ///
-/// 存到加密存储里，因为它是从教务账号推出来的个人信息。
+/// 存到加密存储里，因为检测值是从教务账号推出来的个人信息。
 class NoticePrefs {
   NoticePrefs._();
 
-  static const String _key = 'notice_prefs_v1';
+  // v2：语义变了（以前是「本院优先 / 只看本院」），换 key 让旧值失效，
+  // 免得升级后用户突然发现通知被筛掉一半。
+  static const String _key = 'notice_prefs_v2';
 
-  static _Stored? _memory;
+  static String? _selected;
+  static bool _selectedLoaded = false;
+
+  static String? _detected;
+  static bool _detectedLoaded = false;
 
   /// 测试用：widget 测试里没有平台通道，flutter_secure_storage 的 Future
-  /// 在 FakeAsync 下永远不会完成（会把 await 卡死），所以测试里跳过真正的存储，
-  /// 只走内存。
+  /// 在 FakeAsync 下永远不会完成（会把 await 卡死），所以测试里只走内存。
   @visibleForTesting
   static bool debugSkipStorage = false;
 
-  /// 解析出「本院」。
-  ///
-  /// [name] 是对齐到 `notices.json` 里 `dept` 的规范名；
-  /// [fromJw] 表示这次的值是从教务自动读到的；
-  /// [overridden] 表示用户手动指定过（此时永远以用户为准）。
-  static Future<({String? name, bool fromJw, bool overridden})> resolve(
-    Iterable<String> known,
-  ) async {
-    final stored = await _read();
-    if (stored.userPicked) {
-      return (name: stored.college, fromJw: false, overridden: true);
-    }
-
+  /// 教务里读到的学院（已对齐到 notices.json 的 dept）。读不到返回 null。
+  static Future<String?> detected(Iterable<String> known) async {
+    if (_detectedLoaded) return _detected;
     final jw = await _fromCourseCache();
-    if (jw != null) {
-      final matched = matchCollege(jw, known);
-      if (matched != null) {
-        if (matched != stored.college) {
-          await _write(_Stored(college: matched, userPicked: false));
-        }
-        return (name: matched, fromJw: true, overridden: false);
-      }
-    }
-    return (name: stored.college, fromJw: true, overridden: false);
+    _detected = jw == null ? null : matchCollege(jw, known);
+    _detectedLoaded = true;
+    return _detected;
   }
 
-  /// 只要学院名，不看来源。
-  static Future<String?> college(Iterable<String> known) async =>
-      (await resolve(known)).name;
-
-  /// 用户手动指定（传 null / 空串表示「不设置」，同样算手动，不会被教务覆盖）。
-  static Future<void> setCollege(String? college) async {
-    await _write(
-      _Stored(
-        college: (college == null || college.isEmpty) ? null : college,
-        userPicked: true,
-      ),
-    );
-  }
-
-  /// 放弃手动指定，下次重新从教务读。
-  static Future<void> resetToAuto() async {
-    _memory = null;
-    await CacheStore.remove(_key, secure: true);
-  }
-
-  // ---------------------------------------------------------------- 内部
-
-  static Future<_Stored> _read() async {
-    final cached = _memory;
-    if (cached != null) return cached;
-    if (debugSkipStorage) return const _Stored(college: null, userPicked: false);
+  /// 用户选的学院；null = 全部学院。
+  static Future<String?> selected() async {
+    if (_selectedLoaded) return _selected;
+    _selectedLoaded = true;
+    if (debugSkipStorage) return _selected;
     try {
       final entry = await CacheStore.read(_key, secure: true);
       final data = entry?.data;
       if (data is Map) {
-        final college = data['college'];
-        return _Stored(
-          college: (college is String && college.isNotEmpty) ? college : null,
-          userPicked: data['userPicked'] == true,
-        );
+        final v = data['college'];
+        if (v is String && v.isNotEmpty) _selected = v;
       }
     } catch (_) {
-      // 读不出来就当没设置
+      // 读不出来就当没选
     }
-    return const _Stored(college: null, userPicked: false);
+    return _selected;
   }
 
-  static Future<void> _write(_Stored value) async {
-    _memory = value;
+  static Future<void> setSelected(String? college) async {
+    _selected = (college == null || college.isEmpty) ? null : college;
+    _selectedLoaded = true;
     if (debugSkipStorage) return;
     await CacheStore.write(
       _key,
-      <String, dynamic>{
-        'college': value.college ?? '',
-        'userPicked': value.userPicked,
-      },
+      <String, dynamic>{'college': _selected ?? ''},
       secure: true,
     );
+  }
+
+  /// 测试用：把内存里的状态清干净。
+  @visibleForTesting
+  static void debugReset() {
+    _selected = null;
+    _selectedLoaded = false;
+    _detected = null;
+    _detectedLoaded = false;
   }
 
   /// 教务课表缓存里的学院名，比如「健康科学与工程学院」。
@@ -148,14 +119,4 @@ class NoticePrefs {
     if (winners.length != 1) return null;
     return winners.single.key;
   }
-}
-
-/// 存在本地的那一条记录。
-class _Stored {
-  const _Stored({required this.college, required this.userPicked});
-
-  final String? college;
-
-  /// true = 用户手动选过，教务的数据不再覆盖它
-  final bool userPicked;
 }

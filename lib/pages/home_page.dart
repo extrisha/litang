@@ -29,11 +29,13 @@ class _HomePageState extends State<HomePage> {
   List<Notice> _ranked = const <Notice>[];
   List<String> _kinds = const <String>[];
 
-  String? _college;
-  bool _collegeFromJw = false;
-  bool _collegeOverridden = false;
+  /// 用户选的筛选学院（null = 全部学院）
+  String? _selectedCollege;
+
+  /// 教务里识别到的学院：只用来排序加分、以及在选择框里置顶
+  String? _detectedCollege;
+
   String _kind = '全部';
-  bool _collegeOnly = false;
 
   @override
   void initState() {
@@ -56,18 +58,13 @@ class _HomePageState extends State<HomePage> {
 
       // 学院偏好单独读：存储偶尔会慢（甚至没有实现），不该把首屏卡在白屏上
       final depts = <String>{for (final n in feed.notices) n.dept};
-      final college = await NoticePrefs.resolve(depts);
+      final detected = await NoticePrefs.detected(depts);
+      final selected = await NoticePrefs.selected();
       if (!mounted) return;
-      if (college.name == _college &&
-          college.fromJw == _collegeFromJw &&
-          college.overridden == _collegeOverridden) {
-        return;
-      }
+      if (detected == _detectedCollege && selected == _selectedCollege) return;
       setState(() {
-        _college = college.name;
-        _collegeFromJw = college.fromJw;
-        _collegeOverridden = college.overridden;
-        if (_college == null) _collegeOnly = false;
+        _detectedCollege = detected;
+        _selectedCollege = selected;
       });
       _recompute();
     } catch (e) {
@@ -84,9 +81,9 @@ class _HomePageState extends State<HomePage> {
     if (feed == null) return;
     _ranked = NoticeRanker.rank(
       feed.notices,
-      college: _college,
+      college: _detectedCollege,
+      filterCollege: _selectedCollege,
       kind: _kind,
-      collegeOnly: _collegeOnly,
     );
   }
 
@@ -151,8 +148,8 @@ class _HomePageState extends State<HomePage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              _collegeOnly && _college != null
-                  ? '$_college 暂时没有「$_kind」'
+              _selectedCollege != null
+                  ? '$_selectedCollege 暂时没有「$_kind」'
                   : '暂时没有「$_kind」的通知',
               style: const TextStyle(color: AppColors.textSecondary),
             ),
@@ -161,7 +158,7 @@ class _HomePageState extends State<HomePage> {
               onPressed: () {
                 setState(() {
                   _kind = '全部';
-                  _collegeOnly = false;
+                  _selectedCollege = null;
                 });
                 _recompute();
               },
@@ -257,10 +254,6 @@ class _HomePageState extends State<HomePage> {
         children: <Widget>[
           _collegeChip(context),
           const SizedBox(width: 6),
-          if (_college != null) ...[
-            _collegeOnlyChip(),
-            const SizedBox(width: 6),
-          ],
           for (final k in chips)
             Padding(
               padding: const EdgeInsets.only(right: 6),
@@ -307,71 +300,66 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// 「本院」按钮：点一下就能重新选（想改几次改几次）。
-  /// 选好之后旁边会多出一个「只看本院」的开关。
+  /// 「学院」按钮：点开就是筛选框，选中的学院直接当筛选条件。
   Widget _collegeChip(BuildContext context) {
-    final college = _college;
-    // 已经知道是哪个学院了就不用把全称摆出来占地方
-    final label = college == null ? '本院·未设置' : '本院';
+    final label = _selectedCollege ?? '学院';
+    final active = _selectedCollege != null;
     return GestureDetector(
       onTap: _pickCollege,
       child: Container(
         alignment: Alignment.center,
+        constraints: const BoxConstraints(maxWidth: 168),
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: active ? AppColors.usstRed : Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE5E5E5)),
+          border: Border.all(
+            color: active ? AppColors.usstRed : const Color(0xFFE5E5E5),
+          ),
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               Icons.school_outlined,
               size: 13,
-              color: AppColors.textSecondary,
+              color: active ? Colors.white : AppColors.textSecondary,
             ),
             const SizedBox(width: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12.5,
-                color: AppColors.textSecondary,
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: active ? Colors.white : AppColors.textSecondary,
+                ),
               ),
             ),
-            if (college != null) ...[
-              const SizedBox(width: 2),
-              const Icon(
-                Icons.expand_more,
-                size: 13,
-                color: AppColors.textSecondary,
-              ),
-            ],
+            const SizedBox(width: 2),
+            Icon(
+              Icons.expand_more,
+              size: 13,
+              color: active ? Colors.white : AppColors.textSecondary,
+            ),
           ],
         ),
       ),
     );
   }
 
-  /// 「只看本院」开关，只有设置了学院才出现。
-  Widget _collegeOnlyChip() {
-    return _chip(
-      label: '只看本院',
-      selected: _collegeOnly,
-      onTap: () {
-        setState(() => _collegeOnly = !_collegeOnly);
-        _recompute();
-      },
-    );
-  }
-
-  /// 选学院：随时可以点开重选，选过的以你为准（不会被教务覆盖）。
+  /// 学院筛选框：教务识别到的放最上面，选「全部学院」就清掉筛选。
   Future<void> _pickCollege() async {
     final feed = _feed;
     if (feed == null) return;
+
     final depts = <String>{
       for (final n in feed.notices)
         if (n.kind != '新闻' && n.kind != '党群') n.dept,
     }.toList()..sort();
+    final detected = _detectedCollege;
+    final others = depts.where((d) => d != detected).toList();
 
     final picked = await showModalBottomSheet<String>(
       context: context,
@@ -382,55 +370,48 @@ class _HomePageState extends State<HomePage> {
         initialChildSize: 0.6,
         builder: (_, controller) => ListView(
           controller: controller,
-          children: [
+          children: <Widget>[
             const Padding(
-              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 6),
               child: Text(
-                '你所在的学院',
+                '按学院筛选',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
               child: Text(
-                _collegeFromJw && !_collegeOverridden
-                    ? '自动从教务读到的：${_college ?? '（无）'}。选别的会以你为准。'
-                    : '选过的以你为准；想让它重新跟教务走，点最下面的「恢复自动识别」',
+                detected == null
+                    ? '登录过教务后，会自动把你的学院放在最上面'
+                    : '已从教务识别到你的学院，放在最上面了',
                 style: const TextStyle(
                   fontSize: 12,
                   color: AppColors.textSecondary,
                 ),
               ),
             ),
-            ListTile(
-              leading: const Icon(Icons.clear, size: 20),
-              title: const Text('不设置', style: TextStyle(fontSize: 14)),
-              trailing: _college == null
-                  ? const Icon(Icons.check, size: 18, color: AppColors.usstRed)
-                  : null,
-              onTap: () => Navigator.pop(ctx, ''),
+            _collegeTile(
+              ctx: ctx,
+              name: '全部学院',
+              value: '',
+              subtitle: '不筛选，本院的通知依然排在前面',
+              selected: _selectedCollege == null,
             ),
-            for (final d in depts)
-              ListTile(
-                dense: true,
-                title: Text(d, style: const TextStyle(fontSize: 14)),
-                trailing: d == _college
-                    ? const Icon(Icons.check, size: 18, color: AppColors.usstRed)
-                    : null,
-                onTap: () => Navigator.pop(ctx, d),
+            if (detected != null)
+              _collegeTile(
+                ctx: ctx,
+                name: detected,
+                value: detected,
+                subtitle: '来自教务',
+                selected: _selectedCollege == detected,
+                leadingIcon: Icons.school,
               ),
-            if (_collegeOverridden)
-              ListTile(
-                leading: const Icon(Icons.autorenew, size: 20),
-                title: const Text(
-                  '恢复自动识别',
-                  style: TextStyle(fontSize: 14),
-                ),
-                subtitle: const Text(
-                  '下次按教务里的学院来',
-                  style: TextStyle(fontSize: 11),
-                ),
-                onTap: () => Navigator.pop(ctx, '__auto__'),
+            for (final d in others)
+              _collegeTile(
+                ctx: ctx,
+                name: d,
+                value: d,
+                selected: _selectedCollege == d,
               ),
           ],
         ),
@@ -438,37 +419,33 @@ class _HomePageState extends State<HomePage> {
     );
 
     if (picked == null || !mounted) return;
-
-    if (picked == '__auto__') {
-      await NoticePrefs.resetToAuto();
-      await _reloadCollege();
-      return;
-    }
-
-    await NoticePrefs.setCollege(picked.isEmpty ? null : picked);
-    setState(() {
-      _college = picked.isEmpty ? null : picked;
-      _collegeFromJw = false;
-      _collegeOverridden = true;
-      if (_college == null) _collegeOnly = false;
-    });
+    final value = picked.isEmpty ? null : picked;
+    await NoticePrefs.setSelected(value);
+    if (!mounted) return;
+    setState(() => _selectedCollege = value);
     _recompute();
   }
 
-  /// 重新解析一次本院（「恢复自动识别」之后用）。
-  Future<void> _reloadCollege() async {
-    final feed = _feed;
-    if (feed == null) return;
-    final depts = <String>{for (final n in feed.notices) n.dept};
-    final resolved = await NoticePrefs.resolve(depts);
-    if (!mounted) return;
-    setState(() {
-      _college = resolved.name;
-      _collegeFromJw = resolved.fromJw;
-      _collegeOverridden = resolved.overridden;
-      if (_college == null) _collegeOnly = false;
-    });
-    _recompute();
+  Widget _collegeTile({
+    required BuildContext ctx,
+    required String name,
+    required String value,
+    required bool selected,
+    String? subtitle,
+    IconData? leadingIcon,
+  }) {
+    return ListTile(
+      dense: true,
+      leading: leadingIcon == null ? null : Icon(leadingIcon, size: 20),
+      title: Text(name, style: const TextStyle(fontSize: 14)),
+      subtitle: subtitle == null
+          ? null
+          : Text(subtitle, style: const TextStyle(fontSize: 11)),
+      trailing: selected
+          ? const Icon(Icons.check, size: 18, color: AppColors.usstRed)
+          : null,
+      onTap: () => Navigator.pop(ctx, value),
+    );
   }
 
   void _openSearchCenter(BuildContext context) {
