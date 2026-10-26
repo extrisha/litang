@@ -107,14 +107,20 @@ class ChaoxingAuth extends ChangeNotifier {
   }
 
   /// 数据页调用：cookie 失效时先试一次本地恢复。
+  ///
+  /// 失败时要把 `_client` 清掉 —— 否则 UI 里 `isLoggedIn` 一直是 true，
+  /// 页面上就只显示「重试」，永远等不到登录按钮。
   Future<bool> ensureSession() async {
     final client = _client;
     if (client != null && await client.checkSession()) {
       return true;
     }
+    _client = null;
     _restored = false;
     await restore();
-    return _client != null;
+    final ok = _client != null;
+    notifyListeners();
+    return ok;
   }
 
   Future<void> logout() async {

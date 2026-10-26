@@ -160,8 +160,11 @@ class _LifePageState extends State<LifePage> {
     final ok = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(builder: (_) => const ChaoxingLoginPage()),
     );
-    if (ok == true) {
-      await _refreshChaoxing(withWorks: true);
+    if (ok != true) return;
+    await _refreshChaoxing(withWorks: true);
+    // 当前如果停在「学习通」课程源，登录完直接把课程列表拉出来
+    if (_showChaoxingCourses) {
+      await _loadCourses(force: true);
     }
   }
 
@@ -344,14 +347,15 @@ class _LifePageState extends State<LifePage> {
         await CourseInfoCache.save(termKey, source, filtered);
       } else {
         final auth = ChaoxingAuth.instance;
-        if (!auth.isLoggedIn) {
+        final hadSession = auth.isLoggedIn;
+        if (!hadSession) {
           await auth.restore();
         }
         if (!await auth.ensureSession()) {
           if (mounted && !silent) {
             setState(() {
               _courseInfos = const <LmsCourseInfo>[];
-              _coursesError = '学习通登录已失效';
+              _coursesError = hadSession ? '学习通登录已失效' : '学习通未登录';
             });
           }
           return;
@@ -738,23 +742,26 @@ class _LifePageState extends State<LifePage> {
               ),
             )
           else if (_coursesError != null)
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    _coursesError!,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ),
-                TextButton(
-                  onPressed: _loadCourses,
-                  child: const Text('重试', style: TextStyle(fontSize: 12)),
-                ),
-              ],
-            )
+            // 学习通没登录时，「重试」点了也没用，直接给登录入口
+            _showChaoxingCourses && !ChaoxingAuth.instance.isLoggedIn
+                ? _chaoxingLoginHint(_coursesError!)
+                : Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          _coursesError!,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _loadCourses,
+                        child: const Text('重试', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                  )
           else if (_courseInfos.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 10),
@@ -1213,31 +1220,39 @@ class _LifePageState extends State<LifePage> {
     );
   }
 
+  /// 「学习通未登录 / 登录失效」统一提示 + 登录按钮（待办和课程信息共用）。
+  Widget _chaoxingLoginHint(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+          FilledButton(
+            onPressed: _loginChaoxing,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.usstRed,
+              minimumSize: const Size(0, 30),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+            ),
+            child: const Text('登录', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _cxTodoBody() {
     final auth = ChaoxingAuth.instance;
     if (!auth.isLoggedIn) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: <Widget>[
-            const Expanded(
-              child: Text(
-                '学习通未登录',
-                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-              ),
-            ),
-            FilledButton(
-              onPressed: _loginChaoxing,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.usstRed,
-                minimumSize: const Size(0, 30),
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-              ),
-              child: const Text('登录', style: TextStyle(fontSize: 12)),
-            ),
-          ],
-        ),
-      );
+      return _chaoxingLoginHint('学习通未登录');
     }
     if (_cxLoading) {
       return const Padding(
