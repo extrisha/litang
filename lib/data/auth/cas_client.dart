@@ -306,6 +306,12 @@ class CasClient {
       throw CasLoginException('统一身份认证页面解析失败，请稍后重试');
     }
 
+    // 账号已经被要求输入验证码了就直接抛给 UI，别白白再错一次密码
+    final preChallenge = await _captchaChallenge(username, entryUri, entryHtml);
+    if (preChallenge != null) {
+      throw preChallenge;
+    }
+
     final result = await _send(
       entryUri,
       method: 'POST',
@@ -324,7 +330,11 @@ class CasClient {
     if (!await checkSession()) {
       // 密码错误次数多了 CAS 会要求验证码：这时候不能只报错，
       // 得把验证码图片拉下来交给 UI
-      final challenge = await _captchaFrom(result.data ?? '', entryUri);
+      final challenge = await _captchaChallenge(
+        username,
+        entryUri,
+        result.data ?? '',
+      );
       if (challenge != null) {
         throw challenge;
       }
@@ -361,7 +371,11 @@ class CasClient {
     );
 
     if (!await checkSession()) {
-      final next = await _captchaFrom(result.data ?? '', challenge.postUri);
+      final next = await _captchaChallenge(
+        username,
+        challenge.postUri,
+        result.data ?? '',
+      );
       if (next != null) throw next;
       throw CasLoginException(
         _extractError(result.data ?? '') ?? '验证码错误或已过期，请重试',
@@ -370,22 +384,47 @@ class CasClient {
     studentId = username.trim();
   }
 
-  /// 从页面里识别验证码并把它下载下来；页面里没有验证码就返回 null。
-  Future<CasCaptchaRequired?> _captchaFrom(String html, Uri postUri) async {
-    final parsed = parseCaptcha(html);
-    if (parsed == null) return null;
-    // 没有 token 就没法带着这次的表单再提交一次
+  /// 学校这个 CAS 有个现成的策略接口：needCaptcha.html?username=xxx。
+  /// 返回正文里带 true 就说明该账号当前需要验证码 —— 不用靠「猜」，
+  /// 也不用先错一次密码。
+  Future<bool> needCaptcha(String username) async {
+    try {
+      final uri = Uri.parse(
+        'https://ids6.usst.edu.cn/authserver/needCaptcha.html?username='
+        '${Uri.encodeQueryComponent(username.trim())}',
+      );
+      final resp = await _send(uri);
+      if ((resp.statusCode ?? 0) != 200) return false;
+      return (resp.data ?? '').toLowerCase().contains('true');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 需要验证码时：拉图片 + 收集表单，抛给 UI。
+  Future<CasCaptchaRequired?> _captchaChallenge(
+    String username,
+    Uri postUri,
+    String html,
+  ) async {
+    if (!await needCaptcha(username)) return null;
     if (CasTokens.parse(html) == null) return null;
 
-    final raw = parsed.imageUrl;
-    final uri = Uri.tryParse(raw);
-    final imageUri = (uri != null && uri.hasScheme) ? uri : postUri.resolve(raw);
+    final parsed = parseCaptcha(html);
+    final field = parsed?.field ?? 'captchaResponse';
+    // 图片地址优先用页面里写的；没有 src 就用约定的接口
+    final raw = parsed?.src;
+    final imageUri = postUri.resolve(
+      raw != null && raw.isNotEmpty
+          ? raw
+          : 'captcha.html?ts=${DateTime.now().millisecondsSinceEpoch}',
+    );
     try {
       final bytes = await downloadBytes(imageUri);
       if (bytes.isEmpty) return null;
       return CasCaptchaRequired(
         form: _hiddenFields(html),
-        field: parsed.field,
+        field: field,
         postUri: postUri,
         image: Uint8List.fromList(bytes),
         message: _extractError(html),
@@ -412,12 +451,12 @@ class CasClient {
     return out;
   }
 
-  /// 在 CAS 页面里找验证码输入框和图片地址。
+  /// 从 CAS 页面里找验证码输入框名和图片地址。
   ///
-  /// 只在登录**失败**后的响应里用 —— 登录页本身可能带一个隐藏的验证码占位，
-  /// 按它判断会在没触发风控时也要求输入验证码。
+  /// 学校的页面上 <img id="captchaImg"> 是没有 src 的（由 JS 拼
+  /// captcha.html?ts=...），所以 src 允许为空，由调用方兜底。
   @visibleForTesting
-  static ({String field, String imageUrl})? parseCaptcha(String html) {
+  static ({String field, String? src})? parseCaptcha(String html) {
     if (html.isEmpty) return null;
     final imgTag = RegExp(r'<img[^>]*>', caseSensitive: false)
         .allMatches(html)
@@ -430,18 +469,26 @@ class CasClient {
         )
         .toList();
     if (imgTag.isEmpty) return null;
+
     final src = RegExp(
       r'''src=["']([^"']+)["']''',
       caseSensitive: false,
     ).firstMatch(imgTag.first)?.group(1);
-    if (src == null || src.isEmpty) return null;
 
-    final field = RegExp(
-      r'''name=["'](captcha|code|validateCode|authcode)["']''',
-      caseSensitive: false,
-    ).firstMatch(html)?.group(1);
+    final field =
+        RegExp(
+          r'''name=["'](captcha|captchaResponse|code|validateCode|authcode)["']''',
+          caseSensitive: false,
+        ).firstMatch(html)?.group(1) ??
+        RegExp(
+          r'''id=["'](captchaResponse|captcha|code)["']''',
+          caseSensitive: false,
+        ).firstMatch(html)?.group(1);
 
-    return (field: field ?? 'captcha', imageUrl: src);
+    return (
+      field: field ?? 'captchaResponse',
+      src: (src == null || src.isEmpty) ? null : src,
+    );
   }
 
   /// 从任意 CAS 入口登录（例如 webvpn 的 authserver），返回最终页面。

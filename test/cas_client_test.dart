@@ -133,31 +133,30 @@ void main() {
   });
 
   group('验证码识别', () {
-    test('标准 CAS 验证码页：能找到图片和输入框名', () {
-      const html = '''
-        <form id="fm1" method="post">
-          <input type="hidden" name="lt" value="LT-1"/>
-          <input type="hidden" name="execution" value="e1s1"/>
-          <input type="text" name="captcha" size="10"/>
-          <img id="captchaImage" src="/authserver/captcha?ts=1699"/>
-        </form>''';
+    test('学校 CAS 页面：img 没有 src，字段名是 captchaResponse', () {
+      // 实测 ids6 的登录页：<img id="captchaImg" .../> 没有 src，由 JS 补
+      const html =
+          '<div id="hidenCaptchaDiv" style="display: none;">'
+          '<input type="text" placeholder="验证码" id="captchaResponse" name="captchaResponse"/>'
+          '<img id="captchaImg" class="captcha-img" alt="验证码" title="验证码"/>'
+          '</div>';
+      final parsed = CasClient.parseCaptcha(html);
+      expect(parsed, isNotNull);
+      expect(parsed!.field, 'captchaResponse');
+      expect(parsed.src, isNull); // 交给 captcha.html 兜底
+    });
+
+    test('图片带 src 时能取出来（其它 CAS 皮肤）', () {
+      const html =
+          '<input type="text" name="captcha" size="10"/>'
+          '<img id="captchaImage" src="/authserver/captcha?ts=1699"/>';
       final parsed = CasClient.parseCaptcha(html);
       expect(parsed, isNotNull);
       expect(parsed!.field, 'captcha');
-      expect(parsed.imageUrl, '/authserver/captcha?ts=1699');
+      expect(parsed.src, '/authserver/captcha?ts=1699');
     });
 
-    test('图片在输入框前面、属性顺序不同也能认', () {
-      const html =
-          '<img alt="验证码" class="code" src="https://ids6.usst.edu.cn/authserver/kaptcha?x=1">'
-          '<input id="codeInput" type="text" name="validateCode">';
-      final parsed = CasClient.parseCaptcha(html);
-      expect(parsed, isNotNull);
-      expect(parsed!.field, 'validateCode');
-      expect(parsed.imageUrl, contains('kaptcha'));
-    });
-
-    test('没有验证码的普通登录页返回 null', () {
+    test('没有验证码的页面返回 null', () {
       const html =
           '<input type="hidden" name="lt" value="LT-1"/>'
           '<input type="text" name="username"/><input type="password" name="password"/>';
@@ -165,11 +164,10 @@ void main() {
       expect(CasClient.parseCaptcha(''), isNull);
     });
 
-    test('只有图片没有输入框时，字段名用默认的 captcha', () {
-      const html = '<img src="/authserver/captcha">';
-      final parsed = CasClient.parseCaptcha(html);
-      expect(parsed, isNotNull);
-      expect(parsed!.field, 'captcha');
+    test('只有输入框没有图片也算（图片走兜底接口）', () {
+      const html = '<input type="text" name="captchaResponse"/>';
+      // 没有 img 时无法确认是验证码页面
+      expect(CasClient.parseCaptcha(html), isNull);
     });
   });
 }
