@@ -77,14 +77,15 @@ void main() {
       sha256: 'x',
     );
 
-    test('Gitee tag 不带 v 时，额外补一个带 v 的备选', () {
+    test('Gitee 优先，然后是它的 v 前缀备选，最后才是 GitHub', () {
       final urls = UpdateService.candidateUrls(
         info('https://gitee.com/o/r/releases/download/0.4.2/app-release.apk'),
       );
       expect(urls.length, 3);
-      expect(urls[0], contains('latest/download'));
-      expect(urls[1], contains('/download/0.4.2/'));
-      expect(urls[2], contains('/download/v0.4.2/'));
+      expect(urls[0], contains('gitee.com'));
+      expect(urls[0], contains('/download/0.4.2/'));
+      expect(urls[1], contains('/download/v0.4.2/'));
+      expect(urls[2], contains('latest/download'));
     });
 
     test('Gitee tag 带 v 时，反过来补一个不带 v 的', () {
@@ -92,8 +93,9 @@ void main() {
         info('https://gitee.com/o/r/releases/download/v0.4.2/app-release.apk'),
       );
       expect(urls.length, 3);
-      expect(urls[2], contains('/download/0.4.2/'));
-      expect(urls[2], isNot(contains('v0.4.2')));
+      expect(urls[0], contains('/download/v0.4.2/'));
+      expect(urls[1], contains('/download/0.4.2/'));
+      expect(urls[1], isNot(contains('v0.4.2')));
     });
 
     test('没有 download 段的地址不会凭空造备选', () {

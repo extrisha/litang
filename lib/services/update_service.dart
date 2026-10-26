@@ -61,7 +61,7 @@ class UpdateInfo {
   }
 }
 
-/// 自动更新：GitHub 优先，Gitee 兜底。
+/// 自动更新：Gitee 优先（国内快），GitHub 兜底。
 class UpdateService {
   UpdateService._();
 
@@ -73,8 +73,8 @@ class UpdateService {
   /// 返回新版本；没有更新或检查失败返回 null。
   static Future<UpdateInfo?> check() async {
     final info =
-        await _fetchManifest(githubManifest) ??
-        await _fetchManifest(giteeManifest);
+        await _fetchManifest(giteeManifest) ??
+        await _fetchManifest(githubManifest);
     if (info == null) return null;
     final current = await _currentVersionCode();
     if (info.versionCode <= current) return null;
@@ -116,7 +116,7 @@ class UpdateService {
     }
   }
 
-  /// 下载 APK，返回本地路径。GitHub 失败会自动切 Gitee。
+  /// 下载 APK，返回本地路径。默认 Gitee 优先（国内更快），失败自动切 GitHub。
   static Future<String> download(
     UpdateInfo info, {
     void Function(double progress)? onProgress,
@@ -142,20 +142,23 @@ class UpdateService {
 
   /// 候选下载地址（按顺序试）。
   ///
+  /// 顺序是 **Gitee → Gitee 的 v 前缀备选 → GitHub**：
+  /// 国内连 Gitee 更稳，GitHub 放最后兜底（海外或直连能通的场景）。
+  ///
   /// Gitee 的地址里写死了 release tag，而 tag 有没有 `v` 前缀是靠人记的
-  /// （历史上 v0.2.x / v0.3.0 带 v，0.4.x 不带），写错就是 404。
-  /// 所以这里把两种写法都排进去，谁通用谁。
+  /// （历史上 v0.2.x / v0.3.0 带 v，0.4.x 不带），写错就是 404，
+  /// 所以两种写法都排进去，谁通用谁。
   static List<String> candidateUrls(UpdateInfo info) {
     final out = <String>[];
     void add(String url) {
       if (url.isNotEmpty && !out.contains(url)) out.add(url);
     }
 
-    add(info.githubUrl);
     add(info.giteeUrl);
     for (final url in _tagVariants(info.giteeUrl)) {
       add(url);
     }
+    add(info.githubUrl);
     return out;
   }
 
