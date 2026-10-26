@@ -196,21 +196,6 @@ String _aliasTarget(String input) {
   return r;
 }
 
-List<CampusPlace> searchCampusPlaces(String query) {
-  final q = query.trim();
-  if (q.isEmpty) return const <CampusPlace>[];
-  final target = _aliasTarget(q);
-  final seen = <String>{};
-  final out = <CampusPlace>[];
-  for (final p in kCampusPlaces) {
-    if (!p.name.contains(target) && !p.name.contains(q)) continue;
-    if (!seen.add(p.name)) continue;
-    out.add(p);
-    if (out.length >= 12) break;
-  }
-  return out;
-}
-
 CampusPlace? nearestPlace(Offset normalized, {double maxDistance = 0.06}) {
   CampusPlace? best;
   var bestD = maxDistance;

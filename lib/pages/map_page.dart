@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
 import '../data/campus_places.dart';
+import '../data/place_search.dart';
 import '../data/map_focus.dart';
 import '../data/campus_shapes.dart';
 

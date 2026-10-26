@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:project_usst/data/campus_places.dart';
+import 'package:project_usst/data/place_search.dart';
 
 void main() {
   test('官方地图地点数据', () {
