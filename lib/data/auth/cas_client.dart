@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 /// 登录失败，message 可直接展示给用户。
 class CasLoginException implements Exception {
@@ -188,6 +189,38 @@ class CasCookieJar {
   }
 }
 
+/// CAS 在多次密码错误后要求输入验证码。
+///
+/// 抛出这个异常时，[image] 是已经用当前会话 cookie 拉下来的验证码图片，
+/// UI 直接 `Image.memory` 展示即可；用户填完调 [CasClient.loginWithCaptcha] 继续。
+class CasCaptchaRequired implements Exception {
+  CasCaptchaRequired({
+    required this.form,
+    required this.field,
+    required this.postUri,
+    required this.image,
+    this.message,
+  });
+
+  /// 验证码页面上原样收集的隐藏字段（lt / execution / _eventId …）。
+  /// 直接整包回传，比只挑几个字段更抗改版。
+  final Map<String, String> form;
+
+  /// 验证码输入框的 name，通常是 captcha
+  final String field;
+  final Uri postUri;
+
+  /// 验证码图片字节
+  final Uint8List image;
+
+  /// 服务端给的提示（比如「验证码错误」）
+  final String? message;
+
+  String get displayMessage => (message == null || message!.isEmpty)
+      ? '密码错误次数过多，请输入验证码'
+      : message!;
+}
+
 /// 一次 CAS 登录的最终结果（webvpn 等入口用）。
 class CasLoginResult {
   const CasLoginResult({
@@ -289,6 +322,12 @@ class CasClient {
     );
 
     if (!await checkSession()) {
+      // 密码错误次数多了 CAS 会要求验证码：这时候不能只报错，
+      // 得把验证码图片拉下来交给 UI
+      final challenge = await _captchaFrom(result.data ?? '', entryUri);
+      if (challenge != null) {
+        throw challenge;
+      }
       final message =
           _extractError(result.data ?? '') ??
           _extractError(entryHtml) ??
@@ -296,6 +335,113 @@ class CasClient {
       throw CasLoginException(message);
     }
     studentId = username.trim();
+  }
+
+  /// 带验证码再登一次（[challenge] 来自上一次抛出的 [CasCaptchaRequired]）。
+  ///
+  /// 验证码错了的话会抛新的 [CasCaptchaRequired]（图片已经换过），
+  /// 让 UI 直接刷新图片继续填。
+  Future<void> loginWithCaptcha({
+    required String username,
+    required String password,
+    required CasCaptchaRequired challenge,
+    required String code,
+  }) async {
+    final result = await _send(
+      challenge.postUri,
+      method: 'POST',
+      form: <String, String>{
+        ...challenge.form,
+        'username': username.trim(),
+        'password': password,
+        'dllt': 'userNamePasswordLogin',
+        challenge.field: code.trim(),
+      },
+      referer: challenge.postUri.toString(),
+    );
+
+    if (!await checkSession()) {
+      final next = await _captchaFrom(result.data ?? '', challenge.postUri);
+      if (next != null) throw next;
+      throw CasLoginException(
+        _extractError(result.data ?? '') ?? '验证码错误或已过期，请重试',
+      );
+    }
+    studentId = username.trim();
+  }
+
+  /// 从页面里识别验证码并把它下载下来；页面里没有验证码就返回 null。
+  Future<CasCaptchaRequired?> _captchaFrom(String html, Uri postUri) async {
+    final parsed = parseCaptcha(html);
+    if (parsed == null) return null;
+    // 没有 token 就没法带着这次的表单再提交一次
+    if (CasTokens.parse(html) == null) return null;
+
+    final raw = parsed.imageUrl;
+    final uri = Uri.tryParse(raw);
+    final imageUri = (uri != null && uri.hasScheme) ? uri : postUri.resolve(raw);
+    try {
+      final bytes = await downloadBytes(imageUri);
+      if (bytes.isEmpty) return null;
+      return CasCaptchaRequired(
+        form: _hiddenFields(html),
+        field: parsed.field,
+        postUri: postUri,
+        image: Uint8List.fromList(bytes),
+        message: _extractError(html),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 收集页面里所有 hidden input，验证码重试时整包回传。
+  static Map<String, String> _hiddenFields(String html) {
+    final out = <String, String>{};
+    final inputTag = RegExp(r'''<input[^>]*>''', caseSensitive: false);
+    final hiddenType = RegExp(r'''type=["']hidden["']''', caseSensitive: false);
+    final nameAttr = RegExp(r'''name=["']([^"']+)["']''');
+    final valueAttr = RegExp(r'''value=["']([^"']*)["']''');
+    for (final m in inputTag.allMatches(html)) {
+      final tag = m.group(0)!;
+      if (!hiddenType.hasMatch(tag)) continue;
+      final name = nameAttr.firstMatch(tag)?.group(1);
+      if (name == null || name.isEmpty) continue;
+      out[name] = valueAttr.firstMatch(tag)?.group(1) ?? '';
+    }
+    return out;
+  }
+
+  /// 在 CAS 页面里找验证码输入框和图片地址。
+  ///
+  /// 只在登录**失败**后的响应里用 —— 登录页本身可能带一个隐藏的验证码占位，
+  /// 按它判断会在没触发风控时也要求输入验证码。
+  @visibleForTesting
+  static ({String field, String imageUrl})? parseCaptcha(String html) {
+    if (html.isEmpty) return null;
+    final imgTag = RegExp(r'<img[^>]*>', caseSensitive: false)
+        .allMatches(html)
+        .map((m) => m.group(0)!)
+        .where(
+          (tag) => RegExp(
+            r'captcha|verify|validatecode|kaptcha|imgcode',
+            caseSensitive: false,
+          ).hasMatch(tag),
+        )
+        .toList();
+    if (imgTag.isEmpty) return null;
+    final src = RegExp(
+      r'''src=["']([^"']+)["']''',
+      caseSensitive: false,
+    ).firstMatch(imgTag.first)?.group(1);
+    if (src == null || src.isEmpty) return null;
+
+    final field = RegExp(
+      r'''name=["'](captcha|code|validateCode|authcode)["']''',
+      caseSensitive: false,
+    ).firstMatch(html)?.group(1);
+
+    return (field: field ?? 'captcha', imageUrl: src);
   }
 
   /// 从任意 CAS 入口登录（例如 webvpn 的 authserver），返回最终页面。

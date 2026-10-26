@@ -57,6 +57,26 @@ class JwglAuth extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 用一个已经登录成功的 [client] 建立登录态。
+  ///
+  /// 登录页带验证码重试时用：多次提交必须复用同一个 CasClient，
+  /// 否则每次换会话，验证码永远对不上。
+  Future<void> adopt(
+    CasClient client,
+    String username,
+    String password, {
+    bool remember = true,
+  }) async {
+    final name = username.trim();
+    _applyLogin(client, name, remember ? password : null);
+    await _store.save(
+      client,
+      username: _savedUsername,
+      password: _savedPassword,
+    );
+    notifyListeners();
+  }
+
   void _applyLogin(CasClient client, String username, String? password) {
     _client = client;
     _studentId = username;
