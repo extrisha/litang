@@ -22,10 +22,13 @@ permissions:
 
 jobs:
   sync:
-    # GitHub-hosted runner 到 .usst.edu.cn 的失败率很高（实测 432/470）。
-    # 有国内自托管 runner 时，把它改成：
-    #   runs-on: [self-hosted, china]
-    runs-on: ubuntu-latest
+    # 国内自托管 runner（本机 prima-pc，label: china）。
+    # GitHub-hosted runner 到 .usst.edu.cn 实测 432/470 失败，已经被 WAF/线路挡了。
+    runs-on: [self-hosted, china]
+    # Windows runner 默认是 PowerShell；抓取/提交脚本都是 bash，统一用 Git Bash。
+    defaults:
+      run:
+        shell: bash
     # 同一时间只跑一个同步，避免两次抓取互相把对方的提交顶掉
     concurrency:
       group: sync-notices
@@ -41,7 +44,9 @@ jobs:
         run: node --test tools/notice-sync/fetch.test.mjs
 
       # 如果抓取失败率高，先看这里：IPv4 / IPv6 哪条通、DNS 解析到什么。
+      # 自托管 Windows 没有 getent，这一步只在 Linux 上跑。
       - name: Diagnose runner network
+        if: runner.os == 'Linux'
         run: |
           set +e
           for host in jwc.usst.edu.cn www.usst.edu.cn me.usst.edu.cn; do
