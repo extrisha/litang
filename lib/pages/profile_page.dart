@@ -571,14 +571,17 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     _openingXuegong = true;
     try {
-      _toast('正在登录学工…');
-      // 复用教务 CAS 会话静默登录学工，用户不需要在页面里再登一次
-      var ok = await XuegongAuth.instance.ensureLoggedIn();
-      if (!ok) {
-        // 会话可能刚好过期，后台强制重登后再试
-        await auth.reauthenticate();
-        ok = await XuegongAuth.instance.ensureLoggedIn();
+      // 先读一次缓存：10 分钟内的会话直接开，不弹“正在登录”也不走网络。
+      await XuegongAuth.instance.loadCookies();
+      if (!mounted) {
+        return;
       }
+      if (!XuegongAuth.instance.hasFreshSession) {
+        _toast('正在登录学工…');
+      }
+      // 复用教务 CAS 会话静默登录学工，用户不需要在页面里再登一次。
+      // 重登/WebVPN 兜底都在 XuegongAuth 内部做，这里不再重复一遍。
+      final ok = await XuegongAuth.instance.ensureLoggedIn();
       final cookies = ok
           ? await XuegongAuth.instance.loadCookies()
           : <CasCookie>[];
