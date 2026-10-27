@@ -611,7 +611,9 @@ class _ProfilePageState extends State<ProfilePage> {
         MaterialPageRoute<void>(
           builder: (_) => SimpleWebPage(
             title: '学工一体化',
-            url: XuegongAuth.homeUrl,
+            // 校外兜底走 WebVPN 时，cookie 属于 webvpn 域名；
+            // 必须打开对应地址，否则注入了 cookie 也会被当成未登录。
+            url: XuegongAuth.instance.homeUrlForSession,
             cookies: cookies,
           ),
         ),

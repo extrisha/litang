@@ -8,7 +8,10 @@ on:
     - cron: '0 22 * * *'
   workflow_dispatch:
   # 改了抓取配置/脚本就立刻跑一次，不用等定时任务
+  # 只允许 main：临时分支改抓取脚本不应该触发一条会往 main 提交的 workflow
   push:
+    branches:
+      - main
     paths:
       - 'tools/notice-sync/*.mjs'
       - 'tools/notice-sync/*.json'
@@ -19,6 +22,9 @@ permissions:
 
 jobs:
   sync:
+    # GitHub-hosted runner 到 .usst.edu.cn 的失败率很高（实测 432/470）。
+    # 有国内自托管 runner 时，把它改成：
+    #   runs-on: [self-hosted, china]
     runs-on: ubuntu-latest
     # 同一时间只跑一个同步，避免两次抓取互相把对方的提交顶掉
     concurrency:
@@ -34,7 +40,23 @@ jobs:
       - name: Run parser unit tests
         run: node --test tools/notice-sync/fetch.test.mjs
 
+      # 如果抓取失败率高，先看这里：IPv4 / IPv6 哪条通、DNS 解析到什么。
+      - name: Diagnose runner network
+        run: |
+          set +e
+          for host in jwc.usst.edu.cn www.usst.edu.cn me.usst.edu.cn; do
+            echo "::group::$host"
+            getent ahosts "$host" | head -4
+            curl -4 -sS -o /dev/null -w "IPv4 HTTP %{http_code} in %{time_total}s\n" --max-time 15 "https://$host/" || true
+            curl -6 -sS -o /dev/null -w "IPv6 HTTP %{http_code} in %{time_total}s\n" --max-time 15 "https://$host/" || true
+            echo "::endgroup::"
+          done
+
       - name: Fetch notices
+        env:
+          # 有些校园站点 IPv6 不通；让 Node 优先走 IPv4，避免 25s 超时。
+          NODE_OPTIONS: --dns-result-order=ipv4first
+          MAX_FAILURE_RATIO: '0.2'
         run: node tools/notice-sync/fetch.mjs
 
       - name: Commit if changed (GitHub)

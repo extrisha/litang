@@ -419,7 +419,11 @@ class _LifePageState extends State<LifePage> {
     }
   }
 
-  VoidCallback _signAction(Rollcall rollcall) {
+  VoidCallback? _signAction(Rollcall rollcall) {
+    // 已经签过 / 已结束的签到不再给按钮，避免点了没反应或者重复提交
+    if (!rollcall.isSignable) {
+      return null;
+    }
     if (rollcall.isNumberRollcall) {
       return () => _signByNumber(rollcall);
     }
@@ -429,10 +433,17 @@ class _LifePageState extends State<LifePage> {
     if (rollcall.isQrRollcall) {
       return () => _signByQr(rollcall);
     }
-    return _openLms;
+    // 类型识别不出来时不再直接跳网页，给用户自己选一次
+    return () => _chooseSignMethod(rollcall);
   }
 
   String _signLabel(Rollcall rollcall) {
+    if (rollcall.isSigned) {
+      return '已签到';
+    }
+    if (rollcall.isExpired) {
+      return '已结束';
+    }
     if (rollcall.isNumberRollcall) {
       return '输入口令';
     }
@@ -443,6 +454,49 @@ class _LifePageState extends State<LifePage> {
       return '扫码签到';
     }
     return '去签到';
+  }
+
+  /// 服务端没给出签到类型时的兜底：让用户选口令还是扫码。
+  Future<void> _chooseSignMethod(Rollcall rollcall) async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.pin_outlined),
+              title: const Text('输入数字口令'),
+              subtitle: const Text('老师在课堂上念的 4~6 位数字'),
+              onTap: () => Navigator.pop(sheetContext, 'number'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.qr_code_scanner),
+              title: const Text('扫二维码'),
+              subtitle: const Text('对准老师屏幕上的签到二维码'),
+              onTap: () => Navigator.pop(sheetContext, 'qr'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.open_in_new),
+              title: const Text('打开一网畅学网页'),
+              subtitle: const Text('自主签到等暂不支持的类型'),
+              onTap: () => Navigator.pop(sheetContext, 'web'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || picked == null) {
+      return;
+    }
+    if (picked == 'number') {
+      await _signByNumber(rollcall);
+    } else if (picked == 'qr') {
+      await _signByQr(rollcall);
+    } else if (picked == 'web') {
+      await _openLms();
+    }
   }
 
   /// 数字口令签到：输入老师给的口令后直接提交。
@@ -540,7 +594,9 @@ class _LifePageState extends State<LifePage> {
     }
   }
 
-  /// 雷达签到：上报当前位置。
+  /// 雷达签到：用系统定位上报当前位置。
+  ///
+  /// 只上报真实坐标，不提供选教学楼/手填坐标的入口。
   Future<void> _signByRadar(Rollcall rollcall) async {
     final client = JwglAuth.instance.client;
     if (client == null) {
@@ -555,25 +611,41 @@ class _LifePageState extends State<LifePage> {
         _toast('雷达签到需要定位权限，请在系统设置里允许定位');
         return;
       }
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 12),
-        ),
-      );
-      final result = await RollcallApi(client).reportRadarPosition(
-        rollcall,
-        position.latitude,
-        position.longitude,
-        accuracy: position.accuracy,
-      );
+      late final Position position;
+      try {
+        position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 12),
+          ),
+        );
+      } catch (_) {
+        if (mounted) {
+          _toast('定位失败，请到空旷处重试');
+        }
+        return;
+      }
+      final SignResult result;
+      try {
+        result = await RollcallApi(client).reportRadarPosition(
+          rollcall,
+          position.latitude,
+          position.longitude,
+          accuracy: position.accuracy,
+          altitude: position.altitude,
+          altitudeAccuracy: position.altitudeAccuracy,
+          heading: position.heading,
+          speed: position.speed,
+        );
+      } catch (_) {
+        if (mounted) {
+          _toast('签到请求失败，请稍后重试');
+        }
+        return;
+      }
       success = result.success;
       if (mounted) {
         _toast(result.success ? '雷达签到已上报' : (result.message ?? '雷达签到失败'));
-      }
-    } catch (_) {
-      if (mounted) {
-        _toast('定位失败，请到空旷处重试');
       }
     } finally {
       if (mounted) {

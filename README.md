@@ -61,14 +61,17 @@ flutter build apk --release
 # 2) 写 update.json（会自动算 sha256、拼下载地址）
 node tools/release/set-update.mjs \
   --apk build/app/outputs/flutter-apk/app-release.apk \
-  --version 0.4.2 --code 16 \
+  --version 0.4.4 --code 20 \
   [--mandatory] --notes "这次改了什么"
 
 # 3) 提交 + 推送，然后在 GitHub / Gitee 建 Release
 #    上传 APK 并重命名为 app-release.apk
+
+# 4) 本地备份：Project_USST_backups/v<版本>-full/app-release.apk
+#    文件夹名沿用 v0.4.2-full 这种格式，APK 统一叫 app-release.apk
 ```
 
-**tag 规则**：Gitee 的 tag 必须和 `--version` 完全一致（写成 `0.4.2`，不要 `v0.4.2`），
+**tag 规则**：Gitee 的 tag 必须和 `--version` 完全一致（写成 `0.4.4`，不要 `v0.4.4`），
 清单里的 Gitee 地址是按这个拼的；GitHub 侧用的是 `releases/latest/download`，不挑 tag。
 
 **强制更新**：加 `--mandatory` 会把 `minVersionCode` 设成这一版的版本号，

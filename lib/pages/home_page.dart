@@ -5,6 +5,7 @@ import '../data/models.dart';
 import '../data/notice_prefs.dart';
 import '../data/notice_rank.dart';
 import '../data/notice_source.dart';
+import 'search_page.dart';
 import 'simple_web.dart';
 
 /// 首页：AI 搜索框（搜索中心）+ 通知聚合流。数据来自可注入的 [NoticeSource]。
@@ -204,18 +205,22 @@ class _HomePageState extends State<HomePage> {
           ),
           child: const Row(
             children: [
-              Icon(Icons.auto_awesome, color: AppColors.usstRed, size: 20),
+              Icon(Icons.search, color: AppColors.usstRed, size: 20),
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  '问点什么，比如“寒假哪天才开始”',
+                  '搜通知、公告，比如“寒假安排”',
                   style: TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 14,
                   ),
                 ),
               ),
-              Icon(Icons.search, color: AppColors.textSecondary, size: 20),
+              Icon(
+                Icons.chevron_right,
+                color: AppColors.textSecondary,
+                size: 20,
+              ),
             ],
           ),
         ),
@@ -226,9 +231,7 @@ class _HomePageState extends State<HomePage> {
   Widget _offlineBanner() {
     final feed = _feed!;
     final at = feed.fetchedAt;
-    final when = at == null
-        ? ''
-        : '（数据 ${at.month}-${at.day}）';
+    final when = at == null ? '' : '（数据 ${at.month}-${at.day}）';
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
@@ -301,9 +304,15 @@ class _HomePageState extends State<HomePage> {
   }
 
   /// 「学院」按钮：点开就是筛选框，选中的学院直接当筛选条件。
+  ///
+  /// 没选学院时和旁边分类按钮一样大；选了之后才按学院名展开，
+  /// 最长仍限制在 168，避免把筛选条撑爆。
   Widget _collegeChip(BuildContext context) {
-    final label = _selectedCollege ?? '学院';
     final active = _selectedCollege != null;
+    if (!active) {
+      return _chip(label: '学院', selected: false, onTap: _pickCollege);
+    }
+    final label = _selectedCollege!;
     return GestureDetector(
       onTap: _pickCollege,
       child: Container(
@@ -311,38 +320,25 @@ class _HomePageState extends State<HomePage> {
         constraints: const BoxConstraints(maxWidth: 168),
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: active ? AppColors.usstRed : Colors.white,
+          color: AppColors.usstRed,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: active ? AppColors.usstRed : const Color(0xFFE5E5E5),
-          ),
+          border: Border.all(color: AppColors.usstRed),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.school_outlined,
-              size: 13,
-              color: active ? Colors.white : AppColors.textSecondary,
-            ),
+            const Icon(Icons.school_outlined, size: 13, color: Colors.white),
             const SizedBox(width: 4),
             Flexible(
               child: Text(
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  color: active ? Colors.white : AppColors.textSecondary,
-                ),
+                style: const TextStyle(fontSize: 12.5, color: Colors.white),
               ),
             ),
             const SizedBox(width: 2),
-            Icon(
-              Icons.expand_more,
-              size: 13,
-              color: active ? Colors.white : AppColors.textSecondary,
-            ),
+            const Icon(Icons.expand_more, size: 13, color: Colors.white),
           ],
         ),
       ),
@@ -449,30 +445,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openSearchCenter(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (_) => const Padding(
-        padding: EdgeInsets.fromLTRB(20, 0, 20, 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '搜索中心',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'AI 智能问答 · 功能直达 · 历史通知检索',
-              style: TextStyle(color: AppColors.textSecondary),
-            ),
-            SizedBox(height: 16),
-            Text(
-              '（占位）接入 RAG 校园知识库后，可语义检索历史通知 / 校历 / 规章制度 / 培养计划，\n并支持自然语言直接问答。',
-              style: TextStyle(color: AppColors.textSecondary, height: 1.5),
-            ),
-          ],
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SearchPage(
+          source: widget.source,
+          initialNotices: _feed?.notices,
+          initialFetchedAt: _feed?.fetchedAt,
+          detectedCollege: _detectedCollege,
         ),
       ),
     );

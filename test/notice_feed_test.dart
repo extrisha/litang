@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:project_usst/data/cache_store.dart';
 import 'package:project_usst/data/models.dart';
 import 'package:project_usst/data/notice_prefs.dart';
 import 'package:project_usst/data/notice_rank.dart';
@@ -113,7 +114,13 @@ void main() {
   group('NoticeRanker', () {
     final now = DateTime(2026, 10, 25);
 
-    Notice n(String title, String kind, int daysAgo, {String dept = '教务处', String scope = 'school'}) {
+    Notice n(
+      String title,
+      String kind,
+      int daysAgo, {
+      String dept = '教务处',
+      String scope = 'school',
+    }) {
       return Notice(
         dept: dept,
         title: title,
@@ -124,20 +131,13 @@ void main() {
     }
 
     test('同一天里竞赛 > 通知 > 新闻', () {
-      final list = [
-        n('新闻一条', '新闻', 0),
-        n('通知一条', '通知', 0),
-        n('竞赛一条', '竞赛', 0),
-      ];
+      final list = [n('新闻一条', '新闻', 0), n('通知一条', '通知', 0), n('竞赛一条', '竞赛', 0)];
       final ranked = NoticeRanker.rank(list, now: now);
       expect(ranked.map((e) => e.kind).toList(), ['竞赛', '通知']);
     });
 
     test('新鲜的通知压过一周前的竞赛', () {
-      final list = [
-        n('七天前的竞赛', '竞赛', 7),
-        n('今天的通知', '通知', 0),
-      ];
+      final list = [n('七天前的竞赛', '竞赛', 7), n('今天的通知', '通知', 0)];
       final ranked = NoticeRanker.rank(list, now: now);
       expect(ranked.first.title, '今天的通知');
     });
@@ -164,24 +164,13 @@ void main() {
         n('本院通知', '通知', 0, dept: '管理学院'),
         n('外院通知', '通知', 0, dept: '外语学院'),
       ];
-      final ranked = NoticeRanker.rank(
-        list,
-        filterCollege: '管理学院',
-        now: now,
-      );
+      final ranked = NoticeRanker.rank(list, filterCollege: '管理学院', now: now);
       expect(ranked.map((e) => e.dept).toSet(), {'管理学院'});
     });
 
     test('按分类筛选', () {
-      final list = [
-        n('竞赛', '竞赛', 0),
-        n('讲座', '讲座', 0),
-        n('通知', '通知', 0),
-      ];
-      expect(
-        NoticeRanker.rank(list, kind: '讲座', now: now).single.kind,
-        '讲座',
-      );
+      final list = [n('竞赛', '竞赛', 0), n('讲座', '讲座', 0), n('通知', '通知', 0)];
+      expect(NoticeRanker.rank(list, kind: '讲座', now: now).single.kind, '讲座');
       // 「新闻」筛选项把党群也算进来
       expect(
         NoticeRanker.rank(
@@ -244,13 +233,7 @@ void main() {
   });
 
   group('本院识别', () {
-    const depts = <String>[
-      '基础学部',
-      '出版学院',
-      '健康科学与工程学院',
-      '光电信息与计算机工程学院',
-      '外语学院',
-    ];
+    const depts = <String>['基础学部', '出版学院', '健康科学与工程学院', '光电信息与计算机工程学院', '外语学院'];
 
     test('教务写的就是站点名时直接对上', () {
       expect(NoticePrefs.matchCollege('健康科学与工程学院', depts), '健康科学与工程学院');
@@ -265,10 +248,7 @@ void main() {
       expect(NoticePrefs.matchCollege('机械工程学院', depts), isNull);
       expect(NoticePrefs.matchCollege('', depts), isNull);
       // 「学院」两个字开头太泛，多个候选并列时应放弃
-      expect(
-        NoticePrefs.matchCollege('学院路校区', const ['学院甲', '学院乙']),
-        isNull,
-      );
+      expect(NoticePrefs.matchCollege('学院路校区', const ['学院甲', '学院乙']), isNull);
     });
   });
 
@@ -277,7 +257,11 @@ void main() {
     // 解析器 + 排序在 7000+ 条真实数据上不炸，而且结果看得懂。
     final file = File('tools/notice-sync/out/notices.json');
     if (!file.existsSync()) {
-      test('跳过：本地没有 notices.json', () {}, skip: '先跑 node tools/notice-sync/fetch.mjs');
+      test(
+        '跳过：本地没有 notices.json',
+        () {},
+        skip: '先跑 node tools/notice-sync/fetch.mjs',
+      );
       return;
     }
 
@@ -288,7 +272,10 @@ void main() {
       final ranked = NoticeRanker.rank(feed.notices);
       expect(ranked.length, greaterThan(100));
       // 默认列表里不该出现新闻/党群
-      expect(ranked.any((n) => NoticeRanker.offFeedKinds.contains(n.kind)), isFalse);
+      expect(
+        ranked.any((n) => NoticeRanker.offFeedKinds.contains(n.kind)),
+        isFalse,
+      );
       // 排在最前面的必须是最近一周内的
       final recent = DateTime.now().subtract(const Duration(days: 8));
       expect(ranked.first.publishedAt!.isAfter(recent), isTrue);
@@ -297,4 +284,50 @@ void main() {
       expect(ranked.firstWhere((n) => n.title.contains('统计建模')).kind, '竞赛');
     });
   });
+
+  group('离线刷新', () {
+    test('force 刷新失败时保留缓存，不退化成演示数据', () async {
+      final dir = await Directory.systemTemp.createTemp('litang_notice_');
+      final oldDirOverride = CacheStore.directoryOverride;
+      final oldHttpOverrides = HttpOverrides.current;
+      CacheStore.directoryOverride = () async => dir;
+      CacheStore.clearMemory();
+      addTearDown(() async {
+        HttpOverrides.global = oldHttpOverrides;
+        CacheStore.directoryOverride = oldDirOverride;
+        CacheStore.clearMemory();
+        if (await dir.exists()) {
+          await dir.delete(recursive: true);
+        }
+      });
+
+      await CacheStore.write('notices_feed_v2', <String, dynamic>{
+        'fetchedAt': '2026-10-25T23:44:38.470Z',
+        'notices': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'dept': '教务处',
+            'kind': '通知',
+            'scope': 'school',
+            'title': '缓存里的通知',
+            'url': 'https://jwc.usst.edu.cn/cached.htm',
+            'date': '2026-10-25',
+          },
+        ],
+      });
+
+      // 模拟完全离线：任何 HTTP 请求都直接失败。
+      HttpOverrides.global = _OfflineHttpOverrides();
+      final feed = await RemoteNoticeSource().fetch(force: true);
+
+      expect(feed.origin, NoticeOrigin.cache);
+      expect(feed.notices.single.title, '缓存里的通知');
+    });
+  });
+}
+
+class _OfflineHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    throw const SocketException('offline');
+  }
 }

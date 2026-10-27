@@ -94,6 +94,47 @@ node --test tools/notice-sync/fetch.test.mjs            # 单测
 跑完自动提交 `out/notices.json`；配了 `GITEE_TOKEN` secret 时还会镜像到
 `gitee:extrisha/lit-Calendar`（国内加速用）。
 
+### CI 网络：IPv6 坑（重要）
+
+`fetch.mjs` 需要访问全校 63 个 `.usst.edu.cn` 站点。GitHub-hosted `ubuntu-latest`
+**没有可用的 IPv6 路由**，而学校域名同时返回 A 和 AAAA；Node 的 `fetch` 有时先试
+AAAA，直接 `ENETUNREACH`，在 Actions 里表现为大量 `fetch failed`（实测 432/470，
+本地同一份代码只失败 8 个）。
+
+我们在 workflow 里跑过诊断：
+
+- `curl -4` / `https.get({family:4})` 对 `jwc / www / me` 都是 200；
+- `curl -6` / `family:6` 全是 `ENETUNREACH`；
+- 在第一次 fetch 前调用 `dns.setDefaultResultOrder('ipv4first')` 后，
+  `fetch` 对 4 个测试站点全部 200。
+
+但要注意：**只修 IPv4，全量 470 个源实测仍然 432 个 `fetch failed`**。
+又把并发降到 1、每请求加 1.5 秒延迟跑 40 个源，仍然 **37/40 失败**。
+说明 GitHub runner 的 IP 还被学校 WAF/线路挡着；IPv4 只能解决单个请求的
+`ENETUNREACH`，降速也不能绕过。所以 `fetch.mjs` 会在最前面强制 IPv4，
+**不要只依赖 `NODE_OPTIONS`**；workflow 里还保留了：
+
+- `Diagnose runner network` 步骤：打印 DNS / IPv4 / IPv6 结果；
+- 失败率超过 `MAX_FAILURE_RATIO`（默认 20%）时退出码 1、不写产物；
+- `GITHUB_STEP_SUMMARY` 失败统计。
+
+如果强制 IPv4 后仍然大面积失败，再考虑国内出口（见下）。
+
+### 兜底：免费的国内自托管 runner
+
+GitHub 仓库设置 → Actions → Runners → New self-hosted runner，
+在一台**国内常开的电脑 / 旧笔记本**上按提示装 runner，加一个 `china` 标签，
+然后把 workflow 的 `runs-on` 改成：
+
+```yaml
+runs-on: [self-hosted, china]
+```
+
+其他步骤（checkout / setup-node / fetch / commit / Gitee 镜像）都不用改，
+GitHub 继续负责定时、日志、secrets 和仓库托管，不需要 Gitee Go。
+代价是机器要在定时点在线；电脑会关机的话，把 cron 调到常用的时间段，
+或者醒来后手动 `workflow_dispatch` 一次。
+
 ## 数据结构
 
 ```json

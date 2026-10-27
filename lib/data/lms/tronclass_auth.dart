@@ -68,7 +68,7 @@ class TronclassAuth {
   Future<bool> _probe(CasClient client) async {
     try {
       final resp = await client.getApi(
-        Uri.parse('https://$host/api/radar/rollcalls'),
+        Uri.parse('https://$host/api/radar/rollcalls?api_version=1.1.0'),
       );
       if ((resp.statusCode ?? 0) != 200) return false;
       // 会话失效时这里会跳到登录页（HTML），用 JSON 前缀再兜一层

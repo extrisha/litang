@@ -114,6 +114,7 @@ class XuegongAuth {
 
   Future<void> clear() async {
     _cookies = <CasCookie>[];
+    _viaWebVpn = false;
     try {
       await _storage.delete(key: _key);
     } catch (_) {

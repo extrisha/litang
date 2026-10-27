@@ -102,8 +102,11 @@ class RemoteNoticeSource implements NoticeSource {
 
   @override
   Future<NoticeFeed> fetch({bool force = false}) async {
-    final cached = force ? null : await _readCache();
-    if (cached != null && cached.age < cacheTtl) {
+    // force 只表示「跳过新鲜度检查，优先去拉新数据」，
+    // 不能把缓存丢掉：离线时如果连缓存都没了，首页会退化成演示数据，
+    // 再叠上学院/分类筛选就看起来像“没有任何通知”。
+    final cached = await _readCache();
+    if (!force && cached != null && cached.age < cacheTtl) {
       return cached.feed;
     }
 
@@ -206,7 +209,8 @@ class RemoteNoticeSource implements NoticeSource {
           Notice(
             dept: dept,
             title: title,
-            kind: (item['kind'] as String?) ??
+            kind:
+                (item['kind'] as String?) ??
                 (item['category'] as String?) ??
                 '通知',
             scope: (item['scope'] as String?) ?? 'school',
@@ -322,7 +326,10 @@ class JwcNoticeSource implements NoticeSource {
       }
     }
     if (result.isEmpty) return _fallback.fetch();
-    return NoticeFeed(notices: result.take(30).toList(), origin: NoticeOrigin.live);
+    return NoticeFeed(
+      notices: result.take(30).toList(),
+      origin: NoticeOrigin.live,
+    );
   }
 
   /// 解析 wisedu(webplus) 列表页：

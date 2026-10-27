@@ -1,9 +1,9 @@
 {
-  "version": "0.4.2",
-  "versionCode": 16,
+  "version": "0.4.4",
+  "versionCode": 20,
   "minVersionCode": 0,
-  "notes": "学习通改为内嵌网页登录（不再保存密码）；首页通知覆盖全校 63 个站点 7456 条；更新下载地址支持 tag 前缀容错",
+  "notes": "首页搜索（7456 条通知本地索引）；一网畅学签到修复；学工静默登录修复；离线刷新保留缓存；通知抓取 IPv4/失败门槛",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.4.2/app-release.apk",
-  "sha256": "8f4b69b88c2618e46c211f252305297ac525f7597bcd519b1a67425be05c3431"
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.4.4/app-release.apk",
+  "sha256": "bcc7139d49593ffdad90c8db684910cb91402106a88a9c046e14406a65790916"
 }

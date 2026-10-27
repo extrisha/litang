@@ -6,9 +6,15 @@
 //   node fetch.mjs --dry           # 只打印结果，不写文件
 //   node fetch.mjs --limit 3       # 每个源只取前 3 条（调试用）
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, appendFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import dns from 'node:dns';
+
+// GitHub-hosted runner 没有可用的 IPv6 路由，但 usst.edu.cn 同时返回 A 和 AAAA。
+// undici 有时先试 AAAA，直接 ENETUNREACH，表现为大量 “fetch failed”。
+// 在第一次 fetch 之前强制 IPv4，避免把网络问题误判成站点改版。
+dns.setDefaultResultOrder('ipv4first');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(__dirname, 'out');
@@ -480,6 +486,33 @@ async function main() {
     if (failures.length > 40) console.log(`  …另有 ${failures.length - 40} 个`);
   }
 
+  const failureRatio = sites.length === 0 ? 0 : failed / sites.length;
+  const maxFailureRatio = Number(process.env.MAX_FAILURE_RATIO ?? 0.2);
+  console.log(
+    `\n失败率：${(failureRatio * 100).toFixed(1)}%（${failed}/${sites.length}）`,
+  );
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const summary = [
+      '## 通知抓取',
+      `- 源：${sites.length}，失败：${failed}（${(failureRatio * 100).toFixed(1)}%）`,
+      `- 新抓：${fresh.length} 条`,
+      '',
+      ...failures.slice(0, 15).map((f) => `- ${f}`),
+      failures.length > 15 ? `- …另有 ${failures.length - 15} 个` : '',
+    ];
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, `${summary.join('\n')}\n`);
+  }
+  // 失败太多通常不是“站点改版”，而是 runner 到学校站点的网络不通。
+  // 这种情况下不要写一份缺数据的 notices.json，也不要把 CI 装成绿色。
+  if (failureRatio > maxFailureRatio) {
+    console.error(
+      `\n失败源过多（${failed}/${sites.length}，上限 ${(maxFailureRatio * 100).toFixed(0)}%）。` +
+        ' 本次不写入产物，保留上一版；请检查 runner 网络 / 改用国内出口。',
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   // 读历史
   let previous = [];
   try {
@@ -534,11 +567,6 @@ async function main() {
   // 不缩进：这份文件是给 App 读的，缩进白占 30% 体积
   await writeFile(OUT_FILE, JSON.stringify(payload), 'utf8');
   console.log(`\n已写入 ${OUT_FILE}`);
-
-  // 有源失败时用退出码提醒 CI，但不影响已生成的结果
-  if (failed > 0) {
-    process.exitCode = 0; // 部分失败可以接受，不让整个 CI 变红
-  }
 }
 
 /** 按站点分组：同一站点串行抓，站点之间并发 */

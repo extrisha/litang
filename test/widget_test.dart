@@ -10,6 +10,7 @@ import 'package:project_usst/data/notice_source.dart';
 import 'package:project_usst/pages/home_page.dart';
 import 'package:project_usst/pages/map_page.dart';
 import 'package:project_usst/pages/profile_page.dart';
+import 'package:project_usst/pages/search_page.dart';
 import 'package:project_usst/widgets/course_table.dart';
 
 Widget _wrap(Widget child) => MaterialApp(theme: AppTheme.light(), home: child);
@@ -23,19 +24,40 @@ void main() {
     await tester.pumpWidget(_wrap(const HomePage(source: DemoNoticeSource())));
     await tester.pumpAndSettle();
 
-    expect(find.text('问点什么，比如“寒假哪天才开始”'), findsOneWidget);
+    expect(find.text('搜通知、公告，比如“寒假安排”'), findsOneWidget);
     expect(find.text('关于调整校园上下课铃声的通知'), findsOneWidget);
     expect(find.byType(ListView), findsWidgets);
   });
 
-  testWidgets('点击搜索框弹出搜索中心', (tester) async {
+  testWidgets('点击搜索框进入搜索页', (tester) async {
     await tester.pumpWidget(_wrap(const HomePage(source: DemoNoticeSource())));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('问点什么，比如“寒假哪天才开始”'));
+    await tester.tap(find.text('搜通知、公告，比如“寒假安排”'));
     await tester.pumpAndSettle();
 
-    expect(find.text('搜索中心'), findsOneWidget);
+    expect(find.text('热门搜索'), findsOneWidget);
+    expect(find.textContaining('共 '), findsWidgets);
+  });
+
+  testWidgets('搜索空结果提示换个关键词', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        SearchPage(
+          source: const DemoNoticeSource(),
+          initialNotices: const <Notice>[
+            Notice(dept: '教务处', kind: '通知', title: '关于2026年寒假安排的通知'),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '空教室');
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pumpAndSettle();
+
+    expect(find.text('换个关键词试试'), findsOneWidget);
   });
 
   testWidgets('地图页可搜索楼栋并展示信息', (tester) async {
@@ -164,7 +186,13 @@ void main() {
 
   group('首页筛选', () {
     Notice notice(String dept, String kind, String title, DateTime at) =>
-        Notice(dept: dept, kind: kind, scope: 'college', title: title, publishedAt: at);
+        Notice(
+          dept: dept,
+          kind: kind,
+          scope: 'college',
+          title: title,
+          publishedAt: at,
+        );
 
     NoticeSource source() => _FixedSource(<Notice>[
       notice('A学院', '竞赛', 'A学院的竞赛通知', DateTime.now()),
