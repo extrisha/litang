@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
@@ -9,6 +11,7 @@ import '../data/auth/cas_client.dart';
 import '../data/calendar/calendar_service.dart';
 import '../data/auth/jwgl_auth.dart';
 import '../data/auth/xuegong_auth.dart';
+import '../data/chaoxing/chaoxing_auth.dart';
 import '../data/jwc/course_api.dart';
 import '../data/jwc/course_repository.dart';
 import '../data/jwc/academic_repository.dart';
@@ -39,6 +42,7 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   CourseSnapshot? _snapshot;
   UserProfile? _profile;
+  String? _profileUserId;
   bool _loading = false;
   bool _openingXuegong = false;
   int _week = 1;
@@ -47,7 +51,45 @@ class _ProfilePageState extends State<ProfilePage> {
   void initState() {
     super.initState();
     AttachmentCache.refreshSize();
+    _profileUserId = JwglAuth.instance.studentId;
+    JwglAuth.instance.addListener(_onAuthChanged);
     _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    JwglAuth.instance.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
+  /// 教务账号切换后，重新读当前账号的本地资料；没有自定义昵称就显示真实姓名。
+  void _onAuthChanged() {
+    final id = JwglAuth.instance.studentId;
+    if (id == _profileUserId) {
+      return;
+    }
+    _profileUserId = id;
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _profile = null;
+      _snapshot = null;
+    });
+    if (id == null || id.isEmpty) {
+      return;
+    }
+    unawaited(_loadProfile());
+    unawaited(_refresh(silent: true));
+  }
+
+  Future<void> _loadProfile() async {
+    final id = JwglAuth.instance.studentId ?? '';
+    final profile = await ProfileStore.load(username: id);
+    if (!mounted || JwglAuth.instance.studentId != id) {
+      return;
+    }
+    setState(() => _profile = profile);
   }
 
   Future<void> _bootstrap() async {
@@ -55,15 +97,10 @@ class _ProfilePageState extends State<ProfilePage> {
     if (!mounted) {
       return;
     }
-    final profile = await ProfileStore.load();
-    if (!mounted) {
-      return;
-    }
     setState(() {
       _snapshot = cached;
       _week =
           CalendarService.instance.currentWeek ?? cached?.currentWeek ?? _week;
-      _profile = profile;
     });
 
     final auth = JwglAuth.instance;
@@ -73,6 +110,11 @@ class _ProfilePageState extends State<ProfilePage> {
         return;
       }
       setState(() {});
+    }
+    _profileUserId = auth.studentId;
+    await _loadProfile();
+    if (!mounted) {
+      return;
     }
     // 旧缓存没有学院信息时，后台补拉一次（静默，不打断用户）
     if (auth.isLoggedIn &&
@@ -194,8 +236,14 @@ class _ProfilePageState extends State<ProfilePage> {
       await AcademicRepository.clear();
       await RankRepository.clear();
       await XuegongAuth.instance.clear();
+      // 学习通是独立账号，退出教务时必须一起清，否则下一个人会看到上一个人的课程。
+      await ChaoxingAuth.instance.logout();
       if (mounted) {
-        setState(() => _snapshot = null);
+        setState(() {
+          _snapshot = null;
+          _profile = null;
+          _profileUserId = null;
+        });
       }
       return;
     }
@@ -211,6 +259,11 @@ class _ProfilePageState extends State<ProfilePage> {
       await GradeRepository.clear();
       await AcademicRepository.clear();
       _snapshot = null;
+      _profileUserId = auth.studentId;
+      await _loadProfile();
+      if (mounted) {
+        setState(() {});
+      }
       _toast('已登录教务系统');
       await _refresh(silent: true);
     }
@@ -349,7 +402,7 @@ class _ProfilePageState extends State<ProfilePage> {
           .showSnackBar(const SnackBar(content: Text('当前已是最新版本')));
       return;
     }
-    await showUpdateDialog(context, info);
+    await showUpdateDialog(context, info, mandatory: info.mandatory);
   }
 
   Widget _userCard() {
@@ -550,7 +603,10 @@ class _ProfilePageState extends State<ProfilePage> {
       nickname: input.isEmpty ? (_snapshot?.studentName ?? '同学') : input,
       avatar: avatar,
     );
-    await ProfileStore.save(profile);
+    await ProfileStore.save(
+      profile,
+      username: JwglAuth.instance.studentId ?? '',
+    );
     if (mounted) {
       setState(() => _profile = profile);
     }

@@ -44,6 +44,35 @@ class Rollcall {
   /// absent / on_call / on_call_fine / ...
   final String status;
 
+  /// 本地缓存用（与上游字段名解耦）。
+  Map<String, dynamic> toCacheJson() => <String, dynamic>{
+    'id': id,
+    'courseName': courseName,
+    'type': type,
+    'timeText': timeText,
+    'isNumber': isNumber,
+    'isRadar': isRadar,
+    'isExpired': isExpired,
+    'status': status,
+  };
+
+  static Rollcall? fromCacheJson(Map<String, dynamic> json) {
+    final id = (json['id'] ?? '').toString();
+    if (id.isEmpty) {
+      return null;
+    }
+    return Rollcall(
+      id: id,
+      courseName: (json['courseName'] ?? '').toString(),
+      type: (json['type'] ?? '').toString(),
+      timeText: (json['timeText'] ?? '').toString(),
+      isNumber: json['isNumber'] == true,
+      isRadar: json['isRadar'] == true,
+      isExpired: json['isExpired'] == true,
+      status: (json['status'] ?? '').toString(),
+    );
+  }
+
   String get _lowerType => type.toLowerCase();
 
   bool get isNumberRollcall => isNumber || _lowerType.contains('number');

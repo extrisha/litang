@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:dio/dio.dart';
 
@@ -19,6 +20,27 @@ class ChaoxingCourse {
   final String cpi;
   final String name;
   final String teacher;
+
+  Map<String, dynamic> toCacheJson() => <String, dynamic>{
+    'courseId': courseId,
+    'classId': classId,
+    'cpi': cpi,
+    'name': name,
+    'teacher': teacher,
+  };
+
+  static ChaoxingCourse? fromCacheJson(Map<String, dynamic> json) {
+    final id = (json['courseId'] ?? '').toString();
+    final classId = (json['classId'] ?? '').toString();
+    if (id.isEmpty || classId.isEmpty) return null;
+    return ChaoxingCourse(
+      courseId: id,
+      classId: classId,
+      cpi: (json['cpi'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
+      teacher: (json['teacher'] ?? '').toString(),
+    );
+  }
 }
 
 /// 学习通活动（签到等）。
@@ -42,6 +64,32 @@ class ChaoxingActivity {
   final String courseName;
   final String courseId;
   final String classId;
+
+  Map<String, dynamic> toCacheJson() => <String, dynamic>{
+    'id': id,
+    'name': name,
+    'activeType': activeType,
+    'status': status,
+    'signCode': signCode,
+    'courseName': courseName,
+    'courseId': courseId,
+    'classId': classId,
+  };
+
+  static ChaoxingActivity? fromCacheJson(Map<String, dynamic> json) {
+    final id = (json['id'] ?? '').toString();
+    if (id.isEmpty) return null;
+    return ChaoxingActivity(
+      id: id,
+      name: (json['name'] ?? '').toString(),
+      activeType: (json['activeType'] ?? '').toString(),
+      status: (json['status'] as num?)?.toInt() ?? 0,
+      signCode: (json['signCode'] ?? '').toString(),
+      courseName: (json['courseName'] ?? '').toString(),
+      courseId: (json['courseId'] ?? '').toString(),
+      classId: (json['classId'] ?? '').toString(),
+    );
+  }
 
   String get typeLabel {
     if (name.contains('签到') || activeType.contains('sign')) return '签到';
@@ -77,6 +125,32 @@ class ChaoxingWork {
 
   /// 批阅后的分数；没批阅时为空（列表页本身不带分数，要进详情页才有）。
   final String score;
+
+  Map<String, dynamic> toCacheJson() => <String, dynamic>{
+    'workId': workId,
+    'title': title,
+    'courseName': courseName,
+    'statusText': statusText,
+    'deadline': deadline,
+    'expired': expired,
+    'taskUrl': taskUrl,
+    'score': score,
+  };
+
+  static ChaoxingWork? fromCacheJson(Map<String, dynamic> json) {
+    final id = (json['workId'] ?? '').toString();
+    if (id.isEmpty) return null;
+    return ChaoxingWork(
+      workId: id,
+      title: (json['title'] ?? '').toString(),
+      courseName: (json['courseName'] ?? '').toString(),
+      statusText: (json['statusText'] ?? '').toString(),
+      deadline: (json['deadline'] ?? '').toString(),
+      expired: json['expired'] == true,
+      taskUrl: (json['taskUrl'] ?? '').toString(),
+      score: (json['score'] ?? '').toString(),
+    );
+  }
 
   bool get finished =>
       statusText.contains('已交') ||
@@ -314,11 +388,9 @@ class ChaoxingClient {
   }
 
   /// 各课程进行中的活动（签到）。
-  Future<List<ChaoxingActivity>> fetchActivities(
-    List<ChaoxingCourse> courses,
-  ) async {
-    final out = <ChaoxingActivity>[];
-    for (final course in courses) {
+  Future<List<ChaoxingActivity>> fetchActivities(List<ChaoxingCourse> courses) {
+    return _concurrentMap(courses, (course) async {
+      final out = <ChaoxingActivity>[];
       try {
         final uri =
             Uri.parse(
@@ -359,14 +431,14 @@ class ChaoxingClient {
       } catch (_) {
         // 单门课失败不影响其他课程
       }
-    }
-    return out;
+      return out;
+    });
   }
 
   /// 各课程作业列表。
-  Future<List<ChaoxingWork>> fetchWorks(List<ChaoxingCourse> courses) async {
-    final out = <ChaoxingWork>[];
-    for (final course in courses) {
+  Future<List<ChaoxingWork>> fetchWorks(List<ChaoxingCourse> courses) {
+    return _concurrentMap(courses, (course) async {
+      final out = <ChaoxingWork>[];
       try {
         final middle = await _send(
           Uri.parse(
@@ -377,7 +449,7 @@ class ChaoxingClient {
         );
         final middleHtml = (middle.data as String?) ?? '';
         final workEnc = _hidden(middleHtml, 'workEnc') ?? '';
-        if (workEnc.isEmpty) continue;
+        if (workEnc.isEmpty) return out;
         final list = await _send(
           Uri.parse(
             'https://mooc1.chaoxing.com/mooc2/work/list'
@@ -430,8 +502,36 @@ class ChaoxingClient {
       } catch (_) {
         // 单门课失败不影响其他课程
       }
+      return out;
+    });
+  }
+
+  /// 多门课并发请求；每个 worker 按课程取数据，单门失败只返回空列表。
+  Future<List<R>> _concurrentMap<T, R>(
+    List<T> items,
+    Future<List<R>> Function(T) task, {
+    int limit = 4,
+  }) async {
+    if (items.isEmpty) return <R>[];
+    final results = List<List<R>?>.filled(items.length, null);
+    var next = 0;
+    Future<void> worker() async {
+      while (true) {
+        final index = next;
+        next++;
+        if (index >= items.length) return;
+        try {
+          results[index] = await task(items[index]);
+        } catch (_) {
+          results[index] = <R>[];
+        }
+      }
     }
-    return out;
+
+    await Future.wait(
+      List<Future<void>>.generate(min(limit, items.length), (_) => worker()),
+    );
+    return <R>[for (final result in results) ...?result];
   }
 
   /// 已批阅作业的分数；没批阅返回空串。

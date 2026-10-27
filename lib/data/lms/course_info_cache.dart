@@ -9,11 +9,19 @@ class CourseInfoCache {
 
   static const Duration ttl = Duration(hours: 24);
 
-  static String _key(String term, String source) =>
-      'course_info_${source}_${term.replaceAll(RegExp(r'[^0-9A-Za-z_-]'), '_')}';
+  static String _key(String term, String source, String username) {
+    final user = username.trim();
+    final base =
+        'course_info_${source}_${term.replaceAll(RegExp(r'[^0-9A-Za-z_-]'), '_')}';
+    return user.isEmpty ? base : '${base}_$user';
+  }
 
-  static Future<List<LmsCourseInfo>?> load(String term, String source) async {
-    final entry = await CacheStore.read(_key(term, source));
+  static Future<List<LmsCourseInfo>?> load(
+    String term,
+    String source, {
+    String username = '',
+  }) async {
+    final entry = await CacheStore.read(_key(term, source, username));
     final raw = entry?.data;
     if (raw is! List) return null;
     final out = <LmsCourseInfo>[];
@@ -36,18 +44,23 @@ class CourseInfoCache {
   }
 
   /// 缓存是否还在有效期内。
-  static Future<bool> isFresh(String term, String source) async {
-    final entry = await CacheStore.read(_key(term, source));
+  static Future<bool> isFresh(
+    String term,
+    String source, {
+    String username = '',
+  }) async {
+    final entry = await CacheStore.read(_key(term, source, username));
     return entry != null && entry.isFresh(ttl);
   }
 
   static Future<void> save(
     String term,
     String source,
-    List<LmsCourseInfo> courses,
-  ) {
+    List<LmsCourseInfo> courses, {
+    String username = '',
+  }) {
     return CacheStore.write(
-      _key(term, source),
+      _key(term, source, username),
       courses
           .map(
             (e) => <String, String>{

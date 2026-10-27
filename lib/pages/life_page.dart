@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -6,22 +8,26 @@ import '../data/auth/cas_client.dart';
 import '../data/auth/jwgl_auth.dart';
 import '../data/calendar/calendar_service.dart';
 import '../data/chaoxing/chaoxing_auth.dart';
+import '../data/chaoxing/chaoxing_cache.dart';
 import '../data/chaoxing/chaoxing_client.dart';
 import '../data/jwc/course_repository.dart';
+import '../data/life_cache.dart';
 import '../data/lms/rollcall_api.dart';
 import '../data/lms/course_info_cache.dart';
 import '../data/lms/todo_api.dart';
 import '../data/lms/tronclass_auth.dart';
+import '../services/dorm_electricity_service.dart';
 import '../services/reminder_service.dart';
 import 'chaoxing_homework_page.dart';
 import 'chaoxing_login_page.dart';
 import 'chaoxing_course_detail_page.dart';
 import 'course_detail_page.dart';
 import 'homework_page.dart';
+import 'login_page.dart';
 import 'qr_scan_page.dart';
 import 'simple_web.dart';
 
-/// 生活：签到（一网畅学）+ 一网畅学入口 + 校园卡（占位）。
+/// 校园服务：签到（一网畅学）+ 一网畅学入口 + 宿舍电费。
 class LifePage extends StatefulWidget {
   const LifePage({super.key});
 
@@ -54,14 +60,167 @@ class _LifePageState extends State<LifePage> {
   List<ChaoxingActivity> _cxActivities = const <ChaoxingActivity>[];
   List<ChaoxingWork> _cxWorks = const <ChaoxingWork>[];
 
+  // 宿舍电费
+  DormElectricity? _dormElect;
+  DateTime? _dormFetchedAt;
+  DormElectricityService? _dormService;
+  bool _dormLoading = false;
+  String? _dormError;
+
+  static const Duration _dormCacheTtl = Duration(minutes: 10);
+
+  String? _lastAuthStudentId;
+  bool _bootstrapped = false;
+
   @override
   void initState() {
     super.initState();
+    _lastAuthStudentId = JwglAuth.instance.studentId;
+    JwglAuth.instance.addListener(_onAuthChanged);
     _bootstrap();
   }
 
+  @override
+  void dispose() {
+    JwglAuth.instance.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
+  /// 换教务账号后，生活页是 IndexedStack 里的常驻页面，不会自动 initState。
+  /// 这里监听登录态变化，把上一个账号的课程/待办/电费一起清掉并重拉。
+  void _onAuthChanged() {
+    final id = JwglAuth.instance.studentId;
+    if (id == _lastAuthStudentId) {
+      return;
+    }
+    _lastAuthStudentId = id;
+    if (!mounted || !_bootstrapped) {
+      return;
+    }
+    setState(() {
+      _courseInfos = const <LmsCourseInfo>[];
+      _timetableNames.clear();
+      _timetableTeachers.clear();
+      _cxCourses = const <ChaoxingCourse>[];
+      _cxActivities = const <ChaoxingActivity>[];
+      _cxWorks = const <ChaoxingWork>[];
+      _todos = const <LmsTodo>[];
+      _exams = const <LmsExam>[];
+      _rollcalls = const <Rollcall>[];
+      _dormElect = null;
+      _dormFetchedAt = null;
+      _dormError = null;
+      _dormService = null;
+      _dormLoading = false;
+      _loading = false;
+      _coursesLoading = false;
+      _cxLoading = false;
+    });
+    if (id == null || id.isEmpty) {
+      return;
+    }
+    unawaited(_warmupAfterLogin(id));
+  }
+
+  /// 登录/换账号后的固定顺序：
+  ///   1. 拉本学期课表（课程过滤的基准）
+  ///   2. 登录一网畅学，拉待办/考试/签到
+  ///   3. 隐藏 WebView SSO 登录学习通，拉课程/作业
+  ///   4. 最后拉电费
+  ///
+  /// 这些步骤都有转圈提示，串行执行比并行更容易保证“先有课表，再登录两个
+  /// 教学平台”的顺序，也避免两个登录同时抢 CAS 会话。
+  Future<void> _warmupAfterLogin(String id) async {
+    final auth = JwglAuth.instance;
+    final client = auth.client;
+    if (client == null) return;
+    if (mounted) {
+      setState(() => _loading = true);
+    }
+
+    // 1) 本学期课表：既是课程信息基准，也决定 Chaoxing 过滤范围。
+    try {
+      final snapshot = await CourseRepository.refresh(client);
+      if (!mounted || auth.studentId != id) return;
+      _currentTerm =
+          CalendarService.instance.currentTerm?.id ??
+          (snapshot.termLabel.isNotEmpty ? snapshot.termLabel : _currentTerm);
+      _timetableNames.clear();
+      _timetableTeachers.clear();
+      for (final course in snapshot.courses) {
+        final name = _cleanCourseName(course.name);
+        if (name.isEmpty) continue;
+        _timetableNames.add(name);
+        final teacher = course.teacher;
+        if (teacher != null && teacher.isNotEmpty) {
+          _timetableTeachers[name] = teacher;
+        }
+      }
+    } catch (_) {
+      // 课表失败不阻断后续；_ensureCurrentCourseNames 还会再兜一次。
+    }
+    if (!mounted || auth.studentId != id) return;
+
+    // 2) 先让一网畅学会话就绪，再拉生活页数据。
+    try {
+      await TronclassAuth.instance.ensureLoggedIn();
+    } catch (_) {
+      // 失败由 _refresh 自己展示错误
+    }
+    if (!mounted || auth.studentId != id) return;
+
+    await _restoreCachedLifeData(id);
+    await _refresh(force: true);
+    if (!mounted || auth.studentId != id) return;
+
+    if (!_showChaoxingCourses) {
+      await _loadCourses(force: true);
+      if (!mounted || auth.studentId != id) return;
+    }
+
+    // 3) 学习通：隐藏 SSO，成功后拉课程/作业。
+    await _refreshChaoxing(
+      withWorks: true,
+      autoLogin: true,
+      allowVisibleFallback: false,
+    );
+    if (!mounted || auth.studentId != id) return;
+
+    if (_showChaoxingCourses) {
+      await _loadCourses(force: true);
+      if (!mounted || auth.studentId != id) return;
+    }
+
+    // 4) 电费独立，放最后。
+    await _loadDormElectricity(force: true);
+  }
+
   Future<void> _bootstrap() async {
-    final snapshot = await CourseRepository.loadCache();
+    // 缓存读取和登录互不依赖，同时启动，省掉一次串行等待
+    final snapshotFuture = CourseRepository.loadCache();
+
+    // 生活页是启动时就存在的 tab，可能比「我的」页更早初始化，
+    // 这里必须先恢复登录态，否则一网畅学接口会以未登录状态返回空。
+    final auth = JwglAuth.instance;
+    if (!auth.isLoggedIn) {
+      await auth.restore();
+    }
+    // 知道当前学号后才能读对应用户的缓存，避免换账号时串数据。
+    final username = auth.savedUsername;
+    if (username.isNotEmpty) {
+      unawaited(_restoreCachedLifeData(username));
+    }
+    var ok = await TronclassAuth.instance.ensureLoggedIn();
+    if (!ok) {
+      // 教务会话可能刚过期，刷新一次再重试
+      await JwglAuth.instance.ensureSession();
+      ok = await TronclassAuth.instance.ensureLoggedIn();
+    }
+
+    final snapshot = await snapshotFuture;
+    if (!mounted) {
+      return;
+    }
     _currentTerm =
         CalendarService.instance.currentTerm?.id ?? snapshot?.termLabel ?? '';
     _timetableNames
@@ -70,34 +229,210 @@ class _LifePageState extends State<LifePage> {
         snapshot?.courses.map((c) => _cleanCourseName(c.name)) ??
             const <String>[],
       );
-    // 生活页是启动时就存在的 tab，可能比「我的」页更早初始化，
-    // 这里必须先恢复登录态，否则一网畅学接口会以未登录状态返回空。
-    final auth = JwglAuth.instance;
-    if (!auth.isLoggedIn) {
-      await auth.restore();
-    }
-    var ok = await TronclassAuth.instance.ensureLoggedIn();
-    if (!ok) {
-      // 教务会话可能刚过期，刷新一次再重试
-      await JwglAuth.instance.ensureSession();
-      ok = await TronclassAuth.instance.ensureLoggedIn();
-    }
-    if (!mounted) {
-      return;
-    }
     if (!ok) {
       setState(() {
         _error = '一网畅学登录失败，点「重试」重新登录';
       });
     }
-    // 即使静默登录判定失败也尝试拉一次，避免误判导致整页空白
-    await _refresh();
-    await _refreshChaoxing();
-    await _loadCourses();
+    // 签到 / 学习通 / 课程三个数据源互不依赖，并行拉取：
+    // 首屏耗时从「三者之和」变成「最慢的那个」。
+    await Future.wait<void>(<Future<void>>[
+      _guardTask(_refresh),
+      _guardTask(_refreshChaoxing),
+      _guardTask(_loadCourses),
+    ]);
+    // 先把上次落盘的电费读回来，冷启动也能直接显示
+    if (username.isNotEmpty) {
+      await DormElectricityCache.load(username);
+    }
+    final cached = DormElectricityCache.dataFor(username);
+    if (cached != null) {
+      _dormElect = cached;
+      _dormFetchedAt = DormElectricityCache.fetchedAtFor(username);
+    }
+    // 有缓存先展示；缓存超过 10 分钟再静默刷新，没有缓存也拉一次。
+    final age = DormElectricityCache.ageFor(username);
+    final stale = cached == null || age == null || age >= _dormCacheTtl;
+    // 有教务会话（可走 SSO）或有保存的密码，才值得去刷新
+    final canFetch = JwglAuth.instance.client != null || auth.hasSavedPassword;
+    if (canFetch && stale) {
+      unawaited(_loadDormElectricity());
+    }
+    _bootstrapped = true;
+  }
+
+  /// 并行任务的错误隔离：某一个失败只影响自己那块，不中断整页初始化。
+  /// （[Future.wait] 默认 fail-fast，会连带丢掉其它任务已经拿到的数据。）
+  static Future<void> _guardTask(Future<void> Function() task) async {
+    try {
+      await task();
+    } catch (e, stack) {
+      debugPrint('[bootstrap] 任务失败: $e\n$stack');
+    }
+  }
+
+  /// 冷启动时把上次的待办 / 考试 / 签到贴到界面上（stale-while-revalidate）。
+  /// 只在对应列表仍为空时填充，不会覆盖已经拿到的新数据。
+  Future<void> _restoreCachedLifeData(String username) async {
+    final results = await Future.wait<Object?>(<Future<Object?>>[
+      LifeCache.readTodos(username: username),
+      LifeCache.readExams(username: username),
+      LifeCache.readRollcalls(username: username),
+    ]);
+    if (!mounted) {
+      return;
+    }
+    final todos = results[0] as List<LmsTodo>?;
+    final exams = results[1] as List<LmsExam>?;
+    final rollcalls = results[2] as List<Rollcall>?;
+    if (todos == null && exams == null && rollcalls == null) {
+      return;
+    }
+    setState(() {
+      if (todos != null && _todos.isEmpty) {
+        _todos = todos;
+      }
+      if (exams != null && _exams.isEmpty) {
+        _exams = _filterExams(exams);
+      }
+      if (rollcalls != null && _rollcalls.isEmpty) {
+        _rollcalls = rollcalls;
+      }
+    });
+  }
+
+  /// 拉取宿舍电费。ssgl 走独立 CAS 登录，用保存的学号密码。
+  ///
+  /// [force] 为 true 时跳过缓存（右上角刷新/点卡片）。
+  Future<void> _loadDormElectricity({bool force = false}) async {
+    if (_dormLoading) {
+      return;
+    }
+    final auth = JwglAuth.instance;
+    final username = auth.savedUsername;
+    final cached = DormElectricityCache.dataFor(username);
+    final age = DormElectricityCache.ageFor(username);
+
+    if (!force && cached != null && age != null && age < _dormCacheTtl) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _dormElect = cached;
+        _dormFetchedAt = DormElectricityCache.fetchedAtFor(username);
+        _dormError = null;
+      });
+      return;
+    }
+
+    // 有教务会话就能靠 CAS 单点登录拿电费，不必存密码
+    final hasSession = JwglAuth.instance.client != null;
+    if (!hasSession && !auth.hasSavedPassword) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        if (cached != null) {
+          _dormElect = cached;
+          _dormFetchedAt = DormElectricityCache.fetchedAtFor(username);
+        }
+        _dormError = cached == null ? '需要先登录才能查询电费' : null;
+      });
+      return;
+    }
+
+    setState(() {
+      _dormLoading = true;
+      _dormError = null;
+    });
+    try {
+      final info = await _fetchDormElectricity(username, auth);
+      if (!mounted || JwglAuth.instance.savedUsername != username) {
+        return;
+      }
+      DormElectricityCache.put(username, info);
+      setState(() {
+        _dormElect = info;
+        _dormFetchedAt = DateTime.now();
+        _dormLoading = false;
+      });
+    } on DormElectricityException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _dormError = e.message;
+        _dormLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _dormError = '查询失败：$e';
+        _dormLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loginThenLoadDorm() async {
+    final ok = await Navigator.of(context)
+        .push<bool>(MaterialPageRoute<bool>(builder: (_) => const LoginPage()));
+    if (ok == true && mounted) {
+      _dormService = null;
+      await _loadDormElectricity(force: true);
+    }
+  }
+
+  /// 取电费：优先复用教务的 CAS 会话（走单点登录，不需要密码），
+  /// 会话里没有可用 TGT 时再退回账号密码登录。
+  Future<DormElectricity> _fetchDormElectricity(
+    String username,
+    JwglAuth auth,
+  ) async {
+    final client = JwglAuth.instance.client;
+    if (client != null) {
+      final service = _dormService ??= DormElectricityService.withSession(
+        client.jar.headerFor,
+        client.jar.absorbSetCookie,
+      );
+      try {
+        return await service.refresh();
+      } catch (_) {
+        if (!auth.hasSavedPassword) {
+          rethrow;
+        }
+        // 单独建实例走完整登录，避免污染会话模式的那份 cookie
+        final fallback = DormElectricityService();
+        final info = await fallback.fetch(
+          username: username,
+          password: auth.savedPassword!,
+        );
+        _dormService = fallback;
+        return info;
+      }
+    }
+
+    final service = _dormService ??= DormElectricityService();
+    if (service.isLoggedIn) {
+      try {
+        return await service.refresh();
+      } catch (_) {
+        // 会话过期，落到下面重新登录
+      }
+    }
+    return service.fetch(username: username, password: auth.savedPassword!);
   }
 
   /// 拉取学习通数据。cookie 失效时会用保存的密码后台重登。
-  Future<void> _refreshChaoxing({bool withWorks = false}) async {
+  ///
+  /// [autoLogin] 为 true 时，如果当前没登录，会直接拉起 CAS SSO 登录页
+  /// （优先复用教务登录态），不再要求用户另点一次「登录学习通」。
+  Future<void> _refreshChaoxing({
+    bool withWorks = false,
+    bool autoLogin = false,
+    bool allowVisibleFallback = true,
+  }) async {
     if (_cxLoading) {
       return;
     }
@@ -105,13 +440,42 @@ class _LifePageState extends State<LifePage> {
       _cxLoading = true;
       _cxError = null;
     });
+    final cacheUser = JwglAuth.instance.savedUsername;
+    if (cacheUser.isNotEmpty && JwglAuth.instance.isLoggedIn) {
+      final cached = await ChaoxingCache.read(cacheUser);
+      if (mounted &&
+          cached != null &&
+          JwglAuth.instance.savedUsername == cacheUser) {
+        setState(() {
+          if (_cxCourses.isEmpty && cached.courses.isNotEmpty) {
+            _cxCourses = cached.courses;
+          }
+          if (_cxWorks.isEmpty && cached.works.isNotEmpty) {
+            _cxWorks = cached.works;
+          }
+          if (_cxActivities.isEmpty && cached.activities.isNotEmpty) {
+            _cxActivities = cached.activities;
+          }
+        });
+      }
+    }
     try {
       final auth = ChaoxingAuth.instance;
       if (!auth.isLoggedIn) {
         await auth.restore();
       }
       if (!auth.isLoggedIn) {
-        return;
+        if (!autoLogin || JwglAuth.instance.client == null) {
+          return;
+        }
+        // 先试隐藏 WebView；遇到验证码/需要人工时再降级到可见登录页。
+        var ok = await _promptChaoxingLogin(hidden: true);
+        if (!ok && allowVisibleFallback) {
+          ok = await _promptChaoxingLogin();
+        }
+        if (!ok || !mounted) {
+          return;
+        }
       }
       if (!await auth.ensureSession()) {
         if (mounted) {
@@ -126,13 +490,24 @@ class _LifePageState extends State<LifePage> {
       if (client == null) {
         return;
       }
-      final courses = _cxCourses.isNotEmpty
+      final rawCourses = _cxCourses.isNotEmpty
           ? _cxCourses
           : await client.fetchCourses();
-      final activities = await client.fetchActivities(courses);
-      final works = (withWorks || _cxWorks.isNotEmpty)
-          ? await client.fetchWorks(courses)
-          : _cxWorks;
+      await _ensureCurrentCourseNames();
+      final courses = _timetableNames.isEmpty
+          ? rawCourses
+          : rawCourses
+                .where(
+                  (c) => _timetableNames.contains(_cleanCourseName(c.name)),
+                )
+                .toList();
+      final needWorks = withWorks || _cxWorks.isEmpty;
+      final activitiesFuture = client.fetchActivities(courses);
+      final worksFuture = needWorks
+          ? client.fetchWorks(courses)
+          : Future<List<ChaoxingWork>>.value(_cxWorks);
+      final activities = await activitiesFuture;
+      final works = await worksFuture;
       if (!mounted) {
         return;
       }
@@ -141,9 +516,19 @@ class _LifePageState extends State<LifePage> {
         _cxActivities = activities;
         _cxWorks = works;
       });
+      if (cacheUser.isNotEmpty &&
+          JwglAuth.instance.savedUsername == cacheUser) {
+        unawaited(ChaoxingCache.writeCourses(cacheUser, courses));
+        unawaited(ChaoxingCache.writeActivities(cacheUser, activities));
+        unawaited(ChaoxingCache.writeWorks(cacheUser, works));
+      }
       // 学习通只有「剩余 X 小时」这种相对时间，拉到列表时换算成绝对时间排提醒
       if (works.isNotEmpty) {
         await ReminderService.instance.syncChaoxingWorks(works);
+      }
+      // 自动登录完成后，如果当前正停在学习通课程源，把课程卡片也刷新掉
+      if (_showChaoxingCourses && mounted) {
+        unawaited(_loadCourses(force: true));
       }
     } catch (e) {
       if (mounted) {
@@ -156,11 +541,30 @@ class _LifePageState extends State<LifePage> {
     }
   }
 
-  Future<void> _loginChaoxing() async {
-    final ok = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(builder: (_) => const ChaoxingLoginPage()),
+  /// 打开学习通登录页；优先走 CAS SSO，失败时页面会自动填充教务账号。
+  Future<bool> _promptChaoxingLogin({bool hidden = false}) async {
+    final jwgl = JwglAuth.instance;
+    final canAuto = jwgl.hasSavedPassword;
+    final page = ChaoxingLoginPage(
+      username: canAuto ? jwgl.savedUsername : null,
+      password: canAuto ? jwgl.savedPassword : null,
+      hidden: hidden,
     );
-    if (ok != true) return;
+    final route = hidden
+        ? PageRouteBuilder<bool>(
+            opaque: false,
+            barrierDismissible: false,
+            barrierColor: Colors.transparent,
+            transitionDuration: Duration.zero,
+            pageBuilder: (_, _, _) => page,
+          )
+        : MaterialPageRoute<bool>(builder: (_) => page);
+    final ok = await Navigator.of(context).push<bool>(route);
+    return ok == true;
+  }
+
+  Future<void> _loginChaoxing() async {
+    if (!await _promptChaoxingLogin()) return;
     await _refreshChaoxing(withWorks: true);
     // 当前如果停在「学习通」课程源，登录完直接把课程列表拉出来
     if (_showChaoxingCourses) {
@@ -177,8 +581,8 @@ class _LifePageState extends State<LifePage> {
     }
   }
 
-  Future<void> _refresh({bool silent = false}) async {
-    if (_loading) {
+  Future<void> _refresh({bool silent = false, bool force = false}) async {
+    if (_loading && !force) {
       return;
     }
     final auth = JwglAuth.instance;
@@ -189,6 +593,7 @@ class _LifePageState extends State<LifePage> {
       return;
     }
     setState(() => _loading = true);
+    final requestUser = JwglAuth.instance.savedUsername;
     try {
       // 每次刷新前确认一网畅学会话；半失效时内部会自动重登
       await TronclassAuth.instance.ensureLoggedIn();
@@ -201,8 +606,10 @@ class _LifePageState extends State<LifePage> {
       var exams = _exams;
       var todosFetched = false;
       var examsFetched = false;
+      var rollcallsFetched = false;
       try {
         rollcalls = await RollcallApi(client).fetchOngoing();
+        rollcallsFetched = true;
       } catch (_) {
         // 签到失败保留旧数据
       }
@@ -232,7 +639,7 @@ class _LifePageState extends State<LifePage> {
           setState(() => _error = '学习数据拉取失败，请稍后重试');
         }
       }
-      if (!mounted) {
+      if (!mounted || JwglAuth.instance.savedUsername != requestUser) {
         return;
       }
       setState(() {
@@ -242,14 +649,21 @@ class _LifePageState extends State<LifePage> {
         _todosError = todosError;
         _error = null;
       });
-      // 已提交的作业不再提醒（内部会按课程查一遍「我的提交」）
-      await ReminderService.instance.syncHomework(
-        todos: _todos,
-        submittedActivityIds: await ReminderService.instance.fetchSubmittedIds(
-          client,
-          _todos,
-        ),
-      );
+      // 只写成功拉到的部分，避免把「保留的旧数据」当成新数据盖上时间戳
+      final cacheUser = requestUser;
+      if (rollcallsFetched) {
+        unawaited(LifeCache.writeRollcalls(rollcalls, username: cacheUser));
+      }
+      if (todosFetched) {
+        unawaited(LifeCache.writeTodos(todos, username: cacheUser));
+      }
+      if (examsFetched) {
+        unawaited(LifeCache.writeExams(_exams, username: cacheUser));
+      }
+      // 作业提醒同步是「锦上添花」：它内部要逐课程查一遍「我的提交」，
+      // 会多花一次网络往返。放在后台跑，别拖住 loading 转圈，
+      // 失败了也不该把整页标成错误。
+      unawaited(_syncHomeworkReminders(client, _todos));
     } catch (_) {
       if (mounted && !silent) {
         setState(() => _error = '签到信息拉取失败，请稍后重试');
@@ -258,6 +672,25 @@ class _LifePageState extends State<LifePage> {
       if (mounted) {
         setState(() => _loading = false);
       }
+    }
+  }
+
+  /// 后台同步作业提醒；失败只记日志，不影响页面状态。
+  Future<void> _syncHomeworkReminders(
+    CasClient client,
+    List<LmsTodo> todos,
+  ) async {
+    try {
+      final submitted = await ReminderService.instance.fetchSubmittedIds(
+        client,
+        todos,
+      );
+      await ReminderService.instance.syncHomework(
+        todos: todos,
+        submittedActivityIds: submitted,
+      );
+    } catch (e) {
+      debugPrint('[reminders] 同步失败: $e');
     }
   }
 
@@ -286,16 +719,50 @@ class _LifePageState extends State<LifePage> {
     return false;
   }
 
+  /// 学习通课程没有 termCode，只能拿「本学期课表课程名」做过滤。
+  /// 优先用教务课表；课表没缓存时退到一网畅学的当前课程列表。
+  Future<void> _ensureCurrentCourseNames() async {
+    if (_timetableNames.isNotEmpty) return;
+    final client = JwglAuth.instance.client;
+    if (client == null) return;
+    try {
+      final snapshot = await CourseRepository.refresh(client);
+      final names = snapshot.courses
+          .map((c) => _cleanCourseName(c.name))
+          .where((n) => n.isNotEmpty)
+          .toSet();
+      if (names.isNotEmpty) {
+        _timetableNames.addAll(names);
+      }
+    } catch (_) {
+      // 课表失败时再试一网畅学当前课程
+    }
+    if (_timetableNames.isNotEmpty) return;
+    try {
+      final list = await LmsApi(client).fetchCourseInfos();
+      _timetableNames.addAll(
+        list.map((c) => _cleanCourseName(c.name)).where((n) => n.isNotEmpty),
+      );
+    } catch (_) {
+      // 两边都失败就只能不过滤，至少别把课程藏起来
+    }
+  }
+
   Future<void> _loadCourses({bool force = false}) async {
     if (_coursesLoading) return;
     final termKey = _currentTerm.isNotEmpty
         ? _currentTerm
         : CalendarService.fallbackTermId();
     final source = _showChaoxingCourses ? 'chaoxing' : 'tronclass';
+    final cacheUser = JwglAuth.instance.savedUsername;
     // 缓存优先：有缓存先渲染；缓存过期就不显示加载态、后台静默刷一遍。
     var silent = false;
     if (!force) {
-      final cached = await CourseInfoCache.load(termKey, source);
+      final cached = await CourseInfoCache.load(
+        termKey,
+        source,
+        username: cacheUser,
+      );
       if (cached != null) {
         if (mounted) {
           setState(() {
@@ -303,7 +770,11 @@ class _LifePageState extends State<LifePage> {
             _coursesError = null;
           });
         }
-        if (await CourseInfoCache.isFresh(termKey, source)) {
+        if (await CourseInfoCache.isFresh(
+          termKey,
+          source,
+          username: cacheUser,
+        )) {
           return;
         }
         silent = true;
@@ -341,10 +812,15 @@ class _LifePageState extends State<LifePage> {
               ),
             )
             .toList();
-        if (mounted) setState(() => _courseInfos = filtered);
-        // 缓存课程列表：下次进页面先用缓存渲染，不必等网络。
-        // 学习通那边点课程要依赖 _cxCourses，先不缓存，避免列表能看却点不开。
-        await CourseInfoCache.save(termKey, source, filtered);
+        if (mounted && JwglAuth.instance.savedUsername == cacheUser) {
+          setState(() => _courseInfos = filtered);
+          await CourseInfoCache.save(
+            termKey,
+            source,
+            filtered,
+            username: cacheUser,
+          );
+        }
       } else {
         final auth = ChaoxingAuth.instance;
         final hadSession = auth.isLoggedIn;
@@ -366,7 +842,15 @@ class _LifePageState extends State<LifePage> {
             ? _cxCourses
             : await client.fetchCourses();
         _cxCourses = courses;
+        // 学习通列表没有 termCode，用本学期课表课程名过滤掉往期课程；
+        // 课表/一网畅学都拿不到时才退回全量（至少不误藏当前课程）。
+        await _ensureCurrentCourseNames();
         final filtered = courses
+            .where(
+              (c) =>
+                  _timetableNames.isEmpty ||
+                  _timetableNames.contains(_cleanCourseName(c.name)),
+            )
             .map(
               (c) => LmsCourseInfo(
                 id: c.courseId,
@@ -377,7 +861,6 @@ class _LifePageState extends State<LifePage> {
                 termCode: '',
               ),
             )
-            .where((c) => _isCurrentCourse(c.name, c.termCode))
             .toList();
         if (mounted) setState(() => _courseInfos = filtered);
       }
@@ -720,7 +1203,7 @@ class _LifePageState extends State<LifePage> {
             Row(
               children: <Widget>[
                 const Text(
-                  '生活学习',
+                  '校园服务',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                 ),
                 const Spacer(),
@@ -735,7 +1218,10 @@ class _LifePageState extends State<LifePage> {
                     tooltip: '刷新签到',
                     onPressed: () async {
                       await _refresh();
-                      await _refreshChaoxing(withWorks: _showChaoxingTodos);
+                      await _refreshChaoxing(
+                        withWorks: _showChaoxingTodos,
+                        autoLogin: true,
+                      );
                     },
                     icon: const Icon(Icons.refresh, size: 20),
                   ),
@@ -752,15 +1238,7 @@ class _LifePageState extends State<LifePage> {
             const SizedBox(height: 12),
             _courseCard(),
             const SizedBox(height: 12),
-            _campusCard(),
-            const SizedBox(height: 8),
-            Center(
-              child: TextButton.icon(
-                onPressed: _openLms,
-                icon: const Icon(Icons.open_in_new, size: 14),
-                label: const Text('一网畅学网页版', style: TextStyle(fontSize: 12)),
-              ),
-            ),
+            _dormElectricityCard(),
           ],
         ),
       ),
@@ -1727,56 +2205,178 @@ class _LifePageState extends State<LifePage> {
     return '$m-$d $h:$min';
   }
 
-  Widget _campusCard() {
+  // ------------------------------------------------------------ 宿舍电费
+
+  Widget _dormElectricityCard() {
+    final info = _dormElect;
+    final hasPwd = JwglAuth.instance.hasSavedPassword;
+    // 有教务 CAS 会话也能 SSO 到 ssgl，不一定要保存密码。
+    final canFetch = JwglAuth.instance.client != null || hasPwd;
+    final title = _dormFetchedAt == null
+        ? '宿舍电费 · 未刷新'
+        : '宿舍电费 · ${_formatDormTime(_dormFetchedAt!)} 更新';
+    final subtitle = info != null
+        ? info.dormAddress
+        : canFetch
+        ? '点右上角刷新'
+        : '登录后可查询照明 / 空调余量';
+
     return GestureDetector(
-      onTap: () => _toast('校园卡功能还在逆向中，先用 WeLink 出示二维码'),
+      onTap: canFetch
+          ? () => _loadDormElectricity(force: true)
+          : _loginThenLoadDorm,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const CircleAvatar(
-              radius: 22,
-              backgroundColor: AppColors.redTint,
-              child: Icon(Icons.credit_card, color: AppColors.usstRed),
-            ),
-            const SizedBox(width: 14),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    '校园卡',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const CircleAvatar(
+                  radius: 22,
+                  backgroundColor: AppColors.redTint,
+                  child: Icon(Icons.bolt, color: AppColors.usstRed),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
                   ),
-                  SizedBox(height: 4),
-                  Text(
-                    '余额 / 出示二维码（暂未接入，占位）',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textSecondary,
+                ),
+                const SizedBox(width: 4),
+                if (_dormLoading)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6, right: 6),
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
+                  )
+                else
+                  IconButton(
+                    tooltip: '刷新电费',
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                    onPressed: canFetch
+                        ? () => _loadDormElectricity(force: true)
+                        : _loginThenLoadDorm,
+                    icon: const Icon(Icons.refresh, size: 20),
                   ),
-                ],
-              ),
+              ],
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF4F4F6),
-                borderRadius: BorderRadius.circular(4),
+            if (info != null) ...<Widget>[
+              const SizedBox(height: 12),
+              _electricityRow(
+                '照明',
+                info.zmKwh,
+                info.zmMoney,
+                info.zmMoneyValue,
               ),
-              child: const Text(
-                '敬请期待',
-                style: TextStyle(fontSize: 10, color: AppColors.textSecondary),
+              if (info.hasAirConditioner) ...<Widget>[
+                const SizedBox(height: 6),
+                _electricityRow(
+                  '空调',
+                  info.ktKwh,
+                  info.ktMoney,
+                  info.ktMoneyValue,
+                ),
+              ],
+            ],
+            if (_dormError != null) ...<Widget>[
+              const SizedBox(height: 8),
+              Text(
+                _dormError!,
+                style: const TextStyle(fontSize: 11, color: AppColors.usstRed),
               ),
-            ),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  String _formatDormTime(DateTime time) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(time.month)}-${two(time.day)} '
+        '${two(time.hour)}:${two(time.minute)}';
+  }
+
+  Widget _electricityRow(
+    String label,
+    String kwh,
+    String money,
+    double? moneyValue,
+  ) {
+    final arrears = moneyValue != null && moneyValue < 0;
+    final color = arrears ? AppColors.usstRed : AppColors.textPrimary;
+    return Row(
+      children: <Widget>[
+        SizedBox(
+          width: 40,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            kwh,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ),
+        Text(
+          money,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+        if (arrears)
+          const Padding(
+            padding: EdgeInsets.only(left: 6),
+            child: Text(
+              '欠费',
+              style: TextStyle(fontSize: 10, color: AppColors.usstRed),
+            ),
+          ),
+      ],
     );
   }
 }

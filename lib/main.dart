@@ -45,7 +45,7 @@ class CampusApp extends StatelessWidget {
   }
 }
 
-/// 底部五 Tab 骨架：首页 / 地图 / 生活 / 论坛 / 我的
+/// 底部五 Tab 骨架：首页 / 地图 / 校园服务 / 论坛 / 我的
 class RootScaffold extends StatefulWidget {
   const RootScaffold({super.key});
 

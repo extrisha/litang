@@ -145,4 +145,25 @@ void main() {
     expect(detail.exams.last.status, '进行中');
     expect(detail.exams.last.score, isNull);
   });
+
+  test('公告 uploads 里的 .rar 会被解析成附件', () async {
+    final api = TronCourseDetailApi(
+      _FakeCasClient(
+        _routes(
+          bulletins:
+              '{"bulletins":[{"title":"第7周10月19日开始上课",'
+              '"content":"<p>分组名单见附件</p>","created_at":"2026-10-19T08:00:00Z",'
+              '"uploads":[{"id":29627219,"name":"26271分组.rar","size":2048}]}]}',
+        ),
+      ),
+    );
+
+    final detail = await api.fetch('42');
+
+    final announcement = detail.announcements.single;
+    expect(announcement.title, '第7周10月19日开始上课');
+    expect(announcement.attachments.single.name, '26271分组.rar');
+    expect(announcement.attachments.single.id, 29627219);
+    expect(announcement.attachments.single.size, 2048);
+  });
 }

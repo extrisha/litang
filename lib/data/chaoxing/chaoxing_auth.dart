@@ -61,8 +61,9 @@ class ChaoxingSessionStore {
 
 /// 学习通全局登录态。
 ///
-/// 登录方式只有一种：内嵌网页（见 `ChaoxingLoginPage`），登完把 cookie 读回来。
-/// 这样既不用复现对方的密码加密，也不用在本地保存密码。
+/// 登录走内嵌网页（见 `ChaoxingLoginPage`）：优先复用教务 CAS 做 SSO，
+/// 失败再走超星官方机构登录页；登完只把 cookie 读回来。
+/// 这样既不用复现对方的密码加密，也不用在本地保存学习通密码。
 class ChaoxingAuth extends ChangeNotifier {
   ChaoxingAuth._();
 

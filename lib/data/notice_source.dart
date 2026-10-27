@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'cache_store.dart';
@@ -168,7 +169,9 @@ class RemoteNoticeSource implements NoticeSource {
           .get(Uri.parse(url))
           .timeout(const Duration(seconds: 20));
       if (res.statusCode != 200) return null;
-      return parseFeed(utf8.decode(res.bodyBytes));
+      // 云端 feed 有 1.2 MB / 7000+ 条，jsonDecode + 建模放主线会卡掉首帧，
+      // 扔到后台 isolate 做（Web 上 compute 会退化成同步执行）。
+      return await compute(parseFeed, utf8.decode(res.bodyBytes));
     } catch (_) {
       return null;
     }
@@ -232,11 +235,12 @@ class RemoteNoticeSource implements NoticeSource {
   // ---------------------------------------------------------------- 缓存
 
   Future<_CachedFeed?> _readCache() async {
-    final entry = await CacheStore.read(_cacheKey);
-    if (entry == null) return null;
-    final feed = _feedFromCache(entry.data);
-    if (feed == null) return null;
-    return _CachedFeed(feed, entry.age);
+    // 缓存可能是几 MB 的 JSON，解析同样放到后台 isolate。
+    final raw = await CacheStore.readRaw(_cacheKey);
+    if (raw == null) return null;
+    final (feed, savedAt) = await compute(_parseCachedFeed, raw);
+    if (feed == null || savedAt == null) return null;
+    return _CachedFeed(feed, DateTime.now().difference(savedAt));
   }
 
   Future<void> _writeCache(NoticeFeed feed) async {
@@ -284,6 +288,14 @@ class RemoteNoticeSource implements NoticeSource {
       origin: NoticeOrigin.cache,
     );
   }
+}
+
+/// 顶级函数：供 `compute()` 在后台 isolate 里解析缓存，
+/// 因此不能是实例方法（跨 isolate 不能带着 this）。
+(NoticeFeed?, DateTime?) _parseCachedFeed(String raw) {
+  final entry = CacheStore.decode(raw);
+  if (entry == null) return (null, null);
+  return (RemoteNoticeSource._feedFromCache(entry.data), entry.savedAt);
 }
 
 /// 缓存 + 它的年龄（用来判断要不要联网刷新）。

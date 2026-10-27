@@ -54,6 +54,32 @@ class LmsTodo {
       deadline: deadline,
     );
   }
+
+  /// 本地缓存用（与上游字段名解耦，上游改字段不影响旧缓存）。
+  Map<String, dynamic> toCacheJson() => <String, dynamic>{
+    'id': id,
+    'courseId': courseId,
+    'title': title,
+    'courseName': courseName,
+    'type': type,
+    'deadline': deadline?.toIso8601String(),
+  };
+
+  static LmsTodo? fromCacheJson(Map<String, dynamic> json) {
+    final title = (json['title'] ?? '').toString();
+    if (title.isEmpty) {
+      return null;
+    }
+    final raw = json['deadline']?.toString() ?? '';
+    return LmsTodo(
+      id: _asInt(json['id']),
+      courseId: _asInt(json['courseId']),
+      title: title,
+      courseName: (json['courseName'] ?? '').toString(),
+      type: (json['type'] ?? '').toString(),
+      deadline: raw.isEmpty ? null : DateTime.tryParse(raw),
+    );
+  }
 }
 
 /// 一网畅学课程信息。
@@ -109,6 +135,31 @@ class LmsExam {
       timeText: (json['kssj'] ?? '').toString().trim(),
       location: location,
       teacher: (json['jsxx'] ?? '').toString().trim(),
+    );
+  }
+
+  /// 本地缓存用。
+  Map<String, dynamic> toCacheJson() => <String, dynamic>{
+    'courseName': courseName,
+    'examName': examName,
+    'termLabel': termLabel,
+    'timeText': timeText,
+    'location': location,
+    'teacher': teacher,
+  };
+
+  static LmsExam? fromCacheJson(Map<String, dynamic> json) {
+    final course = (json['courseName'] ?? '').toString();
+    if (course.isEmpty) {
+      return null;
+    }
+    return LmsExam(
+      courseName: course,
+      examName: (json['examName'] ?? '').toString(),
+      termLabel: (json['termLabel'] ?? '').toString(),
+      timeText: (json['timeText'] ?? '').toString(),
+      location: (json['location'] ?? '').toString(),
+      teacher: (json['teacher'] ?? '').toString(),
     );
   }
 }

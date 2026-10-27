@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-/// 论坛/个人页使用的本地资料（昵称、头像），与教务账号无关。
+/// 论坛/个人页使用的本地资料（昵称、头像），按教务学号隔离。
 class UserProfile {
   const UserProfile({required this.nickname, required this.avatar});
 
@@ -24,10 +24,15 @@ class UserProfile {
   );
 }
 
-/// 个人资料存储（加密）。
+/// 个人资料存储（加密），按教务学号隔离。
 class ProfileStore {
   static const String _key = 'usst_user_profile_v1';
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
+
+  static String _keyFor(String username) {
+    final user = username.trim();
+    return user.isEmpty ? _key : '${_key}_$user';
+  }
 
   static const List<String> avatars = <String>[
     '🎓',
@@ -44,9 +49,9 @@ class ProfileStore {
     '🧋',
   ];
 
-  static Future<UserProfile?> load() async {
+  static Future<UserProfile?> load({String username = ''}) async {
     try {
-      final raw = await _storage.read(key: _key);
+      final raw = await _storage.read(key: _keyFor(username));
       if (raw == null || raw.isEmpty) {
         return null;
       }
@@ -56,17 +61,20 @@ class ProfileStore {
     }
   }
 
-  static Future<void> save(UserProfile profile) async {
+  static Future<void> save(UserProfile profile, {String username = ''}) async {
     try {
-      await _storage.write(key: _key, value: jsonEncode(profile.toJson()));
+      await _storage.write(
+        key: _keyFor(username),
+        value: jsonEncode(profile.toJson()),
+      );
     } catch (_) {
       // ignore
     }
   }
 
-  static Future<void> clear() async {
+  static Future<void> clear({String username = ''}) async {
     try {
-      await _storage.delete(key: _key);
+      await _storage.delete(key: _keyFor(username));
     } catch (_) {
       // ignore
     }

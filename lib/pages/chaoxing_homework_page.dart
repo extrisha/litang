@@ -372,6 +372,8 @@ class _ChaoxingHomeworkPageState extends State<ChaoxingHomeworkPage> {
                         width: 110,
                         height: 110,
                         fit: BoxFit.cover,
+                        // 只按显示尺寸解码（2x 供高 DPI），避免原图整张进内存
+                        cacheWidth: 220,
                         headers: const <String, String>{
                           'Referer': 'https://mooc1.chaoxing.com/',
                           'User-Agent': 'Mozilla/5.0',

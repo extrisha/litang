@@ -79,11 +79,15 @@ class TronCourseAnnouncement {
     required this.title,
     required this.content,
     required this.createdAt,
+    this.attachments = const <TronAttachment>[],
   });
 
   final String title;
   final String content;
   final String createdAt;
+
+  /// 公告也可能带附件（例如 .rar / .pdf）。
+  final List<TronAttachment> attachments;
 }
 
 class TronCourseExam {
@@ -241,22 +245,7 @@ class TronCourseDetailApi {
       Uri.parse('https://1906.usst.edu.cn/api/activities/$activityId'),
     );
     final map = _json(response.data);
-    final uploads = map['uploads'] as List<dynamic>? ?? <dynamic>[];
-    final attachments = <TronAttachment>[];
-    for (final upload in uploads) {
-      if (upload is! Map) continue;
-      final m = upload.cast<String, dynamic>();
-      final id = (m['id'] as num?)?.toInt() ?? 0;
-      final name = (m['name'] ?? '').toString();
-      if (id <= 0 || name.isEmpty) continue;
-      attachments.add(
-        TronAttachment(
-          id: id,
-          name: name,
-          size: (m['size'] as num?)?.toInt() ?? 0,
-        ),
-      );
-    }
+    final attachments = parseUploads(map['uploads']);
     return TronActivityDetail(
       title: (map['title'] ?? '').toString().trim(),
       description: _plain(_dataString(map, 'description')),
@@ -279,10 +268,32 @@ class TronCourseDetailApi {
             title: (m['title'] ?? '').toString().trim(),
             content: _plain((m['content'] ?? '').toString()),
             createdAt: _date((m['created_at'] ?? '').toString()),
+            attachments: parseUploads(m['uploads']),
           );
         })
         .where((e) => e.title.isNotEmpty)
         .toList();
+  }
+
+  /// 解析活动 / 公告的 `uploads` 数组，保留 .rar 等普通文件。
+  static List<TronAttachment> parseUploads(dynamic raw) {
+    final list = raw is List ? raw : const <dynamic>[];
+    final out = <TronAttachment>[];
+    for (final upload in list) {
+      if (upload is! Map) continue;
+      final m = upload.cast<String, dynamic>();
+      final id = int.tryParse('${m['id'] ?? ''}') ?? 0;
+      final name = (m['name'] ?? '').toString().trim();
+      if (id <= 0 || name.isEmpty) continue;
+      out.add(
+        TronAttachment(
+          id: id,
+          name: name,
+          size: (m['size'] as num?)?.toInt() ?? 0,
+        ),
+      );
+    }
+    return out;
   }
 
   Future<List<TronCourseExam>> _exams(String courseId) async {

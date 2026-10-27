@@ -80,6 +80,18 @@ class CacheStore {
     }
   }
 
+  /// 读原始字符串，不做 JSON 解析。
+  ///
+  /// 大对象（例如几 MB 的通知 feed）解析很吃 CPU，调用方可以拿原始字符串
+  /// 丢进 `compute()` 到后台 isolate 解析，避免卡住 UI 线程。
+  static Future<String?> readRaw(String key, {bool secure = false}) async {
+    try {
+      return secure ? await _secure.read(key: key) : await _readFile(key);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 写缓存。[data] 必须能 jsonEncode。
   static Future<void> write(
     String key,
@@ -134,7 +146,9 @@ class CacheStore {
   );
 
   /// 解析缓存内容，兼容"没有时间戳"的旧格式。
-  @visibleForTesting
+  ///
+  /// 公开是因为调用方可能把「读原始字符串 + 解析」分两步，
+  /// 中间那步丢给 `compute()` 到后台 isolate 执行。
   static CacheEntry? decode(String raw) {
     try {
       final decoded = jsonDecode(raw);

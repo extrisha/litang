@@ -6,21 +6,23 @@ import '../services/update_service.dart';
 
 /// 发现新版本时的提示 + 下载进度。
 ///
-/// [mandatory] 为 true 时弹窗不可关闭、也没有「稍后」——用于云端把
+/// [mandatory] 不传时按 [UpdateInfo.mandatory] 处理；显式传值时以调用方为准。
+/// 为 true 时弹窗不可关闭、也没有「稍后」——用于云端把
 /// `minVersionCode` 抬高、要求旧版本必须升级的场景。
 Future<void> showUpdateDialog(
   BuildContext context,
   UpdateInfo info, {
   bool startup = false,
-  bool mandatory = false,
+  bool? mandatory,
 }) async {
+  final force = mandatory ?? info.mandatory;
   final go = await showDialog<bool>(
     context: context,
-    barrierDismissible: !mandatory,
+    barrierDismissible: !force,
     builder: (dialogContext) => PopScope(
-      canPop: !mandatory,
+      canPop: !force,
       child: AlertDialog(
-        title: Text(mandatory ? '需要更新后才能继续' : '发现新版本 ${info.version}'),
+        title: Text(force ? '需要更新后才能继续' : '发现新版本 ${info.version}'),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -32,9 +34,9 @@ Future<void> showUpdateDialog(
               ),
               const SizedBox(height: 12),
               Text(
-                mandatory
+                force
                     ? '当前版本 ${info.version} 已停止支持，更新完成前无法使用。'
-                        '下载后会自动打开系统安装器。'
+                          '下载后会自动打开系统安装器。'
                     : '下载后会自动打开系统安装器；部分手机需要在系统设置里允许「安装未知应用」。',
                 style: const TextStyle(
                   fontSize: 11,
@@ -49,7 +51,7 @@ Future<void> showUpdateDialog(
             onPressed: () => _openReleasePage(),
             child: const Text('手动下载'),
           ),
-          if (!mandatory)
+          if (!force)
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: Text(startup ? '稍后' : '取消'),
@@ -66,7 +68,7 @@ Future<void> showUpdateDialog(
   await showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => _UpdateProgressDialog(info: info, mandatory: mandatory),
+    builder: (_) => _UpdateProgressDialog(info: info, mandatory: force),
   );
 }
 
@@ -150,10 +152,7 @@ class _UpdateProgressDialogState extends State<_UpdateProgressDialog> {
             ),
       actions: <Widget>[
         if (_error != null) ...<Widget>[
-          TextButton(
-            onPressed: _openReleasePage,
-            child: const Text('手动下载'),
-          ),
+          TextButton(onPressed: _openReleasePage, child: const Text('手动下载')),
           TextButton(
             onPressed: () {
               setState(() {

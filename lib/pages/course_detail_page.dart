@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:open_filex/open_filex.dart';
 
 import '../app_theme.dart';
+import '../data/attachment_cache.dart';
 import '../data/auth/jwgl_auth.dart';
 import '../data/lms/course_detail_api.dart';
+import '../data/lms/homework_api.dart';
 import '../data/lms/todo_api.dart';
 import '../data/lms/tronclass_auth.dart';
 import 'homework_page.dart';
@@ -29,6 +32,7 @@ class _TronCourseDetailPageState extends State<TronCourseDetailPage> {
   TronCourseDetail? _detail;
   String? _error;
   bool _loading = true;
+  int? _openingAttachmentId;
 
   @override
   void initState() {
@@ -288,6 +292,11 @@ class _TronCourseDetailPageState extends State<TronCourseDetailPage> {
                     color: AppColors.textSecondary,
                   ),
                 ),
+                if (item.attachments.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  for (final attachment in item.attachments)
+                    _attachmentRow(attachment),
+                ],
                 if (item.createdAt.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 8),
                   Text(
@@ -304,6 +313,100 @@ class _TronCourseDetailPageState extends State<TronCourseDetailPage> {
         );
       },
     );
+  }
+
+  Widget _attachmentRow(TronAttachment attachment) {
+    final opening = _openingAttachmentId == attachment.id;
+    return InkWell(
+      onTap: opening ? null : () => _openAttachment(attachment),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: <Widget>[
+            const Icon(
+              Icons.attach_file,
+              size: 16,
+              color: AppColors.textSecondary,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                attachment.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: AppColors.usstRed),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${attachment.typeLabel} · ${_sizeLabel(attachment.size)}',
+              style: const TextStyle(
+                fontSize: 10,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(width: 6),
+            if (opening)
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              const Icon(
+                Icons.download_outlined,
+                size: 16,
+                color: AppColors.textSecondary,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openAttachment(TronAttachment attachment) async {
+    if (_openingAttachmentId != null) return;
+    setState(() => _openingAttachmentId = attachment.id);
+    try {
+      await TronclassAuth.instance.ensureLoggedIn();
+      final client = JwglAuth.instance.client;
+      if (client == null) throw Exception('登录已失效');
+      final path =
+          await AttachmentCache.existing(attachment.name) ??
+          await AttachmentCache.save(
+            attachment.name,
+            await HomeworkApi(client).fetchBlob(attachment.id),
+          );
+      if (!mounted) return;
+      final result = await OpenFilex.open(path);
+      if (!mounted) return;
+      if (result.type != ResultType.done) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '已保存到下载目录：${attachment.name}'
+              '${result.message.isEmpty ? '' : '\n${result.message}'}',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('附件下载失败，请稍后重试')));
+      }
+    } finally {
+      if (mounted) setState(() => _openingAttachmentId = null);
+    }
+  }
+
+  String _sizeLabel(int bytes) {
+    if (bytes <= 0) return '未知大小';
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '$bytes B';
   }
 
   Widget _homeworkList(List<TronCourseHomework> items) {
