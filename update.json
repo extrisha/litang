@@ -1,9 +1,9 @@
 {
-  "version": "0.4.4",
-  "versionCode": 20,
+  "version": "0.5.0",
+  "versionCode": 25,
   "minVersionCode": 0,
-  "notes": "首页搜索（7456 条通知本地索引）；一网畅学签到修复；学工静默登录修复；离线刷新保留缓存；通知抓取 IPv4/失败门槛",
+  "notes": "新增校园服务页：宿舍电费查询与缓存；学习通支持教务账号一键登录、课程与作业缓存；公告附件（含压缩包）可下载；修复换账号后课程、昵称、学习通不同步；优化首页和校园服务加载速度。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.4.4/app-release.apk",
-  "sha256": "bcc7139d49593ffdad90c8db684910cb91402106a88a9c046e14406a65790916"
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.0/app-release.apk",
+  "sha256": "146f5ce29b0374bb5029a812b3d0b28e806b22258eedda3c6f3144e01724904e"
 }
