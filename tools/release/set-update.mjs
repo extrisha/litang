@@ -69,7 +69,8 @@ console.log('即将写入 update.json:');
 console.log(JSON.stringify(manifest, null, 2));
 console.log(`\nAPK: ${(info.size / 1048576).toFixed(2)} MB`);
 console.log(`强制更新: ${mandatory ? `是（低于 ${code} 的版本必须升级）` : '否（用户可以跳过）'}`);
-console.log(`Release tag: ${version}（GitHub / Gitee 都建议用这个，Gitee 必须一致）`);
+console.log(`Release 标题: LiTang-${version}（GitHub / Gitee 保持一致）`);
+console.log(`Release tag: ${version}（Gitee 必须一致，不要加 v）`);
 console.log('上传文件名: app-release.apk');
 
 if (dry) {

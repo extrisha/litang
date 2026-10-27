@@ -61,13 +61,24 @@ console.log('\n=== 安装包地址 ===');
 const local = JSON.parse(await readFile(join(ROOT, 'update.json'), 'utf8'));
 const primary = [local.apk_github, local.apk_gitee].filter(Boolean);
 let primaryOk = false;
+let reachable = 0;
 
 for (const url of primary) {
   const r = await head(url);
   const size = r.size ? ` ${(Number(r.size) / 1048576).toFixed(1)}MB` : '';
+  if (r.status === 0) {
+    // 本机网络到不了这个源（常见于 GitHub 直连），不代表 Release 有问题
+    console.log(`⚠️  连接失败（本机网络？）  ${url}`);
+    continue;
+  }
+  reachable++;
   console.log(`${ok(r.status) ? '✅' : '❌'} ${r.status}${size}  ${url}`);
   if (ok(r.status)) primaryOk = true;
   else failed++;
+}
+
+if (primary.length > 0 && reachable === 0) {
+  console.log('⚠️ 两个源都连不上，安装包地址这项跳过（请换网络后再查）');
 }
 
 // tag 的 v 前缀是客户端会自动兜底的写法，主地址通了就不算问题
@@ -95,7 +106,11 @@ try {
     const hasAsset = (rel.assets ?? []).length > 0;
     const mark = hasAsset ? '✅' : index === 0 ? '❌' : '➖';
     const note = hasAsset ? '' : index === 0 ? '（没有附件，latest 会 404）' : '（历史版本，忽略）';
-    console.log(`${mark} ${rel.tag_name}  ${assets || '（无）'}${note}`);
+    const title = rel.name ?? '（无标题）';
+    console.log(`${mark} ${rel.tag_name}  ${title}  ${assets || '（无）'}${note}`);
+    if (index === 0 && title !== `LiTang-${rel.tag_name}`) {
+      console.log(`   ⚠ 标题建议改为 LiTang-${rel.tag_name}（只改标题，不影响下载）`);
+    }
     if (!hasAsset && index === 0) failed++;
   });
 } catch (e) {
