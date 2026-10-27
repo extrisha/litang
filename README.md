@@ -59,7 +59,7 @@
 
 ## 发布流程
 
-固定动作见 [发版清单](docs/release-checklist.md)。简要步骤：
+内部发版清单不入库，简要步骤：
 
 ```bash
 # 1) 打包（从「中性路径」构建，避免把本机用户名写进 libapp.so）
@@ -80,17 +80,11 @@ node tools/release/check-update.mjs
 # 5) 本地备份：Project_USST_backups/v<版本>-full/app-release.apk
 ```
 
-**tag 规则**：Gitee 的 tag 必须和 `--version` 完全一致（写成 `0.4.4`，不要 `v0.4.4`），
-清单里的 Gitee 地址是按这个拼的；GitHub 侧用的是 `releases/latest/download`，不挑 tag。
+**Release 标题与 tag**：标题统一为 `LiTang-<version>`（如 `LiTang-0.4.4`）；tag 仍用 `<version>`（如 `0.4.4`，不要 `v0.4.4`）。Gitee 的下载地址按 tag 拼接，GitHub 侧用 `releases/latest/download`，两者都与标题无关。
 
 **强制更新**：加 `--mandatory` 会把 `minVersionCode` 设成这一版的版本号，
 低于它的客户端启动时会被要求先更新（弹窗不可关闭，带「手动下载」兜底）；
 不加就是普通可选更新。注意 0.4.1 及更早的客户端不认识这个字段，只有 0.4.2+ 受管。
-
-## 文档
-
-- [项目规划与讨论纪要](校园服务App_项目规划与讨论纪要.md)
-- [发版清单](docs/release-checklist.md)
 
 参考项目：
 

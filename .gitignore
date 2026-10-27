@@ -2,7 +2,12 @@
 *.class
 *.log
 *.pyc
+*.pyo
 *.swp
+*.tmp
+*.bak
+*.orig
+*.rej
 .DS_Store
 .atom/
 .build/
@@ -11,6 +16,7 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+Thumbs.db
 
 # IntelliJ related
 *.iml
@@ -27,6 +33,7 @@ migrate_working_dir/
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
@@ -47,20 +54,43 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
-
 # Local signing / secrets
 android/key.properties
 *.jks
 *.keystore
 *.p12
+.env
+.env.*
 
 # Local dev tools / recon scripts
 /tool/
+/tools/usst_card/
+/docs/usst-card-api-notes.md
 
+# Python local caches / virtualenvs
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Gradle / Kotlin / native build caches
 /android/.gradle/
 /android/build/
 **/.gradle/
+**/.cxx/
+android/.kotlin/
 android/local.properties
 
-# ���ر���Ŀ¼������⣩
+# Flutter platform generated files
+**/flutter/ephemeral/
+/ios/Pods/
+/ios/.symlinks/
+
+# 本地备份目录（不入库）
 Project_USST_backups/
+
+# 本地规划 / 内部文档（不公开）
+/校园服务App_项目规划与讨论纪要.md
+/docs/
