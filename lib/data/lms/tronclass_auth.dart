@@ -18,6 +18,11 @@ class TronclassAuth {
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
 
   List<CasCookie> _cookies = <CasCookie>[];
+  DateTime? _validatedAt;
+  String? _validatedUser;
+
+  /// 同一个刷新流程里会被调用多次；15 秒内不重复探 1906。
+  static const Duration _sessionTtl = Duration(seconds: 15);
 
   List<CasCookie> get cookies => List<CasCookie>.unmodifiable(_cookies);
 
@@ -28,6 +33,12 @@ class TronclassAuth {
     final jwgl = JwglAuth.instance;
     if (!jwgl.isLoggedIn) {
       return false;
+    }
+    final checkedAt = _validatedAt;
+    if (checkedAt != null &&
+        _validatedUser == jwgl.studentId &&
+        DateTime.now().difference(checkedAt) < _sessionTtl) {
+      return true;
     }
     if (!await jwgl.ensureSession()) {
       if (!await jwgl.reauthenticate()) {
@@ -61,6 +72,8 @@ class TronclassAuth {
         if (!ok) return false;
       }
     }
+    _validatedAt = null;
+    _validatedUser = null;
     return false;
   }
 
@@ -80,6 +93,8 @@ class TronclassAuth {
 
   Future<bool> _cacheCookies(CasClient client) async {
     _cookies = client.jar.cookiesForHost(host);
+    _validatedAt = DateTime.now();
+    _validatedUser = JwglAuth.instance.studentId;
     await _save();
     return _cookies.isNotEmpty;
   }

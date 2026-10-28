@@ -502,6 +502,16 @@ class RollcallApi {
       }
     }
     var message = '签到失败（HTTP $code）';
+    final errorCode = map?['errorCode']?.toString() ?? '';
+    const radarErrors = <String, String>{
+      'ROLLCALL_RADAR_OUT_OF_SCOPE': '定位超出签到范围，请靠近上课教室后重试',
+      'RADAR_ROLLCALL_POSITION_INVALID': '定位坐标无效，请重新定位后重试',
+      'ROLLCALL_DEVICE_ALREADY_IN_USE': '这台设备已经给其他账号签过到了',
+      'RADAR_SIGNAL_INVALID_NO_SIGNAL': '本堂课需要教室蓝牙信标，请在教室内重试',
+    };
+    if (radarErrors.containsKey(errorCode)) {
+      return SignResult(success: false, message: radarErrors[errorCode]);
+    }
     final msg = map?['message'] ?? map?['error'] ?? map?['msg'];
     if (msg != null && msg.toString().trim().isNotEmpty) {
       message = msg.toString();

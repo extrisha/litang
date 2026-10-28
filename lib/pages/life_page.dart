@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -10,6 +12,8 @@ import '../data/calendar/calendar_service.dart';
 import '../data/chaoxing/chaoxing_auth.dart';
 import '../data/chaoxing/chaoxing_cache.dart';
 import '../data/chaoxing/chaoxing_client.dart';
+import '../data/chaoxing/chaoxing_sso.dart';
+import '../data/geo/coordinate_utils.dart';
 import '../data/jwc/course_repository.dart';
 import '../data/life_cache.dart';
 import '../data/lms/rollcall_api.dart';
@@ -161,14 +165,7 @@ class _LifePageState extends State<LifePage> {
     }
     if (!mounted || auth.studentId != id) return;
 
-    // 2) 先让一网畅学会话就绪，再拉生活页数据。
-    try {
-      await TronclassAuth.instance.ensureLoggedIn();
-    } catch (_) {
-      // 失败由 _refresh 自己展示错误
-    }
-    if (!mounted || auth.studentId != id) return;
-
+    // 2) 一网畅学登录由 _refresh 内部完成；先贴缓存，再拉生活页数据。
     await _restoreCachedLifeData(id);
     await _refresh(force: true);
     if (!mounted || auth.studentId != id) return;
@@ -461,23 +458,23 @@ class _LifePageState extends State<LifePage> {
     }
     try {
       final auth = ChaoxingAuth.instance;
-      if (!auth.isLoggedIn) {
-        await auth.restore();
-      }
-      if (!auth.isLoggedIn) {
-        if (!autoLogin || JwglAuth.instance.client == null) {
-          return;
+      // 本地 cookie → 教务 CAS 静默 SSO，两者都不弹界面。
+      // 以前这里会在 cookie 失效时直接叫出网页登录，现在先让 SSO 试一次。
+      var ready = await auth.ensureSession();
+      final cas = JwglAuth.instance.client;
+      if (!ready && autoLogin && cas != null) {
+        // CAS 也换不到（多半是教务会话过期），退回网页登录。
+        // 没有 CASTGC 时隐藏 WebView 同样换不到 SSO，直接走可见页，避免白等。
+        var ok = false;
+        if (ChaoxingSso.hasCastgc(cas)) {
+          ok = await _promptChaoxingLogin(hidden: true);
         }
-        // 先试隐藏 WebView；遇到验证码/需要人工时再降级到可见登录页。
-        var ok = await _promptChaoxingLogin(hidden: true);
         if (!ok && allowVisibleFallback) {
           ok = await _promptChaoxingLogin();
         }
-        if (!ok || !mounted) {
-          return;
-        }
+        ready = ok && auth.isLoggedIn;
       }
-      if (!await auth.ensureSession()) {
+      if (!ready || !mounted) {
         if (mounted) {
           setState(() {
             _cxActivities = const <ChaoxingActivity>[];
@@ -494,7 +491,7 @@ class _LifePageState extends State<LifePage> {
           ? _cxCourses
           : await client.fetchCourses();
       await _ensureCurrentCourseNames();
-      final courses = _timetableNames.isEmpty
+      final currentCourses = _timetableNames.isEmpty
           ? rawCourses
           : rawCourses
                 .where(
@@ -502,9 +499,11 @@ class _LifePageState extends State<LifePage> {
                 )
                 .toList();
       final needWorks = withWorks || _cxWorks.isEmpty;
-      final activitiesFuture = client.fetchActivities(courses);
+      // 签到和作业都只看当前学期的课：
+      // 往期课的作业早就截止了，放进待办只会干扰当前任务。
+      final activitiesFuture = client.fetchActivities(currentCourses);
       final worksFuture = needWorks
-          ? client.fetchWorks(courses)
+          ? client.fetchWorks(currentCourses)
           : Future<List<ChaoxingWork>>.value(_cxWorks);
       final activities = await activitiesFuture;
       final works = await worksFuture;
@@ -512,13 +511,13 @@ class _LifePageState extends State<LifePage> {
         return;
       }
       setState(() {
-        _cxCourses = courses;
+        _cxCourses = currentCourses;
         _cxActivities = activities;
         _cxWorks = works;
       });
       if (cacheUser.isNotEmpty &&
           JwglAuth.instance.savedUsername == cacheUser) {
-        unawaited(ChaoxingCache.writeCourses(cacheUser, courses));
+        unawaited(ChaoxingCache.writeCourses(cacheUser, currentCourses));
         unawaited(ChaoxingCache.writeActivities(cacheUser, activities));
         unawaited(ChaoxingCache.writeWorks(cacheUser, works));
       }
@@ -1077,6 +1076,44 @@ class _LifePageState extends State<LifePage> {
     }
   }
 
+  /// 学习通扫码签到：扫老师屏幕上的二维码，用它自带的 id/enc 直接完成签到。
+  ///
+  /// 和一网畅学的签到是两套系统：一网畅学要 POST 到 RollcallApi，
+  /// 学习通则是「GET 那个二维码地址」本身就算签到（详见 ChaoxingClient.signByQr）。
+  Future<void> _signChaoxingByQr(ChaoxingActivity activity) async {
+    final client = ChaoxingAuth.instance.client;
+    if (client == null) {
+      _toast('请先登录学习通');
+      return;
+    }
+    final raw = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(builder: (_) => const QrScanPage()),
+    );
+    if (raw == null || raw.isEmpty || !mounted) {
+      return;
+    }
+    setState(() => _cxLoading = true);
+    var signed = false;
+    try {
+      final result = await client.signByQr(raw);
+      signed = result.success;
+      if (mounted) {
+        _toast(result.message);
+      }
+    } catch (e) {
+      if (mounted) {
+        _toast('签到请求失败：$e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _cxLoading = false);
+      }
+    }
+    if (signed) {
+      await _refreshChaoxing();
+    }
+  }
+
   /// 雷达签到：用系统定位上报当前位置。
   ///
   /// 只上报真实坐标，不提供选教学楼/手填坐标的入口。
@@ -1094,26 +1131,39 @@ class _LifePageState extends State<LifePage> {
         _toast('雷达签到需要定位权限，请在系统设置里允许定位');
         return;
       }
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        _toast('系统定位服务未开启，请打开 GPS/定位开关');
+        return;
+      }
+      try {
+        if (await Geolocator.getLocationAccuracy() ==
+            LocationAccuracyStatus.reduced) {
+          _toast('当前只给了「大致位置」，雷达签到需要精确位置，请到系统设置里改为「精确」');
+          return;
+        }
+      } catch (_) {
+        // 部分平台不支持查询精度，继续尝试定位。
+      }
       late final Position position;
       try {
-        position = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            timeLimit: Duration(seconds: 12),
-          ),
-        );
-      } catch (_) {
+        position = await _getRadarPosition();
+      } catch (e) {
         if (mounted) {
-          _toast('定位失败，请到空旷处重试');
+          _toast(_radarLocationError(e));
         }
         return;
       }
       final SignResult result;
       try {
-        result = await RollcallApi(client).reportRadarPosition(
-          rollcall,
+        // 一网畅学雷达接口要 GCJ-02；系统定位给的是 WGS-84，直接上报会偏几百米。
+        final (gcjLat, gcjLng) = CoordinateUtils.wgs84ToGcj02(
           position.latitude,
           position.longitude,
+        );
+        result = await RollcallApi(client).reportRadarPosition(
+          rollcall,
+          gcjLat,
+          gcjLng,
           accuracy: position.accuracy,
           altitude: position.altitude,
           altitudeAccuracy: position.altitudeAccuracy,
@@ -1147,6 +1197,72 @@ class _LifePageState extends State<LifePage> {
     }
     return permission == LocationPermission.always ||
         permission == LocationPermission.whileInUse;
+  }
+
+  /// 雷达签到取坐标：先复用系统最近一次有效定位，再尝试实时高精度定位。
+  ///
+  /// Android 上强制走 LocationManager，避免部分机器（无 GMS / 国内 ROM）
+  /// 的 FusedLocationProvider 一直不回调，最后只能超时。
+  Future<Position> _getRadarPosition() async {
+    try {
+      final last = await Geolocator.getLastKnownPosition(
+        forceAndroidLocationManager: true,
+      );
+      if (_isUsableLastKnown(last)) {
+        return last!;
+      }
+    } catch (_) {
+      // 忽略，继续实时定位
+    }
+    final android = defaultTargetPlatform == TargetPlatform.android;
+    final high = android
+        ? AndroidSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: const Duration(seconds: 20),
+            forceLocationManager: true,
+          )
+        : const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 20),
+          );
+    try {
+      return await Geolocator.getCurrentPosition(locationSettings: high);
+    } catch (_) {
+      final medium = android
+          ? AndroidSettings(
+              accuracy: LocationAccuracy.medium,
+              timeLimit: const Duration(seconds: 12),
+              forceLocationManager: true,
+            )
+          : const LocationSettings(
+              accuracy: LocationAccuracy.medium,
+              timeLimit: Duration(seconds: 12),
+            );
+      return Geolocator.getCurrentPosition(locationSettings: medium);
+    }
+  }
+
+  /// 最近一次定位要够新、够准才用于签到，避免拿着上节课的旧坐标。
+  bool _isUsableLastKnown(Position? position) {
+    if (position == null) return false;
+    final age = DateTime.now().difference(position.timestamp);
+    return !age.isNegative &&
+        age <= const Duration(minutes: 5) &&
+        position.accuracy > 0 &&
+        position.accuracy <= 100;
+  }
+
+  String _radarLocationError(Object error) {
+    if (error is TimeoutException) {
+      return '定位超时：请到室外/窗边，确认 GPS 已开启后重试';
+    }
+    if (error is LocationServiceDisabledException) {
+      return '系统定位服务未开启，请打开 GPS/定位开关';
+    }
+    if (error is PermissionDeniedException) {
+      return '定位权限被拒绝，请在系统设置里允许定位';
+    }
+    return '定位失败，请确认在室外并开启 GPS 后重试';
   }
 
   Future<void> _openTodo(LmsTodo todo) async {
@@ -1633,10 +1749,14 @@ class _LifePageState extends State<LifePage> {
               ],
             ),
           ),
-          const Icon(
-            Icons.chevron_right,
-            size: 16,
-            color: AppColors.textSecondary,
+          TextButton(
+            onPressed: () => _signChaoxingByQr(activity),
+            style: TextButton.styleFrom(
+              minimumSize: const Size(0, 32),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('扫码签到', style: TextStyle(fontSize: 12)),
           ),
         ],
       ),

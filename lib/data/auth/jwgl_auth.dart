@@ -19,6 +19,11 @@ class JwglAuth extends ChangeNotifier {
   CasClient? _client;
   String? _studentId;
   bool _restored = false;
+  DateTime? _sessionCheckedAt;
+
+  /// 同一个页面刷新会多次调用 ensureSession；15 秒内不重复打教务首页。
+  /// 真正的半失效仍由业务请求失败后的 reauthenticate 兜底。
+  static const Duration _sessionTtl = Duration(seconds: 15);
 
   String _savedUsername = '';
   String? _savedPassword;
@@ -83,6 +88,7 @@ class JwglAuth extends ChangeNotifier {
     _savedUsername = username;
     _savedPassword = password;
     _restored = true;
+    _sessionCheckedAt = DateTime.now();
   }
 
   /// 启动时恢复登录：cookie → CAS 静默 → 保存的密码，逐级降级。
@@ -100,11 +106,13 @@ class JwglAuth extends ChangeNotifier {
       final client = CasClient(initialCookies: stored.cookies);
       if (await client.checkSession()) {
         _client = client;
+        _sessionCheckedAt = DateTime.now();
         notifyListeners();
         return;
       }
       if (await client.silentLogin()) {
         _client = client;
+        _sessionCheckedAt = DateTime.now();
         await _store.save(
           client,
           username: _savedUsername,
@@ -129,6 +137,7 @@ class JwglAuth extends ChangeNotifier {
     if (current != null) {
       try {
         if (await current.silentLogin()) {
+          _sessionCheckedAt = DateTime.now();
           await _store.save(
             current,
             username: _savedUsername,
@@ -164,10 +173,18 @@ class JwglAuth extends ChangeNotifier {
     if (client == null) {
       return _tryAutoLogin();
     }
-    if (await client.checkSession()) {
+    final checkedAt = _sessionCheckedAt;
+    if (checkedAt != null &&
+        DateTime.now().difference(checkedAt) < _sessionTtl) {
       return true;
     }
+    if (await client.checkSession()) {
+      _sessionCheckedAt = DateTime.now();
+      return true;
+    }
+    _sessionCheckedAt = null;
     if (await client.silentLogin()) {
+      _sessionCheckedAt = DateTime.now();
       await _store.save(
         client,
         username: _savedUsername,
@@ -210,6 +227,7 @@ class JwglAuth extends ChangeNotifier {
     _studentId = null;
     _savedUsername = '';
     _savedPassword = null;
+    _sessionCheckedAt = null;
     await _store.clear();
   }
 }

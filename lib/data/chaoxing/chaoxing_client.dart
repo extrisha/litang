@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../auth/cas_client.dart';
 
@@ -96,6 +97,36 @@ class ChaoxingActivity {
     if (activeType.contains('task')) return '任务';
     return '活动';
   }
+}
+
+/// 扫码签到的结果类别。
+enum ChaoxingSignStatus {
+  /// 本次签到成功
+  success,
+
+  /// 之前已经签过（重复扫码）
+  alreadySigned,
+
+  /// 签到已结束 / 二维码过期
+  ended,
+
+  /// 二维码无效或不是学习通的签到码
+  invalid,
+
+  /// 服务端返回了看不懂的内容
+  unknown,
+}
+
+/// 扫码签到的结果。
+class ChaoxingSignResult {
+  const ChaoxingSignResult(this.status, this.message);
+
+  final ChaoxingSignStatus status;
+  final String message;
+
+  bool get success =>
+      status == ChaoxingSignStatus.success ||
+      status == ChaoxingSignStatus.alreadySigned;
 }
 
 /// 学习通作业。
@@ -345,7 +376,89 @@ class ChaoxingClient {
   }
 
   /// 我的课程。
+  ///
+  /// 优先走 JSON 接口 `backclazzdata`——它一次就把 courseId / classId / cpi
+  /// 全给了（实测结构见 [parseCourseListJson]），不用再靠正则扒 HTML。
+  /// JSON 不可用（接口变动、未登录等）时退回解析课程列表页。
   Future<List<ChaoxingCourse>> fetchCourses() async {
+    final fromJson = await _fetchCoursesFromJson();
+    if (fromJson != null && fromJson.isNotEmpty) {
+      return fromJson;
+    }
+    return _fetchCoursesFromHtml();
+  }
+
+  Future<List<ChaoxingCourse>?> _fetchCoursesFromJson() async {
+    try {
+      final response = await _send(
+        Uri.parse(
+          'https://mooc1-api.chaoxing.com/mycourse/backclazzdata'
+          '?view=json&rss=1',
+        ),
+      );
+      return parseCourseListJson((response.data as String?) ?? '');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 解析 `backclazzdata` 的响应。返回 null 表示「结构不认识」，调用方应回退。
+  ///
+  /// 实测结构（2026-10-28）：
+  /// ```json
+  /// {"result":1,"channelList":[
+  ///   {"key":155660593, "cpi":497874758,
+  ///    "content":{"course":{"data":[
+  ///       {"id":267465996,"name":"人体解剖学实验","teacherfactor":"王艳"}]}}}]}
+  /// ```
+  /// - `channel.key`  → classId
+  /// - `channel.cpi`  → 该账号的 personId（各 channel 相同）
+  /// - `data[].id`    → courseId
+  @visibleForTesting
+  static List<ChaoxingCourse>? parseCourseListJson(String raw) {
+    if (raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return null;
+      if (decoded['result'] != 1) return null;
+      final channels = decoded['channelList'];
+      if (channels is! List) return null;
+
+      final courses = <ChaoxingCourse>[];
+      for (final channel in channels) {
+        if (channel is! Map) continue;
+        final content = channel['content'];
+        if (content is! Map) continue;
+        final course = content['course'];
+        if (course is! Map) continue;
+        final data = course['data'];
+        if (data is! List) continue;
+
+        final classId = (channel['key'] ?? '').toString();
+        final cpi = (channel['cpi'] ?? '').toString();
+        for (final item in data) {
+          if (item is! Map) continue;
+          final courseId = (item['id'] ?? '').toString();
+          final name = (item['name'] ?? '').toString().trim();
+          if (courseId.isEmpty || name.isEmpty) continue;
+          courses.add(
+            ChaoxingCourse(
+              courseId: courseId,
+              classId: classId,
+              cpi: cpi,
+              name: name,
+              teacher: (item['teacherfactor'] ?? '').toString().trim(),
+            ),
+          );
+        }
+      }
+      return courses;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<ChaoxingCourse>> _fetchCoursesFromHtml() async {
     final response = await _send(
       Uri.parse(
         'https://mooc1-1.chaoxing.com/visit/courselistdata?courseType=1&isActive=1',
@@ -435,6 +548,89 @@ class ChaoxingClient {
     });
   }
 
+  /// 扫码签到。
+  ///
+  /// 老师屏幕上那张二维码编码的是：
+  /// `https://mobilelearn.chaoxing.com/widget/sign/e?id=<activeId>&c=<activeId>&enc=<...>`
+  ///
+  /// 关键点：**带会话直接 GET 这个地址就会完成签到**，不是"先查询再提交"。
+  /// 实测（2026-10-28）已签过的账号再用同一链接请求，服务端返回
+  /// 「签到结果 / 签到成功 / 10-28 09:48」——即回显那次签到的时间。
+  ///
+  /// 另外服务端会看 UA：桌面浏览器 UA 只会得到「请使用客户端进行扫码签到」，
+  /// 所以这里必须伪装成学习通客户端。
+  Future<ChaoxingSignResult> signByQr(String raw) async {
+    final uri = Uri.tryParse(raw.trim());
+    if (uri == null || !uri.hasScheme) {
+      return const ChaoxingSignResult(ChaoxingSignStatus.invalid, '不是有效的二维码');
+    }
+    if (!uri.host.endsWith('chaoxing.com') ||
+        !uri.path.contains('/widget/sign/')) {
+      return const ChaoxingSignResult(
+        ChaoxingSignStatus.invalid,
+        '这不是学习通的签到二维码',
+      );
+    }
+    if (!uri.queryParameters.containsKey('enc')) {
+      return const ChaoxingSignResult(ChaoxingSignStatus.invalid, '二维码缺少 enc 参数');
+    }
+
+    final response = await _send(
+      uri,
+      headers: <String, String>{
+        'User-Agent': _mobileUa,
+        'Referer': 'https://mobilelearn.chaoxing.com/',
+      },
+    );
+    final html = (response.data as String?) ?? '';
+    return parseSignResult(html);
+  }
+
+  /// 学习通客户端的 UA——服务端据此判断是不是 App 在请求。
+  static const String _mobileUa =
+      'Dalvik/2.1.0 (Linux; U; Android 14; 23127PN0CC) (CHAOXING/6.5.0)';
+
+  /// 解析签到结果页（公开以便单测）。
+  @visibleForTesting
+  static ChaoxingSignResult parseSignResult(String html) {
+    if (html.isEmpty) {
+      return const ChaoxingSignResult(ChaoxingSignStatus.unknown, '服务端没有返回内容');
+    }
+    final text = html
+        .replaceAll(RegExp(r'<script[\s\S]*?</script>'), ' ')
+        .replaceAll(RegExp(r'<style[\s\S]*?</style>'), ' ')
+        .replaceAll(RegExp(r'<[^>]+>'), ' ')
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    if (text.contains('签到成功')) {
+      return ChaoxingSignResult(ChaoxingSignStatus.success, '签到成功');
+    }
+    if (text.contains('已签到') || text.contains('已经签到')) {
+      return const ChaoxingSignResult(ChaoxingSignStatus.alreadySigned, '已经签过到了');
+    }
+    if (text.contains('结束') || text.contains('过期') || text.contains('超时')) {
+      return const ChaoxingSignResult(ChaoxingSignStatus.ended, '签到已结束');
+    }
+    if (text.contains('无效') || text.contains('不存在') || text.contains('失败')) {
+      return ChaoxingSignResult(
+        ChaoxingSignStatus.invalid,
+        text.length > 40 ? text.substring(0, 40) : text,
+      );
+    }
+    if (text.contains('请使用客户端')) {
+      return const ChaoxingSignResult(
+        ChaoxingSignStatus.unknown,
+        '服务端没认出客户端身份，请重试',
+      );
+    }
+    return ChaoxingSignResult(
+      ChaoxingSignStatus.unknown,
+      text.length > 40 ? text.substring(0, 40) : '签到结果未知',
+    );
+  }
+
   /// 各课程作业列表。
   Future<List<ChaoxingWork>> fetchWorks(List<ChaoxingCourse> courses) {
     return _concurrentMap(courses, (course) async {
@@ -458,52 +654,108 @@ class ChaoxingClient {
           ),
         );
         final html = (list.data as String?) ?? '';
-        final itemRe = RegExp(
-          r'<li[^>]*onclick="goTask\(this\);"[^>]*data="([^"]+)"[^>]*>(.*?)</li>',
-          dotAll: true,
-        );
-        for (final match in itemRe.allMatches(html)) {
-          final dataUrl = match.group(1) ?? '';
-          final workId =
-              RegExp(r'workId=(\d+)').firstMatch(dataUrl)?.group(1) ?? '';
-          if (workId.isEmpty) continue;
-          final body = match.group(2) ?? '';
-          final title =
-              RegExp(r'class="overHidden2[^"]*"[^>]*>([^<]+)<')
-                  .firstMatch(body)
-                  ?.group(1)
-                  ?.trim() ??
-              '作业';
-          final status =
-              RegExp(r'class="status[^"]*"[^>]*>([^<]+)<')
-                  .firstMatch(body)
-                  ?.group(1)
-                  ?.trim() ??
-              '';
-          final timeText =
-              RegExp(r'class="time[^"]*"[^>]*>(.*?)</div>', dotAll: true)
-                  .firstMatch(body)
-                  ?.group(1)
-                  ?.replaceAll(RegExp(r'<[^>]+>'), '')
-                  .trim() ??
-              '';
-          out.add(
-            ChaoxingWork(
-              workId: workId,
-              title: title,
-              courseName: course.name,
-              statusText: status,
-              deadline: timeText,
-              expired: body.contains('icon-zy-g'),
-              taskUrl: dataUrl.replaceAll('&amp;', '&'),
-            ),
-          );
-        }
+        out.addAll(parseWorkListHtml(html, course));
       } catch (_) {
         // 单门课失败不影响其他课程
       }
       return out;
     });
+  }
+
+  /// 解析作业列表页。
+  ///
+  /// 页面结构（2026-10-28 实测）：
+  /// ```html
+  /// <li onclick="goTask(this);"
+  ///     data="...work/task?courseId=..&workId=57616202&answerId=0&enc=.."
+  ///     aria-label="消化系统 ; 未交">
+  ///   <p class="overHidden2 fl">消化系统</p>
+  ///   <p class="status fl">未交</p>
+  ///   <div class="time notOver">...</div>
+  /// </li>
+  /// ```
+  ///
+  /// 优先读 `aria-label`（一个属性里同时有标题和状态，比依赖两个 `<p>` 的
+  /// class 顺序稳），读不到再退回原来的 class 匹配。
+  @visibleForTesting
+  static List<ChaoxingWork> parseWorkListHtml(
+    String html,
+    ChaoxingCourse course,
+  ) {
+    final out = <ChaoxingWork>[];
+    if (html.isEmpty) return out;
+
+    final tagRe = RegExp(r'<li[^>]*goTask\(this\)[^>]*>');
+    for (final match in tagRe.allMatches(html)) {
+      final tag = match.group(0) ?? '';
+      final dataUrl = _attr(tag, 'data');
+      if (dataUrl == null || dataUrl.isEmpty) continue;
+      final workId =
+          RegExp(r'workId=(\d+)').firstMatch(dataUrl)?.group(1) ?? '';
+      if (workId.isEmpty) continue;
+
+      // aria-label 形如 "消化系统 ; 未交"
+      final label = _attr(tag, 'aria-label') ?? '';
+      var title = '';
+      var status = '';
+      if (label.contains(';')) {
+        final parts = label.split(';');
+        title = parts.first.trim();
+        status = parts.skip(1).join(';').trim();
+      } else {
+        title = label.trim();
+      }
+
+      final bodyStart = match.end;
+      final bodyEnd = html.indexOf('</li>', bodyStart);
+      final body = bodyEnd > bodyStart
+          ? html.substring(bodyStart, bodyEnd)
+          : '';
+
+      if (title.isEmpty) {
+        title =
+            RegExp(r'class="overHidden2[^"]*"[^>]*>([^<]+)<')
+                .firstMatch(body)
+                ?.group(1)
+                ?.trim() ??
+            '作业';
+      }
+      if (status.isEmpty) {
+        status =
+            RegExp(r'class="status[^"]*"[^>]*>([^<]+)<')
+                .firstMatch(body)
+                ?.group(1)
+                ?.trim() ??
+            '';
+      }
+      final timeText =
+          RegExp(r'class="time[^"]*"[^>]*>(.*?)</div>', dotAll: true)
+              .firstMatch(body)
+              ?.group(1)
+              ?.replaceAll(RegExp(r'<[^>]+>'), '')
+              .trim() ??
+          '';
+
+      out.add(
+        ChaoxingWork(
+          workId: workId,
+          title: title,
+          courseName: course.name,
+          statusText: status,
+          deadline: timeText,
+          expired: body.contains('icon-zy-g'),
+          taskUrl: dataUrl.replaceAll('&amp;', '&'),
+        ),
+      );
+    }
+    return out;
+  }
+
+  /// 从一段标签文本里取属性值（处理 `&amp;`）。
+  static String? _attr(String tag, String name) {
+    final match = RegExp('$name="([^"]*)"').firstMatch(tag);
+    final raw = match?.group(1);
+    return raw?.replaceAll('&amp;', '&').replaceAll('&#39;', "'");
   }
 
   /// 多门课并发请求；每个 worker 按课程取数据，单门失败只返回空列表。

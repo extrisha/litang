@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../auth/cas_client.dart';
+import '../auth/jwgl_auth.dart';
 import 'chaoxing_client.dart';
+import 'chaoxing_sso.dart';
 import 'web_cookie_bridge.dart';
 
 /// 学习通本地会话（只存 cookie，不存密码）。
@@ -73,6 +75,10 @@ class ChaoxingAuth extends ChangeNotifier {
 
   ChaoxingClient? _client;
   bool _restored = false;
+  DateTime? _checkedAt;
+
+  /// 刷新流程里会多次 ensureSession；15 秒内不重复请求 i.chaoxing.com。
+  static const Duration _sessionTtl = Duration(seconds: 15);
 
   bool get isLoggedIn => _client != null;
 
@@ -87,6 +93,7 @@ class ChaoxingAuth extends ChangeNotifier {
     }
     _client = client;
     _restored = true;
+    _checkedAt = DateTime.now();
     await _store.save(client);
     notifyListeners();
     return true;
@@ -100,11 +107,33 @@ class ChaoxingAuth extends ChangeNotifier {
     final client = ChaoxingClient(initialCookies: stored.cookies);
     if (await client.checkSession()) {
       _client = client;
+      _checkedAt = DateTime.now();
       notifyListeners();
       return;
     }
     // 会话过期了：cookie 留着没用，清掉，让用户重新网页登录
     await _store.clear();
+  }
+
+  /// 用教务的 CAS 会话静默登录（不弹网页）。
+  ///
+  /// 教务已登录时，整条 SSO 跳转链可以在后台跑完，用户无感知。
+  /// 失败返回 false，调用方仍可退回 [ChaoxingLoginPage] 的网页登录。
+  Future<bool> loginWithCas() async {
+    final cas = JwglAuth.instance.client;
+    if (cas == null) return false;
+    try {
+      var cookies = await ChaoxingSso.login(cas);
+      if (cookies.isEmpty) return false;
+      if (await loginWithCookies(cookies)) return true;
+      // ids6 快路径拿到的 cookie 可能不完整，强制从 tyrzfw 入口再走一遍。
+      cookies = await ChaoxingSso.login(cas, forceEntry: true);
+      if (cookies.isEmpty) return false;
+      return await loginWithCookies(cookies);
+    } catch (e) {
+      debugPrint('[ChaoxingAuth] CAS 静默登录失败: $e');
+      return false;
+    }
   }
 
   /// 数据页调用：cookie 失效时先试一次本地恢复。
@@ -113,12 +142,25 @@ class ChaoxingAuth extends ChangeNotifier {
   /// 页面上就只显示「重试」，永远等不到登录按钮。
   Future<bool> ensureSession() async {
     final client = _client;
-    if (client != null && await client.checkSession()) {
-      return true;
+    if (client != null) {
+      final checkedAt = _checkedAt;
+      if (checkedAt != null &&
+          DateTime.now().difference(checkedAt) < _sessionTtl) {
+        return true;
+      }
+      if (await client.checkSession()) {
+        _checkedAt = DateTime.now();
+        return true;
+      }
     }
     _client = null;
+    _checkedAt = null;
     _restored = false;
     await restore();
+    if (_client == null) {
+      // 本地 cookie 没了，用教务 CAS 静默换一次，省掉用户手动网页登录
+      await loginWithCas();
+    }
     final ok = _client != null;
     notifyListeners();
     return ok;
@@ -126,6 +168,7 @@ class ChaoxingAuth extends ChangeNotifier {
 
   Future<void> logout() async {
     _client = null;
+    _checkedAt = null;
     await _store.clear();
     // 一并清掉 WebView 里的登录态，免得下次点登录直接是上一个人的账号
     await WebCookieBridge.clear();
