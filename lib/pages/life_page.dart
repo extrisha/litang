@@ -413,7 +413,7 @@ class _LifePageState extends State<LifePage> {
         return;
       }
       setState(() {
-        _dormError = e.message;
+        _dormError = '${e.message}（请使用校园网访问）';
         _dormLoading = false;
       });
     } catch (e) {
@@ -421,7 +421,7 @@ class _LifePageState extends State<LifePage> {
         return;
       }
       setState(() {
-        _dormError = '查询失败：$e';
+        _dormError = '查询失败，请使用校园网访问';
         _dormLoading = false;
       });
     }
@@ -2363,9 +2363,23 @@ class _LifePageState extends State<LifePage> {
             ],
             if (_dormError != null) ...<Widget>[
               const SizedBox(height: 8),
-              Text(
-                _dormError!,
-                style: const TextStyle(fontSize: 11, color: AppColors.usstRed),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Padding(
+                    padding: EdgeInsets.only(top: 1),
+                    child: Icon(Icons.info_outline, size: 13, color: AppColors.usstRed),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      _dormError!.contains('校园网') || _dormError!.contains('登录')
+                          ? _dormError!
+                          : '$_dormError（请使用校园网访问）',
+                      style: const TextStyle(fontSize: 11, color: AppColors.usstRed),
+                    ),
+                  ),
+                ],
               ),
             ],
           ],

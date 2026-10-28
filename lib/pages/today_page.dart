@@ -296,19 +296,7 @@ class _TodayPageState extends State<TodayPage> {
     }
   }
 
-  int get _maxWeek {
-    final termMax = CalendarService.instance.currentTerm?.totalWeeks ?? 20;
-    var maxW = termMax;
-    final courses = _snapshot?.courses ?? const <Course>[];
-    for (final c in courses) {
-      for (final w in [c.weeks]) {
-        if (w != null && w.isNotEmpty && w.last > maxW) {
-          maxW = w.last;
-        }
-      }
-    }
-    return maxW;
-  }
+  int get _maxWeek => 20;
 
   int get _currentWeek =>
       CalendarService.instance.currentWeek ?? _snapshot?.currentWeek ?? 1;
@@ -666,18 +654,12 @@ class _TodayPageState extends State<TodayPage> {
           ),
           if (_loading)
             const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12),
+              padding: EdgeInsets.only(right: 8, left: 4),
               child: SizedBox(
-                width: 18,
-                height: 18,
+                width: 16,
+                height: 16,
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
-            )
-          else
-            IconButton(
-              tooltip: '同步课表',
-              icon: const Icon(Icons.refresh, size: 21, color: AppColors.textPrimary),
-              onPressed: () => _refresh(),
             ),
         ],
       ),

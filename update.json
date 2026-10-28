@@ -1,9 +1,9 @@
 {
-  "version": "0.5.5",
-  "versionCode": 30,
+  "version": "0.5.6",
+  "versionCode": 31,
   "minVersionCode": 0,
-  "notes": "今日课表与成绩视觉精细化：强化当日本列高亮红底；扩充至16套莫兰迪配色体系并在当周同屏课程间实现无碰撞去重分配；严格锁定下拉滑动边界至第13节课底部；成绩总览全面引入 Osu! 评级体系配色（S金 A绿 B蓝 C紫 D红）及专属评级字母徽标。",
+  "notes": "学业与生活细节优化：绩点分级全面升级为 0.5 一档莫兰迪低焦虑护眼过渡色（4.0~4.5麦芽流金，1.0~1.49珊瑚赤红），去除非必要字母评级徽章；课表教学周选择上限调整为第 20 周并精简右上角冗余刷新按钮；宿舍电费查询失败时增加校园网访问提示。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.5/app-release.apk",
-  "sha256": "e1b38291c3d0cfdc556c3a63ea2ba8b60bf81fd704592d7b1b18003a267e5232"
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.6/app-release.apk",
+  "sha256": "99cd0df64dfe9e6abeaa0e6e72d0e673e6f1dcd227de54701a993d93d22716e7"
 }
