@@ -1,9 +1,9 @@
 {
-  "version": "0.5.2",
-  "versionCode": 27,
+  "version": "0.5.3",
+  "versionCode": 28,
   "minVersionCode": 0,
-  "notes": "全新五栏结构布局升级：中心独立「今日」课表、校园生活页支持一网畅学与学习通DDL合流、集成校园地图与空教室查询入口；我的页精简降焦；理评专区升级为课程点评与搭子广场。",
+  "notes": "导航键重绘思晏堂矢量图标视觉统一；待办事项移除切换按钮并按截止时间严格升序排序；校园服务新增空间预约入口；签到支持独立刷新，页面支持下拉刷新全部服务；课表单元格高度精简默认可见第11节，修复节次列下拉滚动不同步问题，左上角支持向下展开周次列表流畅滑动选择。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.2/app-release.apk",
-  "sha256": "b21b269f953002bfed6ed70ce82f551eb7ffa9b630563fb2e19f1502a4e1bc54"
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.3/app-release.apk",
+  "sha256": "77d88df93bd67beba1c8d4b82518ab52fb25bf97c08e2342c550cf7485d118b3"
 }

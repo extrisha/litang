@@ -19,6 +19,7 @@ import 'pages/map_page.dart';
 import 'pages/forum_page.dart';
 import 'pages/profile_page.dart';
 import 'pages/today_page.dart';
+import 'widgets/usst_campus_icon.dart';
 
 /// 全局导航 key：点通知时要能从任意位置跳转。
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
@@ -168,21 +169,10 @@ class _RootScaffoldState extends State<RootScaffold> {
             selectedIcon: Icon(Icons.feed),
             label: '信息',
           ),
-          NavigationDestination(
-            icon: Image.asset(
-              'assets/emblem.webp',
-              width: 24,
-              height: 24,
-              filterQuality: FilterQuality.high,
-            ),
-            selectedIcon: Image.asset(
-              'assets/emblem.webp',
-              width: 26,
-              height: 26,
-              filterQuality: FilterQuality.high,
-            ),
+          const NavigationDestination(
+            icon: UsstCampusIcon(selected: false),
+            selectedIcon: UsstCampusIcon(selected: true),
             label: '校园',
-            tooltip: '校园',
           ),
           const NavigationDestination(
             icon: Icon(Icons.calendar_today_outlined),

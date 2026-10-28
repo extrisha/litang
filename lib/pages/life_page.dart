@@ -28,7 +28,6 @@ import 'chaoxing_course_detail_page.dart';
 import 'course_detail_page.dart';
 import 'homework_page.dart';
 import 'login_page.dart';
-import 'map_page.dart';
 import 'qr_scan_page.dart';
 import 'simple_web.dart';
 
@@ -53,6 +52,7 @@ class _LifePageState extends State<LifePage> {
   final Set<String> _timetableNames = <String>{};
   final Map<String, String> _timetableTeachers = <String, String>{};
   bool _showChaoxingCourses = false;
+  bool _rollcallsRefreshing = false;
   bool _coursesLoading = false;
   String? _coursesError;
   List<LmsCourseInfo> _courseInfos = const <LmsCourseInfo>[];
@@ -192,6 +192,61 @@ class _LifePageState extends State<LifePage> {
     await _loadDormElectricity(force: true);
   }
 
+
+  Future<void> _refreshRollcallsOnly() async {
+    if (_rollcallsRefreshing) return;
+    setState(() => _rollcallsRefreshing = true);
+    try {
+      final auth = JwglAuth.instance;
+      if (auth.isLoggedIn && auth.client != null) {
+        try {
+          await TronclassAuth.instance.ensureLoggedIn();
+          final rc = await RollcallApi(auth.client!).fetchOngoing();
+          if (mounted) {
+            setState(() => _rollcalls = rc);
+          }
+        } catch (_) {}
+      }
+      await _refreshChaoxing(withWorks: false, autoLogin: true);
+    } finally {
+      if (mounted) {
+        setState(() => _rollcallsRefreshing = false);
+      }
+    }
+  }
+
+  Future<void> _refreshAllServices() async {
+    await Future.wait<void>(<Future<void>>[
+      _refresh(force: true),
+      _refreshChaoxing(withWorks: true, autoLogin: true),
+      _loadCourses(force: true),
+      _loadDormElectricity(force: true),
+    ]);
+  }
+
+  DateTime? _parseTaskDeadline(String raw) {
+    final s = raw.replaceAll('截止时间：', '').replaceAll('截止：', '').replaceAll('/', '-').trim();
+    if (s.isEmpty) return null;
+    final direct = DateTime.tryParse(s);
+    if (direct != null) return direct;
+
+    final md = RegExp(r'^(\\d{1,2})-(\\d{1,2})\\s+(\\d{1,2}):(\\d{2})').firstMatch(s);
+    if (md != null) {
+      final now = DateTime.now();
+      final m = int.parse(md.group(1)!);
+      final d = int.parse(md.group(2)!);
+      final h = int.parse(md.group(3)!);
+      final min = int.parse(md.group(4)!);
+      return DateTime(now.year, m, d, h, min);
+    }
+
+    final dur = ReminderService.parseRemaining(s);
+    if (dur != null) {
+      return DateTime.now().add(dur);
+    }
+
+    return null;
+  }
   Future<void> _bootstrap() async {
     // 缓存读取和登录互不依赖，同时启动，省掉一次串行等待
     final snapshotFuture = CourseRepository.loadCache();
@@ -1304,36 +1359,20 @@ class _LifePageState extends State<LifePage> {
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                const Text(
+        child: RefreshIndicator(
+          color: AppColors.usstRed,
+          onRefresh: _refreshAllServices,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: <Widget>[
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: Text(
                   '校园服务',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                 ),
-                const Spacer(),
-                if (_loading)
-                  const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else
-                  IconButton(
-                    tooltip: '刷新',
-                    onPressed: () async {
-                      await _refresh();
-                      await _refreshChaoxing(
-                        withWorks: true,
-                        autoLogin: true,
-                      );
-                    },
-                    icon: const Icon(Icons.refresh, size: 20),
-                  ),
-              ],
-            ),
+              ),
             const SizedBox(height: 12),
             _quickToolsRow(),
             const SizedBox(height: 12),
@@ -1351,6 +1390,7 @@ class _LifePageState extends State<LifePage> {
           ],
         ),
       ),
+      ),
     );
   }
 
@@ -1360,15 +1400,13 @@ class _LifePageState extends State<LifePage> {
       children: <Widget>[
         Expanded(
           child: _quickToolTile(
-            icon: Icons.map_outlined,
-            title: '校园地图',
-            desc: '自绘瓦片 · 楼栋定位',
+            icon: Icons.event_seat_outlined,
+            title: '空间预约',
+            desc: '图书馆 · 自习室座席',
             color: const Color(0xFF1E88E5),
             bgColor: const Color(0xFFE8F3FC),
             onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const MapPage()),
-              );
+              _toast('空间预约功能开发中（计划用于预定图书馆座位）');
             },
           ),
         ),
@@ -1381,7 +1419,7 @@ class _LifePageState extends State<LifePage> {
             color: AppColors.usstRed,
             bgColor: const Color(0xFFFDE8E8),
             onTap: () {
-              _toast('空教室功能正在接入中，可先通过「校园地图」查看教学楼分布');
+              _toast('空教室查询功能正在接入中，敬请期待');
             },
           ),
         ),
@@ -1667,12 +1705,29 @@ class _LifePageState extends State<LifePage> {
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
               ),
               const Spacer(),
-              if (_rollcalls.isNotEmpty || _cxActivities.isNotEmpty)
+              if (_rollcalls.isNotEmpty || _cxActivities.isNotEmpty) ...<Widget>[
                 Text(
                   '${_rollcalls.length + _cxActivities.length} 个',
                   style: const TextStyle(
                     fontSize: 11,
                     color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(width: 4),
+              ],
+              if (_rollcallsRefreshing)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                InkWell(
+                  onTap: _refreshRollcallsOnly,
+                  borderRadius: BorderRadius.circular(12),
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(Icons.refresh, size: 18, color: AppColors.textSecondary),
                   ),
                 ),
             ],
@@ -1852,21 +1907,10 @@ class _LifePageState extends State<LifePage> {
     );
   }
 
-  int _todoFilter = 0; // 0: 全部合流, 1: 一网畅学, 2: 学习通
-
   Widget _todoCard() {
     final cxActive = _cxWorks.where((w) => !w.finished && !w.expired).length;
     final tronActive = _todos.length;
     final total = cxActive + tronActive;
-
-    final String countLabel;
-    if (_todoFilter == 0) {
-      countLabel = '$total 个';
-    } else if (_todoFilter == 1) {
-      countLabel = '$tronActive 个';
-    } else {
-      countLabel = '$cxActive 个';
-    }
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -1891,76 +1935,16 @@ class _LifePageState extends State<LifePage> {
               ),
               const Spacer(),
               Text(
-                countLabel,
+                '$total 项',
                 style: const TextStyle(
                   fontSize: 11,
                   color: AppColors.textSecondary,
                 ),
               ),
-              const SizedBox(width: 6),
-              _todoSourceSwitch(),
             ],
           ),
-          if (_todoFilter == 0)
-            _unifiedTodoBody()
-          else if (_todoFilter == 1)
-            _lmsTodoBody()
-          else
-            _cxTodoBody(),
+          _unifiedTodoBody(),
         ],
-      ),
-    );
-  }
-
-  Widget _todoSourceSwitch() {
-    final String label;
-    final Color color;
-    final Color bgColor;
-
-    if (_todoFilter == 0) {
-      label = '全部合流';
-      color = const Color(0xFF2E7D32);
-      bgColor = const Color(0xFFE8F5E9);
-    } else if (_todoFilter == 1) {
-      label = '一网畅学';
-      color = const Color(0xFF3B5BDB);
-      bgColor = const Color(0xFFE3EAFE);
-    } else {
-      label = '学习通';
-      color = AppColors.usstRed;
-      bgColor = AppColors.redTint;
-    }
-
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _todoFilter = (_todoFilter + 1) % 3;
-        });
-        if (_todoFilter == 2 && ChaoxingAuth.instance.isLoggedIn && _cxWorks.isEmpty) {
-          _refreshChaoxing(withWorks: true);
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10.5,
-                color: color,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(width: 2),
-            Icon(Icons.swap_horiz, size: 13, color: color),
-          ],
-        ),
       ),
     );
   }
@@ -1990,8 +1974,7 @@ class _LifePageState extends State<LifePage> {
 
     for (final w in _cxWorks) {
       if (w.finished || w.expired) continue;
-      final clean = w.deadline.replaceAll('截止时间：', '').replaceAll('截止：', '').trim();
-      final dt = DateTime.tryParse(clean);
+      final dt = _parseTaskDeadline(w.deadline);
       items.add((
         id: 'cx_${w.workId}',
         title: w.title,
@@ -2011,12 +1994,13 @@ class _LifePageState extends State<LifePage> {
     });
 
     if (items.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
+      final err = _todosError ?? _cxError;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
         child: Center(
           child: Text(
-            '暂无待办作业，尽情享受自由时光 ☕',
-            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            err ?? '暂无待办作业，尽情享受自由时光 ☕',
+            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
           ),
         ),
       );
@@ -2111,52 +2095,6 @@ class _LifePageState extends State<LifePage> {
     );
   }
 
-  Widget _lmsTodoBody() {
-    if (_todosError != null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                _todosError!,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ),
-            TextButton(
-              onPressed: () => _refresh(),
-              child: const Text('重试', style: TextStyle(fontSize: 12)),
-            ),
-          ],
-        ),
-      );
-    }
-    if (_todos.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 10),
-        child: Text(
-          '暂无待办',
-          style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-        ),
-      );
-    }
-    return SizedBox(
-      height: 168,
-      child: ListView.separated(
-        padding: const EdgeInsets.only(top: 8),
-        itemCount: _todos.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 8),
-        itemBuilder: (context, i) => _todoTile(_todos[i]),
-      ),
-    );
-  }
-
-  /// 「学习通未登录 / 登录失效」统一提示 + 登录按钮（待办和课程信息共用）。
   Widget _chaoxingLoginHint(String text) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -2185,276 +2123,9 @@ class _LifePageState extends State<LifePage> {
     );
   }
 
-  Widget _cxTodoBody() {
-    final auth = ChaoxingAuth.instance;
-    if (!auth.isLoggedIn) {
-      return _chaoxingLoginHint('学习通未登录');
-    }
-    if (_cxLoading) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 16),
-        child: Center(
-          child: SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
-      );
-    }
-    if (_cxError != null) {
-      // 会话过期时 ensureSession 会把登录态清掉，这里直接把「重试」换成「重新登录」，
-      // 免得用户点半天重试都不知道要重新走一次网页登录
-      final needLogin = !ChaoxingAuth.instance.isLoggedIn;
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: <Widget>[
-            Expanded(
-              child: Text(
-                _cxError!,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ),
-            TextButton(
-              onPressed: needLogin
-                  ? _loginChaoxing
-                  : () => _refreshChaoxing(withWorks: true),
-              child: Text(
-                needLogin ? '重新登录' : '重试',
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    final pending = _cxWorks.where((w) => !w.finished && !w.expired).toList();
-    final expired = _cxWorks.where((w) => !w.finished && w.expired).length;
-    final expiredHint = expired == 0
-        ? null
-        : Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              '另有 $expired 个已截止未交',
-              style: const TextStyle(
-                fontSize: 10.5,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          );
-    if (pending.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            const Text(
-              '暂无待交作业',
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-            ),
-            ?expiredHint,
-          ],
-        ),
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        SizedBox(
-          height: 168,
-          child: ListView.separated(
-            padding: const EdgeInsets.only(top: 8),
-            itemCount: pending.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (context, i) => _cxWorkTile(pending[i]),
-          ),
-        ),
-        ?expiredHint,
-      ],
-    );
-  }
-
-  Widget _cxWorkTile(ChaoxingWork work) {
-    // 学习通给的是「剩余91小时40分钟」这种文本，转成更好读的倒计时
-    final remaining = ReminderService.parseRemaining(work.deadline);
-    final countdown = work.expired
-        ? '已截止'
-        : (remaining == null ? '' : _humanRemaining(remaining));
-    return GestureDetector(
-      onTap: () => _openCxWork(work),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8F8FA),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: <Widget>[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: AppColors.redTint,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Text(
-                '作业',
-                style: TextStyle(fontSize: 10, color: AppColors.usstRed),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    work.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    work.courseName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 10.5,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (countdown.isNotEmpty) ...<Widget>[
-              const SizedBox(width: 8),
-              Text(
-                countdown,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: work.expired
-                      ? AppColors.textSecondary
-                      : _urgencyColor(remaining),
-                ),
-              ),
-            ],
-            const Icon(
-              Icons.chevron_right,
-              size: 16,
-              color: AppColors.textSecondary,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _openCxWork(ChaoxingWork work) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => ChaoxingHomeworkPage(work: work)),
-    );
-  }
-
-  Widget _todoTile(LmsTodo todo) {
-    final deadline = todo.deadline;
-    final absolute = deadline == null ? '' : _formatDateTime(deadline);
-    final countdown = _ddlCountdown(deadline);
-    // 接口给的课程名带学期和课程代码（工程力学C(2026-2027-1)-14000282-01），
-    // 原来和截止时间拼在一行被省略号吃掉，这里先清洗，再把时间单独摆开。
-    final course = _cleanCourseName(todo.courseName);
-    return GestureDetector(
-      onTap: () => _openTodo(todo),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8F8FA),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: <Widget>[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE3EAFE),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                todo.typeLabel,
-                style: const TextStyle(fontSize: 10, color: Color(0xFF3B5BDB)),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    todo.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                  const SizedBox(height: 3),
-                  Row(
-                    children: <Widget>[
-                      // 课程名可以被截断，截止时间不能
-                      if (course.isNotEmpty)
-                        Flexible(
-                          child: Text(
-                            course,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 10.5,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ),
-                      if (absolute.isNotEmpty) ...<Widget>[
-                        if (course.isNotEmpty)
-                          const Text(
-                            ' · ',
-                            style: TextStyle(
-                              fontSize: 10.5,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        Text(
-                          '截止 $absolute',
-                          style: const TextStyle(
-                            fontSize: 10.5,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            if (countdown.isNotEmpty) ...<Widget>[
-              const SizedBox(width: 8),
-              Text(
-                countdown,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: _ddlColor(deadline),
-                ),
-              ),
-            ],
-            const Icon(
-              Icons.chevron_right,
-              size: 16,
-              color: AppColors.textSecondary,
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -2583,13 +2254,6 @@ class _LifePageState extends State<LifePage> {
     return s;
   }
 
-  String _formatDateTime(DateTime time) {
-    final m = time.month.toString().padLeft(2, '0');
-    final d = time.day.toString().padLeft(2, '0');
-    final h = time.hour.toString().padLeft(2, '0');
-    final min = time.minute.toString().padLeft(2, '0');
-    return '$m-$d $h:$min';
-  }
 
   // ------------------------------------------------------------ 宿舍电费
 

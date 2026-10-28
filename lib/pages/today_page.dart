@@ -114,10 +114,9 @@ class _TodayPageState extends State<TodayPage> {
   bool _showWeekSelector = false;
   bool _showOverviewBanner = true;
 
-  static const double _rowHeight = 62.0;
-  static const double _dayWidth = 66.0;
-  static const double _periodWidth = 52.0;
-  static const double _headerHeight = 44.0;
+  static const double _rowHeight = 42.0;
+  static const double _periodWidth = 36.0;
+  static const double _headerHeight = 36.0;
   static const List<String> _dayNames = <String>['一', '二', '三', '四', '五', '六', '日'];
 
   @override
@@ -463,19 +462,40 @@ class _TodayPageState extends State<TodayPage> {
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: <Widget>[
-            _appBar(),
-            if (_showWeekSelector) _weekScrollStrip(),
-            if (_snapshot != null && _showOverviewBanner && _selectedWeek == _currentWeek)
-              _todayFocusBanner(),
-            Expanded(
-              child: !auth.isLoggedIn && _snapshot == null
-                  ? _unloggedPlaceholder()
-                  : _snapshot == null
-                      ? _emptyPlaceholder()
-                      : _scheduleGrid(),
+            Column(
+              children: <Widget>[
+                _appBar(),
+                if (_snapshot != null && _showOverviewBanner && _selectedWeek == _currentWeek)
+                  _todayFocusBanner(),
+                Expanded(
+                  child: !auth.isLoggedIn && _snapshot == null
+                      ? _unloggedPlaceholder()
+                      : _snapshot == null
+                          ? _emptyPlaceholder()
+                          : _scheduleGrid(),
+                ),
+              ],
             ),
+            // 向下展开的周次选项栏
+            if (_showWeekSelector) ...<Widget>[
+              Positioned.fill(
+                top: 56,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => setState(() => _showWeekSelector = false),
+                  child: Container(
+                    color: const Color(0x33000000),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 56,
+                left: 14,
+                child: _weekDropdownPanel(),
+              ),
+            ],
           ],
         ),
       ),
@@ -578,60 +598,90 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  Widget _weekScrollStrip() {
-    return Container(
-      height: 48,
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: _maxWeek,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final week = index + 1;
-          final isSelected = week == _selectedWeek;
-          final isCur = week == _currentWeek;
-          return GestureDetector(
-            onTap: () {
-              setState(() {
-                _selectedWeek = week;
-                _showWeekSelector = false;
-              });
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? AppColors.usstRed
-                    : isCur
-                        ? const Color(0xFFFDE8E8)
-                        : const Color(0xFFF5F5F5),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isSelected
-                      ? AppColors.usstRed
-                      : isCur
-                          ? const Color(0x7FA31C1C)
-                          : Colors.transparent,
-                ),
-              ),
-              child: Text(
-                '第$week周${isCur ? '·今' : ''}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: isSelected || isCur ? FontWeight.w700 : FontWeight.w500,
-                  color: isSelected
-                      ? Colors.white
-                      : isCur
-                          ? AppColors.usstRed
-                          : AppColors.textSecondary,
-                ),
-              ),
+  Widget _weekDropdownPanel() {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: 190,
+        constraints: const BoxConstraints(maxHeight: 270),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFEEEEEE)),
+          boxShadow: const <BoxShadow>[
+            BoxShadow(
+              color: Color(0x26000000),
+              offset: Offset(0, 8),
+              blurRadius: 20,
             ),
-          );
-        },
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            shrinkWrap: true,
+            itemCount: _maxWeek,
+            separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFF5F5F5)),
+            itemBuilder: (context, index) {
+              final week = index + 1;
+              final isSelected = week == _selectedWeek;
+              final isCur = week == _currentWeek;
+
+              return InkWell(
+                onTap: () {
+                  setState(() {
+                    _selectedWeek = week;
+                    _showWeekSelector = false;
+                  });
+                },
+                child: Container(
+                  color: isSelected ? const Color(0xFFFFF1F0) : Colors.transparent,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  child: Row(
+                    children: <Widget>[
+                      Text(
+                        '第$week周',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: isSelected || isCur ? FontWeight.w700 : FontWeight.w500,
+                          color: isSelected
+                              ? AppColors.usstRed
+                              : (isCur ? AppColors.textPrimary : AppColors.textPrimary),
+                        ),
+                      ),
+                      if (isCur) ...<Widget>[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFDE8E8),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            '本周',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: AppColors.usstRed,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                      const Spacer(),
+                      if (isSelected)
+                        const Icon(
+                          Icons.check_rounded,
+                          size: 16,
+                          color: AppColors.usstRed,
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
       ),
     );
   }
@@ -817,66 +867,96 @@ class _TodayPageState extends State<TodayPage> {
             .toList() ??
         <Course>[];
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _periodColumn(activePer),
-        Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: _dayWidth * 7,
-              child: SingleChildScrollView(
-                child: Column(
-                  children: <Widget>[
-                    _daysHeader(),
-                    SizedBox(
-                      height: _rowHeight * JwglSchedule.periodCount,
-                      child: Stack(
-                        children: <Widget>[
-                          // 网格底图
-                          Positioned.fill(
-                            child: CustomPaint(
-                              painter: _GridPainter(
-                                periods: JwglSchedule.periodCount,
-                                activePeriod: activePer,
-                                isTodayCol: _isToday,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth;
+        final dayWidth = (availableWidth - _periodWidth) / 7;
+
+        return Column(
+          children: <Widget>[
+            // 顶部固定星期栏 (吸顶固定，横向与每一列精确对齐)
+            Row(
+              children: <Widget>[
+                Container(
+                  width: _periodWidth,
+                  height: _headerHeight,
+                  alignment: Alignment.center,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFAFAFA),
+                    border: Border(
+                      bottom: BorderSide(color: Color(0xFFEDEDED)),
+                      right: BorderSide(color: Color(0xFFEDEDED), width: 0.6),
+                    ),
+                  ),
+                  child: const Text(
+                    '节次',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+                for (var i = 0; i < 7; i++)
+                  _dayHeaderCell(i, dayWidth),
+              ],
+            ),
+            // 垂直滚动区域：左侧节次列与右侧课程网格同属一个垂直滚动视图，彻底修复节次不同步bug
+            Expanded(
+              child: RefreshIndicator(
+                color: AppColors.usstRed,
+                onRefresh: () => _refresh(),
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      // 左侧节次时间列 (随课表整体上下滚动)
+                      _periodNumbersColumn(activePer),
+                      // 右侧课程网格
+                      SizedBox(
+                        width: dayWidth * 7,
+                        height: _rowHeight * JwglSchedule.periodCount,
+                        child: Stack(
+                          children: <Widget>[
+                            // 网格底图
+                            Positioned.fill(
+                              child: CustomPaint(
+                                painter: _GridPainter(
+                                  periods: JwglSchedule.periodCount,
+                                  activePeriod: activePer,
+                                  isTodayCol: _isToday,
+                                  dayWidth: dayWidth,
+                                  rowHeight: _rowHeight,
+                                ),
                               ),
                             ),
-                          ),
-                          // 课程色块
-                          for (final course in shown)
-                            _courseCard(course),
-                        ],
+                            // 课程色块
+                            for (final course in shown)
+                              _courseCard(course, dayWidth),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 
-  Widget _daysHeader() {
-    return Row(
-      children: <Widget>[
-        for (var i = 0; i < 7; i++) _dayHeaderCell(i),
-      ],
-    );
-  }
-
-  Widget _dayHeaderCell(int dayIndex) {
+  Widget _dayHeaderCell(int dayIndex, double dayWidth) {
     final isT = _isToday(dayIndex);
     final date = _dateForDay(_selectedWeek, dayIndex);
-    final dateStr = date != null ? '${date.month}/${date.day}' : '';
+    final dateStr = date != null ? '\${date.month}/\${date.day}' : '';
 
     return Container(
-      width: _dayWidth,
+      width: dayWidth,
       height: _headerHeight,
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 2),
       decoration: BoxDecoration(
         color: isT ? const Color(0xFFFFF2F0) : Colors.white,
         border: Border(
@@ -884,6 +964,7 @@ class _TodayPageState extends State<TodayPage> {
             color: isT ? AppColors.usstRed : const Color(0xFFEDEDED),
             width: isT ? 2 : 1,
           ),
+          right: const BorderSide(color: Color(0xFFF2F2F2), width: 0.5),
         ),
       ),
       child: Column(
@@ -894,24 +975,23 @@ class _TodayPageState extends State<TodayPage> {
             decoration: isT
                 ? BoxDecoration(
                     color: AppColors.usstRed,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(8),
                   )
                 : null,
             child: Text(
-              '周${_dayNames[dayIndex]}',
+              '周\${_dayNames[dayIndex]}',
               style: TextStyle(
-                fontSize: 11.5,
+                fontSize: 11,
                 fontWeight: isT ? FontWeight.w700 : FontWeight.w600,
                 color: isT ? Colors.white : AppColors.textPrimary,
               ),
             ),
           ),
           if (dateStr.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 1),
             Text(
               dateStr,
               style: TextStyle(
-                fontSize: 9.5,
+                fontSize: 9,
                 fontWeight: isT ? FontWeight.w600 : FontWeight.w400,
                 color: isT ? AppColors.usstRed : AppColors.textSecondary,
               ),
@@ -922,27 +1002,12 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  Widget _periodColumn(int? activePeriod) {
+  Widget _periodNumbersColumn(int? activePeriod) {
     return Container(
       width: _periodWidth,
       color: const Color(0xFFFAFAFA),
       child: Column(
         children: <Widget>[
-          Container(
-            height: _headerHeight,
-            alignment: Alignment.center,
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFFEDEDED))),
-            ),
-            child: const Text(
-              '节次',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ),
           for (var p = 1; p <= JwglSchedule.periodCount; p++)
             _periodCell(p, activePeriod == p),
         ],
@@ -959,7 +1024,7 @@ class _TodayPageState extends State<TodayPage> {
       decoration: BoxDecoration(
         color: isActive ? const Color(0xFFFFF1F0) : const Color(0xFFFAFAFA),
         border: const Border(
-          top: BorderSide(color: Color(0xFFEDEDED), width: 0.6),
+          bottom: BorderSide(color: Color(0xFFEDEDED), width: 0.5),
           right: BorderSide(color: Color(0xFFEDEDED), width: 0.6),
         ),
       ),
@@ -967,7 +1032,7 @@ class _TodayPageState extends State<TodayPage> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0.5),
             decoration: isActive
                 ? BoxDecoration(
                     color: AppColors.usstRed,
@@ -975,27 +1040,27 @@ class _TodayPageState extends State<TodayPage> {
                   )
                 : null,
             child: Text(
-              '$period',
+              '\$period',
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 10.5,
                 fontWeight: FontWeight.w700,
                 color: isActive ? Colors.white : AppColors.textPrimary,
               ),
             ),
           ),
           if (timeStr != null) ...<Widget>[
-            const SizedBox(height: 2),
+            const SizedBox(height: 1),
             Text(
               timeStr.start,
               style: TextStyle(
-                fontSize: 8,
+                fontSize: 7.5,
                 color: isActive ? AppColors.usstRed : AppColors.textSecondary,
               ),
             ),
             Text(
               timeStr.end,
               style: TextStyle(
-                fontSize: 8,
+                fontSize: 7.5,
                 color: isActive ? AppColors.usstRed : AppColors.textSecondary,
               ),
             ),
@@ -1005,15 +1070,15 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  Widget _courseCard(Course course) {
+  Widget _courseCard(Course course, double dayWidth) {
     final theme = _themeForCourse(course.name);
-    final cardHeight = _rowHeight * course.span - 5;
+    final cardHeight = _rowHeight * course.span - 3.5;
     final compact = course.span <= 1;
 
     return Positioned(
-      left: course.day * _dayWidth + 2.5,
-      top: course.start * _rowHeight + 2.5,
-      width: _dayWidth - 5,
+      left: course.day * dayWidth + 1.5,
+      top: course.start * _rowHeight + 1.5,
+      width: dayWidth - 3.0,
       height: cardHeight,
       child: GestureDetector(
         onTap: () {
@@ -1025,71 +1090,57 @@ class _TodayPageState extends State<TodayPage> {
           _locateCourseOnMap(course);
         },
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 2.5, vertical: 2.5),
           decoration: BoxDecoration(
             color: theme.bg,
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: theme.border, width: 0.8),
+            borderRadius: BorderRadius.circular(7),
+            border: Border.all(color: theme.border, width: 0.7),
             boxShadow: const <BoxShadow>[
               BoxShadow(
-                color: Color(0x0A000000),
-                offset: Offset(0, 1.5),
-                blurRadius: 3,
+                color: Color(0x08000000),
+                offset: Offset(0, 1),
+                blurRadius: 2,
               ),
             ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              // 课程名称
               Text(
                 course.name,
                 maxLines: compact ? 1 : 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 11,
-                  height: 1.2,
+                  fontSize: compact ? 9.5 : 10.0,
+                  height: 1.15,
                   fontWeight: FontWeight.w700,
                   color: theme.text,
                 ),
               ),
               if (course.room.isNotEmpty) ...<Widget>[
-                const SizedBox(height: 2),
+                const Spacer(),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Icon(
                       Icons.location_on_rounded,
-                      size: 9.5,
+                      size: 8.5,
                       color: theme.subText,
                     ),
-                    const SizedBox(width: 1),
                     Expanded(
                       child: Text(
                         course.room,
                         maxLines: compact ? 1 : 2,
                         softWrap: true,
                         style: TextStyle(
-                          fontSize: 9,
-                          height: 1.15,
+                          fontSize: 8.5,
+                          height: 1.1,
                           fontWeight: FontWeight.w600,
                           color: theme.subText,
                         ),
                       ),
                     ),
                   ],
-                ),
-              ],
-              if (!compact && course.teacher != null && course.teacher!.isNotEmpty) ...<Widget>[
-                const Spacer(),
-                Text(
-                  course.teacher!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 8.5,
-                    color: theme.subText,
-                  ),
                 ),
               ],
             ],
@@ -1105,14 +1156,15 @@ class _GridPainter extends CustomPainter {
     required this.periods,
     required this.activePeriod,
     required this.isTodayCol,
+    required this.dayWidth,
+    required this.rowHeight,
   });
 
   final int periods;
   final int? activePeriod;
   final bool Function(int dayIndex) isTodayCol;
-
-  static const double _rowHeight = 62.0;
-  static const double _dayWidth = 66.0;
+  final double dayWidth;
+  final double rowHeight;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1125,7 +1177,7 @@ class _GridPainter extends CustomPainter {
       if (isTodayCol(d)) {
         final todayBg = Paint()..color = const Color(0x06A31C1C);
         canvas.drawRect(
-          Rect.fromLTWH(d * _dayWidth, 0, _dayWidth, size.height),
+          Rect.fromLTWH(d * dayWidth, 0, dayWidth, size.height),
           todayBg,
         );
       }
@@ -1133,13 +1185,13 @@ class _GridPainter extends CustomPainter {
 
     // 横向网格线
     for (var i = 0; i <= periods; i++) {
-      final y = i * _rowHeight;
+      final y = i * rowHeight;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
     }
 
     // 纵向网格线
     for (var d = 0; d <= 7; d++) {
-      final x = d * _dayWidth;
+      final x = d * dayWidth;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), linePaint);
     }
   }
@@ -1147,6 +1199,8 @@ class _GridPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _GridPainter oldDelegate) {
     return oldDelegate.periods != periods ||
-        oldDelegate.activePeriod != activePeriod;
+        oldDelegate.activePeriod != activePeriod ||
+        oldDelegate.dayWidth != dayWidth ||
+        oldDelegate.rowHeight != rowHeight;
   }
 }
