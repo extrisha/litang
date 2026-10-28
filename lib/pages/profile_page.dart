@@ -25,7 +25,6 @@ import 'rank_page.dart';
 import 'simple_web.dart';
 import 'login_page.dart';
 import 'update_page.dart';
-import 'today_page.dart';
 import '../services/update_service.dart';
 
 /// 我的：个人信息 + 查询入口（学业 / 空间）+ 课表（自动同步 + 手动刷新）。
@@ -297,8 +296,6 @@ class _ProfilePageState extends State<ProfilePage> {
               _entry(Icons.badge_outlined, '学工一体化', onTap: _openXuegong),
               _entry(Icons.language_outlined, '教务网页版', onTap: _openJwglWeb),
             ]),
-            const SizedBox(height: 16),
-            _timetableSection(),
             const SizedBox(height: 16),
             _sectionTitle('存储'),
             _cacheTile(),
@@ -678,40 +675,6 @@ class _ProfilePageState extends State<ProfilePage> {
       _openingXuegong = false;
     }
   }
-
-  Widget _timetableSection() {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      clipBehavior: Clip.antiAlias,
-      child: ListTile(
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFDE8E8),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: const Icon(
-            Icons.calendar_today_outlined,
-            size: 20,
-            color: AppColors.usstRed,
-          ),
-        ),
-        title: const Text('全学期课表', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-        subtitle: const Text(
-          '课表已移至底栏中间「今日」，支持周次切换与教室定位',
-          style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
-        ),
-        trailing: const Icon(Icons.chevron_right, size: 18, color: AppColors.textSecondary),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const TodayPage()),
-          );
-        },
-      ),
-    );
-  }
-
 
   Widget _sectionTitle(String t) => Padding(
     padding: const EdgeInsets.only(bottom: 10, left: 4),

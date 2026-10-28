@@ -1,9 +1,9 @@
 {
-  "version": "0.5.3",
-  "versionCode": 28,
+  "version": "0.5.4",
+  "versionCode": 29,
   "minVersionCode": 0,
-  "notes": "导航键重绘思晏堂矢量图标视觉统一；待办事项移除切换按钮并按截止时间严格升序排序；校园服务新增空间预约入口；签到支持独立刷新，页面支持下拉刷新全部服务；课表单元格高度精简默认可见第11节，修复节次列下拉滚动不同步问题，左上角支持向下展开周次列表流畅滑动选择。",
+  "notes": "今日课表体验升级：彻底修复表头与节次文本转义乱码；默认隐藏周六周日且按需智能展开（仅周六或仅周日有课时自适应排版）；行高动态匹配视口使第11节与底栏齐平，支持流畅下拉查看19:30后晚课；移除冗余今日聚焦卡片；我的页精简移除重复课表区块。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.3/app-release.apk",
-  "sha256": "77d88df93bd67beba1c8d4b82518ab52fb25bf97c08e2342c550cf7485d118b3"
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.4/app-release.apk",
+  "sha256": "7ccb557e9c6cce6068f97aa68f021a80abe8f36ddc96e434775ded5c57115d0b"
 }

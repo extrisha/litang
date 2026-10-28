@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -112,9 +113,7 @@ class _TodayPageState extends State<TodayPage> {
   bool _loading = false;
   int _selectedWeek = 1;
   bool _showWeekSelector = false;
-  bool _showOverviewBanner = true;
 
-  static const double _rowHeight = 42.0;
   static const double _periodWidth = 36.0;
   static const double _headerHeight = 36.0;
   static const List<String> _dayNames = <String>['一', '二', '三', '四', '五', '六', '日'];
@@ -182,27 +181,19 @@ class _TodayPageState extends State<TodayPage> {
       setState(() => _loading = true);
     }
     try {
-      if (auth.client == null) {
-        await auth.ensureSession();
-      }
-      final client = auth.client;
-      if (client == null) {
-        if (!silent) _showToast('教务会话已失效，请重新登录');
-        return;
-      }
-      final fresh = await CourseRepository.refresh(client);
+      final fresh = await CourseRepository.refresh(auth.client!);
       if (mounted) {
         setState(() {
           _snapshot = fresh;
           _selectedWeek = CalendarService.instance.currentWeek ?? fresh.currentWeek ?? _selectedWeek;
         });
         if (!silent) {
-          _showToast('课表同步成功');
+          _showToast('课表同步完成');
         }
       }
     } catch (e) {
-      if (!silent && mounted) {
-        _showToast('课表更新失败，使用本地缓存');
+      if (mounted && !silent) {
+        _showToast('课表更新失败，请重试');
       }
     } finally {
       if (mounted && !silent) {
@@ -212,11 +203,11 @@ class _TodayPageState extends State<TodayPage> {
   }
 
   int get _maxWeek {
-    var maxW = 20;
-    final courses = _snapshot?.courses;
-    if (courses != null) {
-      for (final c in courses) {
-        final w = c.weeks;
+    final termMax = CalendarService.instance.currentTerm?.totalWeeks ?? 20;
+    var maxW = termMax;
+    final courses = _snapshot?.courses ?? const <Course>[];
+    for (final c in courses) {
+      for (final w in [c.weeks]) {
         if (w != null && w.isNotEmpty && w.last > maxW) {
           maxW = w.last;
         }
@@ -268,7 +259,7 @@ class _TodayPageState extends State<TodayPage> {
   void _locateCourseOnMap(Course course) {
     final place = placeForRoom(course.room);
     if (place == null) {
-      _showToast('未在校园地图中找到「${course.room}」对应的楼栋');
+      _showToast('未在校园地图找到【${course.room}】对应楼栋');
       return;
     }
     MapFocus.focus(place);
@@ -280,19 +271,22 @@ class _TodayPageState extends State<TodayPage> {
   void _showCourseDetailModal(Course course) {
     final theme = _themeForCourse(course.name);
     final place = placeForRoom(course.room);
-    final timeStr = JwglSchedule.rangeOf(course.start, course.span) ?? '';
     final activeInThisWeek = course.activeInWeek(_selectedWeek);
+    final timeStr = JwglSchedule.rangeOf(course.start, course.span) ?? '';
 
     showModalBottomSheet<void>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: SafeArea(
+            top: false,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -467,8 +461,6 @@ class _TodayPageState extends State<TodayPage> {
             Column(
               children: <Widget>[
                 _appBar(),
-                if (_snapshot != null && _showOverviewBanner && _selectedWeek == _currentWeek)
-                  _todayFocusBanner(),
                 Expanded(
                   child: !auth.isLoggedIn && _snapshot == null
                       ? _unloggedPlaceholder()
@@ -647,7 +639,7 @@ class _TodayPageState extends State<TodayPage> {
                           fontWeight: isSelected || isCur ? FontWeight.w700 : FontWeight.w500,
                           color: isSelected
                               ? AppColors.usstRed
-                              : (isCur ? AppColors.textPrimary : AppColors.textPrimary),
+                              : AppColors.textPrimary,
                         ),
                       ),
                       if (isCur) ...<Widget>[
@@ -682,100 +674,6 @@ class _TodayPageState extends State<TodayPage> {
             },
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _todayFocusBanner() {
-    final now = DateTime.now();
-    final todayIndex = now.weekday - 1;
-    final allCourses = _snapshot?.courses ?? <Course>[];
-    final todayCourses = allCourses
-        .where((c) => c.day == todayIndex && c.activeInWeek(_selectedWeek))
-        .toList()
-      ..sort((a, b) => a.start.compareTo(b.start));
-
-    Course? nextCourse;
-    final curMinutes = now.hour * 60 + now.minute;
-    for (final c in todayCourses) {
-      final endP = JwglSchedule.periodAt(c.start + c.span);
-      if (endP != null) {
-        final ep = endP.end.split(':');
-        final endM = int.parse(ep[0]) * 60 + int.parse(ep[1]);
-        if (curMinutes <= endM) {
-          nextCourse = c;
-          break;
-        }
-      }
-    }
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(14, 8, 14, 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFF0F0F0)),
-        boxShadow: const <BoxShadow>[
-          BoxShadow(
-            color: Color(0x06000000),
-            offset: Offset(0, 2),
-            blurRadius: 6,
-          ),
-        ],
-      ),
-      child: Row(
-        children: <Widget>[
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFDE8E8),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(
-              Icons.wb_sunny_outlined,
-              size: 20,
-              color: AppColors.usstRed,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  todayCourses.isEmpty
-                      ? '今日无课 · 享受自由时光'
-                      : '今日 ${todayCourses.length} 门课 · ${nextCourse == null ? '今日课程已结束' : '下一节：${nextCourse.name}'}',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (nextCourse != null) ...<Widget>[
-                  const SizedBox(height: 2),
-                  Text(
-                    '${JwglSchedule.rangeOf(nextCourse.start, nextCourse.span)} @ ${nextCourse.room}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          InkWell(
-            onTap: () => setState(() => _showOverviewBanner = false),
-            child: const Padding(
-              padding: EdgeInsets.all(4),
-              child: Icon(Icons.close, size: 16, color: AppColors.textSecondary),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -867,14 +765,33 @@ class _TodayPageState extends State<TodayPage> {
             .toList() ??
         <Course>[];
 
+    // 默认隐藏周末；若检测到周六有课则在右侧展开周六；若周日有课则在周一左侧展开周日
+    final hasSaturday = shown.any((c) => c.day == 5);
+    final hasSunday = shown.any((c) => c.day == 6);
+
+    final visibleDays = <int>[];
+    if (hasSunday) visibleDays.add(6); // 周日置于周一左侧
+    visibleDays.addAll(<int>[0, 1, 2, 3, 4]); // 周一至周五
+    if (hasSaturday) visibleDays.add(5); // 周六置于周五右侧
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableWidth = constraints.maxWidth;
-        final dayWidth = (availableWidth - _periodWidth) / 7;
+        final availableHeight = constraints.maxHeight;
+
+        // 单元格横向宽度均分（根据可见星期数 5~7 动态伸缩，充满屏幕）
+        final dayWidth = (availableWidth - _periodWidth) / visibleDays.length;
+
+        // 用户要求：让第十一节课与第十二节课的分界线与导航栏齐平！
+        // 也就是说，默认视口刚好容纳第 1 至 11 节课，11 节下边线恰好对齐底部导航栏
+        final rowHeight = math.max((availableHeight - _headerHeight - 2.0) / 11.0, 42.0);
+
+        // 13 节课全天总高度 + 36dp 底部安全滚动边距，保证下拉滑动能完整看清 19:30 后的晚课（12~13节）
+        final totalGridHeight = 13 * rowHeight + 36.0;
 
         return Column(
           children: <Widget>[
-            // 顶部固定星期栏 (吸顶固定，横向与每一列精确对齐)
+            // 顶部固定星期表头 (吸顶固定，横向与每一列精确对齐)
             Row(
               children: <Widget>[
                 Container(
@@ -897,11 +814,11 @@ class _TodayPageState extends State<TodayPage> {
                     ),
                   ),
                 ),
-                for (var i = 0; i < 7; i++)
-                  _dayHeaderCell(i, dayWidth),
+                for (final dayIndex in visibleDays)
+                  _dayHeaderCell(dayIndex, dayWidth),
               ],
             ),
-            // 垂直滚动区域：左侧节次列与右侧课程网格同属一个垂直滚动视图，彻底修复节次不同步bug
+            // 垂直滚动区域：左侧节次列与右侧课程网格同属同一垂直滚动视图，彻底修复节次不同步bug
             Expanded(
               child: RefreshIndicator(
                 color: AppColors.usstRed,
@@ -912,11 +829,11 @@ class _TodayPageState extends State<TodayPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       // 左侧节次时间列 (随课表整体上下滚动)
-                      _periodNumbersColumn(activePer),
+                      _periodNumbersColumn(activePer, rowHeight, totalGridHeight),
                       // 右侧课程网格
                       SizedBox(
-                        width: dayWidth * 7,
-                        height: _rowHeight * JwglSchedule.periodCount,
+                        width: dayWidth * visibleDays.length,
+                        height: totalGridHeight,
                         child: Stack(
                           children: <Widget>[
                             // 网格底图
@@ -925,15 +842,22 @@ class _TodayPageState extends State<TodayPage> {
                                 painter: _GridPainter(
                                   periods: JwglSchedule.periodCount,
                                   activePeriod: activePer,
-                                  isTodayCol: _isToday,
+                                  visibleDays: visibleDays,
+                                  isTodayCol: (d) => _isToday(d),
                                   dayWidth: dayWidth,
-                                  rowHeight: _rowHeight,
+                                  rowHeight: rowHeight,
                                 ),
                               ),
                             ),
                             // 课程色块
                             for (final course in shown)
-                              _courseCard(course, dayWidth),
+                              if (visibleDays.contains(course.day))
+                                _courseCard(
+                                  course,
+                                  dayWidth,
+                                  rowHeight,
+                                  visibleDays.indexOf(course.day),
+                                ),
                           ],
                         ),
                       ),
@@ -951,7 +875,7 @@ class _TodayPageState extends State<TodayPage> {
   Widget _dayHeaderCell(int dayIndex, double dayWidth) {
     final isT = _isToday(dayIndex);
     final date = _dateForDay(_selectedWeek, dayIndex);
-    final dateStr = date != null ? '\${date.month}/\${date.day}' : '';
+    final dateStr = date != null ? '${date.month}/${date.day}' : '';
 
     return Container(
       width: dayWidth,
@@ -979,7 +903,7 @@ class _TodayPageState extends State<TodayPage> {
                   )
                 : null,
             child: Text(
-              '周\${_dayNames[dayIndex]}',
+              '周${_dayNames[dayIndex]}',
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: isT ? FontWeight.w700 : FontWeight.w600,
@@ -1002,24 +926,25 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  Widget _periodNumbersColumn(int? activePeriod) {
+  Widget _periodNumbersColumn(int? activePeriod, double rowHeight, double totalHeight) {
     return Container(
       width: _periodWidth,
+      height: totalHeight,
       color: const Color(0xFFFAFAFA),
       child: Column(
         children: <Widget>[
           for (var p = 1; p <= JwglSchedule.periodCount; p++)
-            _periodCell(p, activePeriod == p),
+            _periodCell(p, activePeriod == p, rowHeight),
         ],
       ),
     );
   }
 
-  Widget _periodCell(int period, bool isActive) {
+  Widget _periodCell(int period, bool isActive, double rowHeight) {
     final timeStr = JwglSchedule.periodAt(period);
     return Container(
       width: _periodWidth,
-      height: _rowHeight,
+      height: rowHeight,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: isActive ? const Color(0xFFFFF1F0) : const Color(0xFFFAFAFA),
@@ -1040,7 +965,7 @@ class _TodayPageState extends State<TodayPage> {
                   )
                 : null,
             child: Text(
-              '\$period',
+              '$period',
               style: TextStyle(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
@@ -1070,14 +995,14 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  Widget _courseCard(Course course, double dayWidth) {
+  Widget _courseCard(Course course, double dayWidth, double rowHeight, int colIndex) {
     final theme = _themeForCourse(course.name);
-    final cardHeight = _rowHeight * course.span - 3.5;
+    final cardHeight = rowHeight * course.span - 3.5;
     final compact = course.span <= 1;
 
     return Positioned(
-      left: course.day * dayWidth + 1.5,
-      top: course.start * _rowHeight + 1.5,
+      left: colIndex * dayWidth + 1.5,
+      top: course.start * rowHeight + 1.5,
       width: dayWidth - 3.0,
       height: cardHeight,
       child: GestureDetector(
@@ -1090,7 +1015,7 @@ class _TodayPageState extends State<TodayPage> {
           _locateCourseOnMap(course);
         },
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 2.5, vertical: 2.5),
+          padding: const EdgeInsets.symmetric(horizontal: 3.0, vertical: 3.0),
           decoration: BoxDecoration(
             color: theme.bg,
             borderRadius: BorderRadius.circular(7),
@@ -1111,7 +1036,7 @@ class _TodayPageState extends State<TodayPage> {
                 maxLines: compact ? 1 : 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: compact ? 9.5 : 10.0,
+                  fontSize: compact ? 9.5 : 10.5,
                   height: 1.15,
                   fontWeight: FontWeight.w700,
                   color: theme.text,
@@ -1127,6 +1052,7 @@ class _TodayPageState extends State<TodayPage> {
                       size: 8.5,
                       color: theme.subText,
                     ),
+                    const SizedBox(width: 1),
                     Expanded(
                       child: Text(
                         course.room,
@@ -1155,6 +1081,7 @@ class _GridPainter extends CustomPainter {
   _GridPainter({
     required this.periods,
     required this.activePeriod,
+    required this.visibleDays,
     required this.isTodayCol,
     required this.dayWidth,
     required this.rowHeight,
@@ -1162,6 +1089,7 @@ class _GridPainter extends CustomPainter {
 
   final int periods;
   final int? activePeriod;
+  final List<int> visibleDays;
   final bool Function(int dayIndex) isTodayCol;
   final double dayWidth;
   final double rowHeight;
@@ -1173,25 +1101,25 @@ class _GridPainter extends CustomPainter {
       ..strokeWidth = 0.6;
 
     // 今天所在的列涂淡淡的高亮背景
-    for (var d = 0; d < 7; d++) {
-      if (isTodayCol(d)) {
+    for (var c = 0; c < visibleDays.length; c++) {
+      if (isTodayCol(visibleDays[c])) {
         final todayBg = Paint()..color = const Color(0x06A31C1C);
         canvas.drawRect(
-          Rect.fromLTWH(d * dayWidth, 0, dayWidth, size.height),
+          Rect.fromLTWH(c * dayWidth, 0, dayWidth, size.height),
           todayBg,
         );
       }
     }
 
-    // 横向网格线
+    // 横向网格线 (13节)
     for (var i = 0; i <= periods; i++) {
       final y = i * rowHeight;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
     }
 
     // 纵向网格线
-    for (var d = 0; d <= 7; d++) {
-      final x = d * dayWidth;
+    for (var c = 0; c <= visibleDays.length; c++) {
+      final x = c * dayWidth;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), linePaint);
     }
   }
@@ -1200,6 +1128,7 @@ class _GridPainter extends CustomPainter {
   bool shouldRepaint(covariant _GridPainter oldDelegate) {
     return oldDelegate.periods != periods ||
         oldDelegate.activePeriod != activePeriod ||
+        oldDelegate.visibleDays != visibleDays ||
         oldDelegate.dayWidth != dayWidth ||
         oldDelegate.rowHeight != rowHeight;
   }

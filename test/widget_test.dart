@@ -73,13 +73,14 @@ void main() {
     expect(find.text('军工路校区'), findsOneWidget);
   });
 
-  testWidgets('我的页展示学业入口和课表区块', (tester) async {
+  testWidgets('我的页展示学业入口与空间服务', (tester) async {
     await tester.pumpWidget(_wrap(const ProfilePage()));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.text('学业'), findsOneWidget);
-    expect(find.textContaining('课表'), findsWidgets);
+    // 课表已单独抽取为「今日」独立Tab，我的页不再保留课表区块
+    expect(find.textContaining('课表'), findsNothing);
     // 空间入口：教室查询 / 学工一体化，旧的「我的课表」已移除
     expect(find.text('教室查询'), findsOneWidget);
     expect(find.text('学工一体化'), findsOneWidget);
