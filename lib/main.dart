@@ -18,6 +18,7 @@ import 'pages/life_page.dart';
 import 'pages/map_page.dart';
 import 'pages/forum_page.dart';
 import 'pages/profile_page.dart';
+import 'pages/today_page.dart';
 
 /// 全局导航 key：点通知时要能从任意位置跳转。
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
@@ -45,7 +46,7 @@ class CampusApp extends StatelessWidget {
   }
 }
 
-/// 底部五 Tab 骨架：首页 / 地图 / 校园服务 / 论坛 / 我的
+/// 底部五 Tab 骨架：信息 / 校园 / 今日 / 理评 / 我的
 class RootScaffold extends StatefulWidget {
   const RootScaffold({super.key});
 
@@ -90,8 +91,11 @@ class _RootScaffoldState extends State<RootScaffold> {
   }
 
   void _onMapFocus() {
-    if (MapFocus.target.value != null && _index != 1) {
-      setState(() => _index = 1);
+    final target = MapFocus.target.value;
+    if (target != null && mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const MapPage()),
+      );
     }
   }
 
@@ -145,8 +149,8 @@ class _RootScaffoldState extends State<RootScaffold> {
   /// 页面只构建一次；首页在这里注入真实数据源，页面本身仍可单独注入演示数据。
   static final List<Widget> _pages = [
     HomePage(source: RemoteNoticeSource()),
-    const MapPage(),
     const LifePage(),
+    const TodayPage(),
     const ForumPage(),
     const ProfilePage(),
   ];
@@ -159,38 +163,38 @@ class _RootScaffoldState extends State<RootScaffold> {
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: '首页',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.map_outlined),
-            selectedIcon: Icon(Icons.map),
-            label: '地图',
+          const NavigationDestination(
+            icon: Icon(Icons.feed_outlined),
+            selectedIcon: Icon(Icons.feed),
+            label: '信息',
           ),
           NavigationDestination(
             icon: Image.asset(
               'assets/emblem.webp',
-              width: 28,
-              height: 28,
+              width: 24,
+              height: 24,
               filterQuality: FilterQuality.high,
             ),
             selectedIcon: Image.asset(
               'assets/emblem.webp',
-              width: 32,
-              height: 32,
+              width: 26,
+              height: 26,
               filterQuality: FilterQuality.high,
             ),
-            label: '理堂',
-            tooltip: '理堂',
+            label: '校园',
+            tooltip: '校园',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.forum_outlined),
-            selectedIcon: Icon(Icons.forum),
-            label: '论坛',
+          const NavigationDestination(
+            icon: Icon(Icons.calendar_today_outlined),
+            selectedIcon: Icon(Icons.calendar_today),
+            label: '今日',
           ),
-          NavigationDestination(
+          const NavigationDestination(
+            icon: Icon(Icons.rate_review_outlined),
+            selectedIcon: Icon(Icons.rate_review),
+            label: '理评',
+          ),
+          const NavigationDestination(
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person),
             label: '我的',

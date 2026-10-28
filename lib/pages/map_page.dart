@@ -222,10 +222,20 @@ class _MapPageState extends State<MapPage> {
   }
 
   Widget _topBar() {
+    final canPop = Navigator.of(context).canPop();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Row(
         children: <Widget>[
+          if (canPop) ...<Widget>[
+            IconButton(
+              icon: const Icon(Icons.arrow_back),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            const SizedBox(width: 8),
+          ],
           const Text(
             '校园地图',
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),

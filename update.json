@@ -1,9 +1,9 @@
 {
-  "version": "0.5.1",
-  "versionCode": 26,
+  "version": "0.5.2",
+  "versionCode": 27,
   "minVersionCode": 0,
-  "notes": "学习通支持 CAS 静默 SSO 登录与扫码签到；雷达签到支持 GCJ-02 坐标纠偏与多机型适配；扫码界面支持双指捏合缩放；优化校园服务待办只展示当期课程。",
+  "notes": "全新五栏结构布局升级：中心独立「今日」课表、校园生活页支持一网畅学与学习通DDL合流、集成校园地图与空教室查询入口；我的页精简降焦；理评专区升级为课程点评与搭子广场。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.1/app-release.apk",
-  "sha256": "194e363564c500d2bed8c45fa3c7f92f43236662c203ad7e5db0096501898cd3"
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.2/app-release.apk",
+  "sha256": "b21b269f953002bfed6ed70ce82f551eb7ffa9b630563fb2e19f1502a4e1bc54"
 }

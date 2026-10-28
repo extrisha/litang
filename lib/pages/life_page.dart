@@ -28,6 +28,7 @@ import 'chaoxing_course_detail_page.dart';
 import 'course_detail_page.dart';
 import 'homework_page.dart';
 import 'login_page.dart';
+import 'map_page.dart';
 import 'qr_scan_page.dart';
 import 'simple_web.dart';
 
@@ -57,7 +58,6 @@ class _LifePageState extends State<LifePage> {
   List<LmsCourseInfo> _courseInfos = const <LmsCourseInfo>[];
 
   // 学习通
-  bool _showChaoxingTodos = false;
   bool _cxLoading = false;
   String? _cxError;
   List<ChaoxingCourse> _cxCourses = const <ChaoxingCourse>[];
@@ -568,15 +568,6 @@ class _LifePageState extends State<LifePage> {
     // 当前如果停在「学习通」课程源，登录完直接把课程列表拉出来
     if (_showChaoxingCourses) {
       await _loadCourses(force: true);
-    }
-  }
-
-  void _toggleTodoSource() {
-    setState(() => _showChaoxingTodos = !_showChaoxingTodos);
-    if (_showChaoxingTodos &&
-        ChaoxingAuth.instance.isLoggedIn &&
-        _cxWorks.isEmpty) {
-      _refreshChaoxing(withWorks: true);
     }
   }
 
@@ -1331,11 +1322,11 @@ class _LifePageState extends State<LifePage> {
                   )
                 else
                   IconButton(
-                    tooltip: '刷新签到',
+                    tooltip: '刷新',
                     onPressed: () async {
                       await _refresh();
                       await _refreshChaoxing(
-                        withWorks: _showChaoxingTodos,
+                        withWorks: true,
                         autoLogin: true,
                       );
                     },
@@ -1343,7 +1334,9 @@ class _LifePageState extends State<LifePage> {
                   ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
+            _quickToolsRow(),
+            const SizedBox(height: 12),
             _rollcallCard(),
             if (_exams.isNotEmpty) ...<Widget>[
               const SizedBox(height: 12),
@@ -1355,6 +1348,102 @@ class _LifePageState extends State<LifePage> {
             _courseCard(),
             const SizedBox(height: 12),
             _dormElectricityCard(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  
+  Widget _quickToolsRow() {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: _quickToolTile(
+            icon: Icons.map_outlined,
+            title: '校园地图',
+            desc: '自绘瓦片 · 楼栋定位',
+            color: const Color(0xFF1E88E5),
+            bgColor: const Color(0xFFE8F3FC),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const MapPage()),
+              );
+            },
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _quickToolTile(
+            icon: Icons.meeting_room_outlined,
+            title: '教室查询',
+            desc: '教学楼 · 自习空间',
+            color: AppColors.usstRed,
+            bgColor: const Color(0xFFFDE8E8),
+            onTap: () {
+              _toast('空教室功能正在接入中，可先通过「校园地图」查看教学楼分布');
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _quickToolTile({
+    required IconData icon,
+    required String title,
+    required String desc,
+    required Color color,
+    required Color bgColor,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFEDEDED), width: 0.8),
+        ),
+        child: Row(
+          children: <Widget>[
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    desc,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -1763,8 +1852,22 @@ class _LifePageState extends State<LifePage> {
     );
   }
 
+  int _todoFilter = 0; // 0: 全部合流, 1: 一网畅学, 2: 学习通
+
   Widget _todoCard() {
-    final isCx = _showChaoxingTodos;
+    final cxActive = _cxWorks.where((w) => !w.finished && !w.expired).length;
+    final tronActive = _todos.length;
+    final total = cxActive + tronActive;
+
+    final String countLabel;
+    if (_todoFilter == 0) {
+      countLabel = '$total 个';
+    } else if (_todoFilter == 1) {
+      countLabel = '$tronActive 个';
+    } else {
+      countLabel = '$cxActive 个';
+    }
+
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       decoration: BoxDecoration(
@@ -1788,49 +1891,66 @@ class _LifePageState extends State<LifePage> {
               ),
               const Spacer(),
               Text(
-                isCx
-                    ? '${_cxWorks.where((w) => !w.finished && !w.expired).length} 个'
-                    : '${_todos.length} 个',
+                countLabel,
                 style: const TextStyle(
                   fontSize: 11,
                   color: AppColors.textSecondary,
                 ),
               ),
-              const SizedBox(width: 4),
-              _sourceSwitch(),
+              const SizedBox(width: 6),
+              _todoSourceSwitch(),
             ],
           ),
-          if (isCx) _cxTodoBody() else _lmsTodoBody(),
+          if (_todoFilter == 0)
+            _unifiedTodoBody()
+          else if (_todoFilter == 1)
+            _lmsTodoBody()
+          else
+            _cxTodoBody(),
         ],
       ),
     );
   }
 
-  Widget _sourceSwitch() {
-    final isCx = _showChaoxingTodos;
-    final color = isCx ? AppColors.usstRed : const Color(0xFF3B5BDB);
+  Widget _todoSourceSwitch() {
+    final String label;
+    final Color color;
+    final Color bgColor;
+
+    if (_todoFilter == 0) {
+      label = '全部合流';
+      color = const Color(0xFF2E7D32);
+      bgColor = const Color(0xFFE8F5E9);
+    } else if (_todoFilter == 1) {
+      label = '一网畅学';
+      color = const Color(0xFF3B5BDB);
+      bgColor = const Color(0xFFE3EAFE);
+    } else {
+      label = '学习通';
+      color = AppColors.usstRed;
+      bgColor = AppColors.redTint;
+    }
+
     return GestureDetector(
-      onTap: _toggleTodoSource,
+      onTap: () {
+        setState(() {
+          _todoFilter = (_todoFilter + 1) % 3;
+        });
+        if (_todoFilter == 2 && ChaoxingAuth.instance.isLoggedIn && _cxWorks.isEmpty) {
+          _refreshChaoxing(withWorks: true);
+        }
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: isCx ? AppColors.redTint : const Color(0xFFE3EAFE),
+          color: bgColor,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Image.asset(
-              isCx
-                  ? 'assets/sources/chaoxing_tab.png'
-                  : 'assets/sources/tronclass_tab.png',
-              width: 13,
-              height: 13,
-              filterQuality: FilterQuality.high,
-            ),
-            const SizedBox(width: 4),
             Text(
-              isCx ? '学习通' : '一网畅学',
+              label,
               style: TextStyle(
                 fontSize: 10.5,
                 color: color,
@@ -1841,6 +1961,152 @@ class _LifePageState extends State<LifePage> {
             Icon(Icons.swap_horiz, size: 13, color: color),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _unifiedTodoBody() {
+    final items = <({
+      String id,
+      String title,
+      String course,
+      String source,
+      DateTime? deadline,
+      String deadlineText,
+      VoidCallback onTap,
+    })>[];
+
+    for (final t in _todos) {
+      items.add((
+        id: 'tron_${t.id}',
+        title: t.title,
+        course: _cleanCourseName(t.courseName),
+        source: '一网畅学',
+        deadline: t.deadline,
+        deadlineText: _ddlCountdown(t.deadline),
+        onTap: () => _openTodo(t),
+      ));
+    }
+
+    for (final w in _cxWorks) {
+      if (w.finished || w.expired) continue;
+      final clean = w.deadline.replaceAll('截止时间：', '').replaceAll('截止：', '').trim();
+      final dt = DateTime.tryParse(clean);
+      items.add((
+        id: 'cx_${w.workId}',
+        title: w.title,
+        course: _cleanCourseName(w.courseName),
+        source: '学习通',
+        deadline: dt,
+        deadlineText: dt != null ? _ddlCountdown(dt) : w.deadline,
+        onTap: () => _openCxWork(w),
+      ));
+    }
+
+    items.sort((a, b) {
+      if (a.deadline == null && b.deadline == null) return 0;
+      if (a.deadline == null) return 1;
+      if (b.deadline == null) return -1;
+      return a.deadline!.compareTo(b.deadline!);
+    });
+
+    if (items.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Center(
+          child: Text(
+            '暂无待办作业，尽情享受自由时光 ☕',
+            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
+      height: 180,
+      child: ListView.separated(
+        padding: const EdgeInsets.only(top: 8),
+        itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 8),
+        itemBuilder: (context, i) {
+          final item = items[i];
+          final isTron = item.source == '一网畅学';
+          return InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: item.onTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F8FA),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          item.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: <Widget>[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: isTron ? const Color(0xFFE8F0FE) : const Color(0xFFFDE8E8),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                item.source,
+                                style: TextStyle(
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: isTron ? const Color(0xFF1967D2) : AppColors.usstRed,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                item.course,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (item.deadlineText.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Text(
+                        item.deadlineText,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: _ddlColor(item.deadline),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

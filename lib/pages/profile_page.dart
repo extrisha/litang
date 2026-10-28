@@ -17,11 +17,7 @@ import '../data/jwc/course_repository.dart';
 import '../data/jwc/academic_repository.dart';
 import '../data/jwc/grade_repository.dart';
 import '../data/jwc/rank_repository.dart';
-import '../data/campus_places.dart';
-import '../data/map_focus.dart';
-import '../data/models.dart';
 import '../data/profile_store.dart';
-import '../widgets/course_table.dart';
 import 'academic_page.dart';
 import 'grades_page.dart';
 import 'jwgl_web.dart';
@@ -29,6 +25,7 @@ import 'rank_page.dart';
 import 'simple_web.dart';
 import 'login_page.dart';
 import 'update_page.dart';
+import 'today_page.dart';
 import '../services/update_service.dart';
 
 /// 我的：个人信息 + 查询入口（学业 / 空间）+ 课表（自动同步 + 手动刷新）。
@@ -683,192 +680,38 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _timetableSection() {
-    final auth = JwglAuth.instance;
-    final snapshot = _snapshot;
-    final calendarLabel = CalendarService.instance.termLabel;
-    final termLabel = calendarLabel.isNotEmpty
-        ? calendarLabel
-        : (snapshot?.termLabel ?? '');
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Row(
-          children: <Widget>[
-            Text(
-              '第$_week周课表',
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-            ),
-            if ((CalendarService.instance.currentWeek ??
-                        snapshot?.currentWeek) !=
-                    null &&
-                _week ==
-                    (CalendarService.instance.currentWeek ??
-                        snapshot!.currentWeek))
-              Container(
-                margin: const EdgeInsets.only(left: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
-                decoration: BoxDecoration(
-                  color: AppColors.usstRed,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Text(
-                  '本周',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            const SizedBox(width: 8),
-            if (termLabel.isNotEmpty)
-              Flexible(
-                child: Text(
-                  termLabel,
-                  maxLines: 2,
-                  softWrap: true,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ),
-            const Spacer(),
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              )
-            else
-              IconButton(
-                tooltip: '手动更新课表',
-                onPressed: () => _refresh(),
-                icon: const Icon(Icons.refresh, size: 20),
-              ),
-          ],
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFDE8E8),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(
+            Icons.calendar_today_outlined,
+            size: 20,
+            color: AppColors.usstRed,
+          ),
         ),
-        const SizedBox(height: 8),
-        if (snapshot == null)
-          _hintCard(
-            auth.isLoggedIn
-                ? (_loading ? '正在同步课表…' : '还没有课表，点右上角刷新试试')
-                : '登录后自动同步课表',
-          )
-        else ...<Widget>[
-          _weekSwitcher(),
-          const SizedBox(height: 6),
-          Row(
-            children: <Widget>[
-              const Icon(
-                Icons.touch_app_outlined,
-                size: 13,
-                color: AppColors.textSecondary,
-              ),
-              const SizedBox(width: 4),
-              const Text(
-                '双击课程可在地图上定位教室楼栋',
-                style: TextStyle(
-                  fontSize: 10.5,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          CourseWeekTable(
-            courses: snapshot.courses,
-            week: _week,
-            onCourseDoubleTap: _locateCourse,
-          ),
-        ],
-      ],
-    );
-  }
-
-  void _locateCourse(Course course) {
-    final place = placeForRoom(course.room);
-    if (place == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('没认出「${course.room}」对应的楼栋')));
-      return;
-    }
-    MapFocus.focus(place);
-  }
-
-  /// 横向滑动的周次切换条。
-  Widget _weekSwitcher() {
-    final snapshot = _snapshot;
-    var maxWeek = 20;
-    if (snapshot != null) {
-      for (final c in snapshot.courses) {
-        final weeks = c.weeks;
-        if (weeks != null && weeks.isNotEmpty && weeks.last > maxWeek) {
-          maxWeek = weeks.last;
-        }
-      }
-    }
-    if (maxWeek < _week) {
-      maxWeek = _week;
-    }
-    return SizedBox(
-      height: 38,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: maxWeek,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final week = index + 1;
-          final selected = week == _week;
-          final current =
-              CalendarService.instance.currentWeek ?? snapshot?.currentWeek;
-          final isCurrent = current != null && week == current;
-          return GestureDetector(
-            onTap: () => setState(() => _week = week),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: selected ? AppColors.usstRed : Colors.white,
-                borderRadius: BorderRadius.circular(19),
-                border: Border.all(
-                  color: selected ? AppColors.usstRed : const Color(0xFFE6E6E6),
-                ),
-              ),
-              child: Text(
-                '第$week周${isCurrent ? '（本周）' : ''}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
-                  color: selected ? Colors.white : AppColors.textSecondary,
-                ),
-              ),
-            ),
+        title: const Text('全学期课表', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+        subtitle: const Text(
+          '课表已移至底栏中间「今日」，支持周次切换与教室定位',
+          style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+        ),
+        trailing: const Icon(Icons.chevron_right, size: 18, color: AppColors.textSecondary),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const TodayPage()),
           );
         },
       ),
     );
   }
 
-  Widget _hintCard(String text) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 22),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-      ),
-    );
-  }
 
   Widget _sectionTitle(String t) => Padding(
     padding: const EdgeInsets.only(bottom: 10, left: 4),
