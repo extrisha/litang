@@ -1,9 +1,9 @@
 {
-  "version": "0.5.0",
-  "versionCode": 25,
+  "version": "0.5.1",
+  "versionCode": 26,
   "minVersionCode": 0,
-  "notes": "新增校园服务页：宿舍电费查询与缓存；学习通支持教务账号一键登录、课程与作业缓存；公告附件（含压缩包）可下载；修复换账号后课程、昵称、学习通不同步；优化首页和校园服务加载速度。",
+  "notes": "学习通支持 CAS 静默 SSO 登录与扫码签到；雷达签到支持 GCJ-02 坐标纠偏与多机型适配；扫码界面支持双指捏合缩放；优化校园服务待办只展示当期课程。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.0/app-release.apk",
-  "sha256": "146f5ce29b0374bb5029a812b3d0b28e806b22258eedda3c6f3144e01724904e"
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.1/app-release.apk",
+  "sha256": "194e363564c500d2bed8c45fa3c7f92f43236662c203ad7e5db0096501898cd3"
 }
