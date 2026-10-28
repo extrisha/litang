@@ -124,13 +124,21 @@ void main() {
   });
 
   group('AppColors.gradeColor', () {
-    test('按绩点区间给颜色', () {
-      expect(AppColors.gradeColor(4.3), const Color(0xFFB8860B));
-      expect(AppColors.gradeColor(3.7), const Color(0xFF2E8B57));
-      expect(AppColors.gradeColor(3.2), const Color(0xFF2E6FA3));
-      expect(AppColors.gradeColor(2.6), const Color(0xFF6A4C93));
-      expect(AppColors.gradeColor(1.5), const Color(0xFF8A8A8E));
+    test('按绩点区间给颜色（Osu! Rank 评级配色：S金 A绿 B蓝 C紫 D红）', () {
+      expect(AppColors.gradeColor(4.3), const Color(0xFFD48806)); // S
+      expect(AppColors.gradeColor(3.7), const Color(0xFFD48806)); // S
+      expect(AppColors.gradeColor(3.2), const Color(0xFF389E0D)); // A
+      expect(AppColors.gradeColor(2.6), const Color(0xFF1677FF)); // B
+      expect(AppColors.gradeColor(1.5), const Color(0xFF722ED1)); // C
+      expect(AppColors.gradeColor(0.8), const Color(0xFFCF1322)); // D
       expect(AppColors.gradeColor(null), const Color(0xFF8A8A8E));
+
+      expect(AppColors.gradeRank(4.0), 'S');
+      expect(AppColors.gradeRank(3.2), 'A');
+      expect(AppColors.gradeRank(2.5), 'B');
+      expect(AppColors.gradeRank(1.2), 'C');
+      expect(AppColors.gradeRank(0.5), 'D');
+      expect(AppColors.gradeRank(null), '--');
     });
   });
 }

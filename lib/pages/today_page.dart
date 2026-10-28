@@ -35,69 +35,163 @@ class _CourseTheme {
 
 const List<_CourseTheme> _coursePalettes = <_CourseTheme>[
   _CourseTheme(
-    bg: Color(0xFFFFF1F0), // 上理红/薄樱
+    bg: Color(0xFFFFF1F0), // 1. 上理薄樱红
     border: Color(0xFFFFCCC7),
     text: Color(0xFFA8071A),
     subText: Color(0xFFCF1322),
     accent: Color(0xFFA31C1C),
   ),
   _CourseTheme(
-    bg: Color(0xFFE6F4FF), // 天青蓝
+    bg: Color(0xFFE6F4FF), // 2. 天青蓝
     border: Color(0xFFBAE0FF),
     text: Color(0xFF003EB3),
     subText: Color(0xFF0958D9),
     accent: Color(0xFF1677FF),
   ),
   _CourseTheme(
-    bg: Color(0xFFF6FFED), // 青竹绿
+    bg: Color(0xFFF6FFED), // 3. 青竹绿
     border: Color(0xFFD9F7BE),
     text: Color(0xFF135200),
     subText: Color(0xFF389E0D),
     accent: Color(0xFF52C41A),
   ),
   _CourseTheme(
-    bg: Color(0xFFFFF7E6), // 暖杏橙
+    bg: Color(0xFFFFF7E6), // 4. 暖杏橙
     border: Color(0xFFFFE7BA),
     text: Color(0xFF873800),
     subText: Color(0xFFD46B08),
     accent: Color(0xFFFA8C16),
   ),
   _CourseTheme(
-    bg: Color(0xFFF9F0FF), // 薰衣草紫
+    bg: Color(0xFFF9F0FF), // 5. 薰衣草紫
     border: Color(0xFFEFDBFF),
     text: Color(0xFF391085),
     subText: Color(0xFF531DAB),
     accent: Color(0xFF722ED1),
   ),
   _CourseTheme(
-    bg: Color(0xFFE6FFFB), // 浅湖蓝
+    bg: Color(0xFFE6FFFB), // 6. 浅湖青
     border: Color(0xFFB5F5EC),
     text: Color(0xFF00474F),
     subText: Color(0xFF08979C),
     accent: Color(0xFF13C2C2),
   ),
   _CourseTheme(
-    bg: Color(0xFFFFF0F6), // 山茶粉
+    bg: Color(0xFFFFF0F6), // 7. 山茶粉
     border: Color(0xFFFFD6E7),
     text: Color(0xFF780650),
     subText: Color(0xFFC41D7F),
     accent: Color(0xFFEB2F96),
   ),
   _CourseTheme(
-    bg: Color(0xFFFEFFE6), // 浅柠黄
+    bg: Color(0xFFFEFFE6), // 8. 浅柠黄
     border: Color(0xFFFFFFB8),
     text: Color(0xFF614700),
     subText: Color(0xFFAD8B00),
     accent: Color(0xFFD4B106),
   ),
+  _CourseTheme(
+    bg: Color(0xFFE6FFED), // 9. 碧水荷绿
+    border: Color(0xFFB7EB8F),
+    text: Color(0xFF0C6B58),
+    subText: Color(0xFF1D9C73),
+    accent: Color(0xFF20B2AA),
+  ),
+  _CourseTheme(
+    bg: Color(0xFFF0F5FF), // 10. 极光晴蓝
+    border: Color(0xFFD6E4FF),
+    text: Color(0xFF1D39C4),
+    subText: Color(0xFF2F54EB),
+    accent: Color(0xFF597EF7),
+  ),
+  _CourseTheme(
+    bg: Color(0xFFFFF2E8), // 11. 赤陶赭红
+    border: Color(0xFFFFD8BF),
+    text: Color(0xFF871400),
+    subText: Color(0xFFD4380D),
+    accent: Color(0xFFFA541C),
+  ),
+  _CourseTheme(
+    bg: Color(0xFFF3E8FF), // 12. 丁香紫
+    border: Color(0xFFD8B4FE),
+    text: Color(0xFF4C1D95),
+    subText: Color(0xFF6B21A8),
+    accent: Color(0xFF9333EA),
+  ),
+  _CourseTheme(
+    bg: Color(0xFFF4F7E6), // 13. 苔藓绿
+    border: Color(0xFFD3E0A3),
+    text: Color(0xFF3B5323),
+    subText: Color(0xFF4D6E30),
+    accent: Color(0xFF6B8E23),
+  ),
+  _CourseTheme(
+    bg: Color(0xFFFFF0ED), // 14. 珊瑚粉
+    border: Color(0xFFFFD4CC),
+    text: Color(0xFF8C2210),
+    subText: Color(0xFFC43D27),
+    accent: Color(0xFFE25238),
+  ),
+  _CourseTheme(
+    bg: Color(0xFFEDF2F7), // 15. 苍暮黛蓝
+    border: Color(0xFFCBD5E0),
+    text: Color(0xFF1A365D),
+    subText: Color(0xFF2B6CB0),
+    accent: Color(0xFF3182CE),
+  ),
+  _CourseTheme(
+    bg: Color(0xFFFFFBE6), // 16. 晨曦金杏
+    border: Color(0xFFFFE58F),
+    text: Color(0xFF874D00),
+    subText: Color(0xFFD48806),
+    accent: Color(0xFFFAAD14),
+  ),
 ];
 
-_CourseTheme _themeForCourse(String name) {
+int _nameHash(String name) {
   var h = 0;
   for (final code in name.codeUnits) {
     h = (h * 31 + code) & 0x7FFFFFFF;
   }
-  return _coursePalettes[h % _coursePalettes.length];
+  return h;
+}
+
+_CourseTheme _themeForCourse(String name) {
+  return _coursePalettes[_nameHash(name) % _coursePalettes.length];
+}
+
+/// 同一界面课程颜色分配器：保证当周同屏出现的不同课程颜色尽量不重复
+Map<String, _CourseTheme> _buildCourseThemeMap(List<Course> courses) {
+  final distinctNames = <String>[];
+  for (final c in courses) {
+    if (!distinctNames.contains(c.name)) {
+      distinctNames.add(c.name);
+    }
+  }
+
+  final assignedThemes = <String, _CourseTheme>{};
+  final usedPaletteIndices = <int>{};
+
+  for (final name in distinctNames) {
+    final idealSlot = _nameHash(name) % _coursePalettes.length;
+    var chosenSlot = idealSlot;
+
+    // 若理想色槽已被当周其他课程占用，则线性探测下一个空闲色槽，实现同屏零重复
+    if (usedPaletteIndices.contains(chosenSlot) && usedPaletteIndices.length < _coursePalettes.length) {
+      for (var offset = 1; offset < _coursePalettes.length; offset++) {
+        final candidate = (idealSlot + offset) % _coursePalettes.length;
+        if (!usedPaletteIndices.contains(candidate)) {
+          chosenSlot = candidate;
+          break;
+        }
+      }
+    }
+
+    usedPaletteIndices.add(chosenSlot);
+    assignedThemes[name] = _coursePalettes[chosenSlot];
+  }
+
+  return assignedThemes;
 }
 
 /// 「今日」独立课表主页
@@ -765,6 +859,9 @@ class _TodayPageState extends State<TodayPage> {
             .toList() ??
         <Course>[];
 
+    // 当周同屏课程配色去重：给每门课动态分配专属莫兰迪配色
+    final themeMap = _buildCourseThemeMap(shown);
+
     // 默认隐藏周末；若检测到周六有课则在右侧展开周六；若周日有课则在周一左侧展开周日
     final hasSaturday = shown.any((c) => c.day == 5);
     final hasSunday = shown.any((c) => c.day == 6);
@@ -782,12 +879,16 @@ class _TodayPageState extends State<TodayPage> {
         // 单元格横向宽度均分（根据可见星期数 5~7 动态伸缩，充满屏幕）
         final dayWidth = (availableWidth - _periodWidth) / visibleDays.length;
 
-        // 用户要求：让第十一节课与第十二节课的分界线与导航栏齐平！
-        // 也就是说，默认视口刚好容纳第 1 至 11 节课，11 节下边线恰好对齐底部导航栏
-        final rowHeight = math.max((availableHeight - _headerHeight - 2.0) / 11.0, 42.0);
+        // 课表视口净高度（扣除顶部固定星期栏高度）
+        final viewportHeight = availableHeight - _headerHeight;
 
-        // 13 节课全天总高度 + 36dp 底部安全滚动边距，保证下拉滑动能完整看清 19:30 后的晚课（12~13节）
-        final totalGridHeight = 13 * rowHeight + 36.0;
+        // 需求：让第十一节课与第十二节课的分界线与底部导航栏齐平！
+        // 即视口高度刚好容纳 11 节课：rowHeight * 11 = viewportHeight
+        final rowHeight = math.max((viewportHeight - 1.0) / 11.0, 40.0);
+
+        // 需求：将下拉的极限设定到第十三节课的底部！
+        // 总高度刚好等于 13 节课的高度，下滑到底时第 13 节下边线恰好停在导航栏顶端，无多余空白
+        final totalGridHeight = 13 * rowHeight;
 
         return Column(
           children: <Widget>[
@@ -857,6 +958,7 @@ class _TodayPageState extends State<TodayPage> {
                                   dayWidth,
                                   rowHeight,
                                   visibleDays.indexOf(course.day),
+                                  themeMap[course.name] ?? _themeForCourse(course.name),
                                 ),
                           ],
                         ),
@@ -882,11 +984,11 @@ class _TodayPageState extends State<TodayPage> {
       height: _headerHeight,
       padding: const EdgeInsets.symmetric(vertical: 2),
       decoration: BoxDecoration(
-        color: isT ? const Color(0xFFFFF2F0) : Colors.white,
+        color: isT ? const Color(0xFFFFECEB) : Colors.white,
         border: Border(
           bottom: BorderSide(
             color: isT ? AppColors.usstRed : const Color(0xFFEDEDED),
-            width: isT ? 2 : 1,
+            width: isT ? 2.5 : 1,
           ),
           right: const BorderSide(color: Color(0xFFF2F2F2), width: 0.5),
         ),
@@ -995,8 +1097,13 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  Widget _courseCard(Course course, double dayWidth, double rowHeight, int colIndex) {
-    final theme = _themeForCourse(course.name);
+  Widget _courseCard(
+    Course course,
+    double dayWidth,
+    double rowHeight,
+    int colIndex,
+    _CourseTheme theme,
+  ) {
     final cardHeight = rowHeight * course.span - 3.5;
     final compact = course.span <= 1;
 
@@ -1103,7 +1210,7 @@ class _GridPainter extends CustomPainter {
     // 今天所在的列涂淡淡的高亮背景
     for (var c = 0; c < visibleDays.length; c++) {
       if (isTodayCol(visibleDays[c])) {
-        final todayBg = Paint()..color = const Color(0x06A31C1C);
+        final todayBg = Paint()..color = const Color(0x16A31C1C);
         canvas.drawRect(
           Rect.fromLTWH(c * dayWidth, 0, dayWidth, size.height),
           todayBg,

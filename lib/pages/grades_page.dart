@@ -245,14 +245,38 @@ class _GradesPageState extends State<GradesPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(
-                      summary.weightedGpa?.toStringAsFixed(2) ?? '--',
-                      style: TextStyle(
-                        fontSize: 30,
-                        height: 1.0,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.gradeColor(summary.weightedGpa),
-                      ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: <Widget>[
+                        Text(
+                          summary.weightedGpa?.toStringAsFixed(2) ?? '--',
+                          style: TextStyle(
+                            fontSize: 30,
+                            height: 1.0,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.gradeColor(summary.weightedGpa),
+                          ),
+                        ),
+                        if (summary.weightedGpa != null) ...<Widget>[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: AppColors.gradeColor(summary.weightedGpa).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              AppColors.gradeRank(summary.weightedGpa),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.gradeColor(summary.weightedGpa),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 4),
                     const Text(
@@ -390,7 +414,7 @@ class _GradesPageState extends State<GradesPage> {
                   border: Border.all(color: color.withValues(alpha: 0.5)),
                 ),
                 child: Text(
-                  gpa == null ? '绩点 --' : '绩点 ${gpa.toStringAsFixed(2)}',
+                  gpa == null ? '绩点 --' : '${AppColors.gradeRank(gpa)} · 绩点 ${gpa.toStringAsFixed(2)}',
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w600,

@@ -9,25 +9,39 @@ class AppColors {
   static const Color textSecondary = Color(0xFF8A8A8E);
   static const Color redTint = Color(0x1FA31C1C); // 12% 红，用于标签底 / 选中态
 
-  /// 绩点颜色分级（默认方案，之后可以按喜好调整）：
-  /// ≥4.0 金色、≥3.5 绿色、≥3.0 蓝色、≥2.5 紫色，其余灰色。
+  /// 绩点颜色分级（参考 Osu! 评级体系：S 金、A 绿、B 蓝、C 紫、D 红）
+  /// - S (≥3.7): 金色，卓越表现
+  /// - A (≥3.0): 绿色，优秀良好
+  /// - B (≥2.0): 蓝色，稳定中等
+  /// - C (≥1.0): 紫色，达标及格
+  /// - D (<1.0): 红色，警示/不及格
   static Color gradeColor(double? gpa) {
     if (gpa == null) {
       return const Color(0xFF8A8A8E);
     }
-    if (gpa >= 4.0) {
-      return const Color(0xFFB8860B); // 金
-    }
-    if (gpa >= 3.5) {
-      return const Color(0xFF2E8B57); // 绿
+    if (gpa >= 3.7) {
+      return const Color(0xFFD48806); // Osu! S 级 金色
     }
     if (gpa >= 3.0) {
-      return const Color(0xFF2E6FA3); // 蓝
+      return const Color(0xFF389E0D); // Osu! A 级 翠绿
     }
-    if (gpa >= 2.5) {
-      return const Color(0xFF6A4C93); // 紫
+    if (gpa >= 2.0) {
+      return const Color(0xFF1677FF); // Osu! B 级 亮蓝
     }
-    return const Color(0xFF8A8A8E); // 灰
+    if (gpa >= 1.0) {
+      return const Color(0xFF722ED1); // Osu! C 级 幽紫
+    }
+    return const Color(0xFFCF1322); // Osu! D 级 警示红
+  }
+
+  /// Osu! Rank 评级字母
+  static String gradeRank(double? gpa) {
+    if (gpa == null) return '--';
+    if (gpa >= 3.7) return 'S';
+    if (gpa >= 3.0) return 'A';
+    if (gpa >= 2.0) return 'B';
+    if (gpa >= 1.0) return 'C';
+    return 'D';
   }
 }
 

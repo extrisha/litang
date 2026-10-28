@@ -1,9 +1,9 @@
 {
-  "version": "0.5.4",
-  "versionCode": 29,
+  "version": "0.5.5",
+  "versionCode": 30,
   "minVersionCode": 0,
-  "notes": "今日课表体验升级：彻底修复表头与节次文本转义乱码；默认隐藏周六周日且按需智能展开（仅周六或仅周日有课时自适应排版）；行高动态匹配视口使第11节与底栏齐平，支持流畅下拉查看19:30后晚课；移除冗余今日聚焦卡片；我的页精简移除重复课表区块。",
+  "notes": "今日课表与成绩视觉精细化：强化当日本列高亮红底；扩充至16套莫兰迪配色体系并在当周同屏课程间实现无碰撞去重分配；严格锁定下拉滑动边界至第13节课底部；成绩总览全面引入 Osu! 评级体系配色（S金 A绿 B蓝 C紫 D红）及专属评级字母徽标。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.4/app-release.apk",
-  "sha256": "7ccb557e9c6cce6068f97aa68f021a80abe8f36ddc96e434775ded5c57115d0b"
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.5/app-release.apk",
+  "sha256": "e1b38291c3d0cfdc556c3a63ea2ba8b60bf81fd704592d7b1b18003a267e5232"
 }
