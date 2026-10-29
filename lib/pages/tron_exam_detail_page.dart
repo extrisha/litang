@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
-import '../data/auth/cas_client.dart';
 import '../data/auth/jwgl_auth.dart';
 import '../data/lms/exam_forum_api.dart';
 import '../data/lms/tronclass_auth.dart';
@@ -69,26 +68,62 @@ class _TronExamDetailPageState extends State<TronExamDetailPage> {
     }
   }
 
+  String get _effectiveCourseId {
+    if (widget.courseId.isNotEmpty && widget.courseId != '0') {
+      return widget.courseId;
+    }
+    if (_detail != null && _detail!.courseId > 0) {
+      return _detail!.courseId.toString();
+    }
+    return widget.courseId;
+  }
+
   @override
   Widget build(BuildContext context) {
     final detail = _detail;
     return Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('考试详情')),
+      appBar: AppBar(
+        title: const Text('测验与考试'),
+        actions: <Widget>[
+          IconButton(
+            tooltip: '在网页中打开',
+            icon: const Icon(Icons.open_in_new, size: 20),
+            onPressed: _openWeb,
+          ),
+        ],
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null || detail == null
           ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    _error ?? '暂无数据',
-                    style: const TextStyle(color: AppColors.textSecondary),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(onPressed: _load, child: const Text('重试')),
-                ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      _error ?? '暂无数据',
+                      style: const TextStyle(color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        TextButton(onPressed: _load, child: const Text('重试')),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed: _openWeb,
+                          icon: const Icon(Icons.open_in_new, size: 16),
+                          label: const Text('直接在网页中打开作答'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.usstRed,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             )
           : ListView(
@@ -125,21 +160,25 @@ class _TronExamDetailPageState extends State<TronExamDetailPage> {
     );
   }
 
-  void _openWeb() {
-    final cookies =
-        JwglAuth.instance.client?.jar.cookies ?? const <CasCookie>[];
+  Future<void> _openWeb() async {
+    final cookies = await TronclassAuth.instance.getMergedCookies();
+    final courseId = _effectiveCourseId;
     final url =
-        'https://1906.usst.edu.cn/course/${widget.courseId}'
-        '/learning-activity/full-screen#/${widget.examId}';
-    Navigator.of(context).push(
+        'https://1906.usst.edu.cn/course/$courseId'
+        '/learning-activity/full-screen#/exam/${widget.examId}';
+    if (!mounted) return;
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SimpleWebPage(
-          title: widget.courseName.isEmpty ? '考试' : widget.courseName,
+          title: widget.courseName.isEmpty ? '测验与考试' : widget.courseName,
           url: url,
           cookies: cookies,
         ),
       ),
     );
+    if (mounted) {
+      _load();
+    }
   }
 
   Widget _header(TronExamDetail detail) {

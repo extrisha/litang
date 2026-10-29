@@ -32,6 +32,7 @@ class HomeworkDetail {
     required this.submitted,
     required this.typeLabel,
     required this.attachments,
+    this.courseId = 0,
   });
 
   final String title;
@@ -41,6 +42,7 @@ class HomeworkDetail {
   final bool submitted;
   final String typeLabel;
   final List<HomeworkAttachment> attachments;
+  final int courseId;
 
   static HomeworkDetail? fromJson(Map<String, dynamic> json) {
     final title = (json['title'] ?? '').toString().trim();
@@ -82,6 +84,7 @@ class HomeworkDetail {
         _ => '作业',
       },
       attachments: attachments,
+      courseId: (json['course_id'] as num?)?.toInt() ?? 0,
     );
   }
 

@@ -25,6 +25,7 @@ import 'rank_page.dart';
 import 'simple_web.dart';
 import 'login_page.dart';
 import 'update_page.dart';
+import 'space_booking_page.dart';
 import '../services/update_service.dart';
 
 /// 我的：个人信息 + 查询入口（学业 / 空间）+ 课表（自动同步 + 手动刷新）。
@@ -286,12 +287,12 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ]),
             const SizedBox(height: 16),
-            _sectionTitle('空间'),
+            _sectionTitle('服务'),
             _grid(<Widget>[
               _entry(
-                Icons.meeting_room_outlined,
-                '教室查询',
-                onTap: _openClassroom,
+                Icons.event_seat_outlined,
+                '空间预约',
+                onTap: _openSpaceBooking,
               ),
               _entry(Icons.badge_outlined, '学工一体化', onTap: _openXuegong),
               _entry(Icons.language_outlined, '教务网页版', onTap: _openJwglWeb),
@@ -606,8 +607,12 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  void _openClassroom() {
-    _toast('教室查询正在接入：以后既能查空教室，也能看某间教室在上什么课');
+  void _openSpaceBooking() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const SpaceBookingPage(),
+      ),
+    );
   }
 
   Future<void> _openXuegong() async {

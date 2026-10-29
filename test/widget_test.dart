@@ -82,7 +82,8 @@ void main() {
     // 课表已单独抽取为「今日」独立Tab，我的页不再保留课表区块
     expect(find.textContaining('课表'), findsNothing);
     // 空间入口：教室查询 / 学工一体化，旧的「我的课表」已移除
-    expect(find.text('教室查询'), findsOneWidget);
+    expect(find.text('空间预约'), findsOneWidget);
+    expect(find.text('教室查询'), findsNothing);
     expect(find.text('学工一体化'), findsOneWidget);
     expect(find.text('我的课表'), findsNothing);
     // 个人信息卡：默认头像 + 昵称

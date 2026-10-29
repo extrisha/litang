@@ -27,6 +27,9 @@ import 'chaoxing_login_page.dart';
 import 'chaoxing_course_detail_page.dart';
 import 'course_detail_page.dart';
 import 'homework_page.dart';
+import 'tron_exam_detail_page.dart';
+import 'classroom_query_page.dart';
+import 'space_booking_page.dart';
 import 'login_page.dart';
 import 'qr_scan_page.dart';
 import 'simple_web.dart';
@@ -1396,22 +1399,25 @@ class _LifePageState extends State<LifePage> {
   }
 
   Future<void> _openTodo(LmsTodo todo) async {
+    if (todo.type == 'exam' || todo.type == 'quiz') {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => TronExamDetailPage(
+            courseId: todo.courseId.toString(),
+            examId: todo.id,
+            courseName: todo.courseName,
+          ),
+        ),
+      );
+      return;
+    }
     await Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => HomeworkPage(todo: todo)));
   }
 
   Future<List<CasCookie>> _lmsCookies() async {
-    final tronclass = await TronclassAuth.instance.loadCookies();
-    final cas = JwglAuth.instance.client?.jar.cookies ?? const <CasCookie>[];
-    final cookies = <CasCookie>[];
-    final seen = <String>{};
-    for (final cookie in <CasCookie>[...cas, ...tronclass]) {
-      if (seen.add('${cookie.name}|${cookie.domain}|${cookie.path}')) {
-        cookies.add(cookie);
-      }
-    }
-    return cookies;
+    return TronclassAuth.instance.getMergedCookies();
   }
 
   Future<void> _openLms() async {
@@ -1490,7 +1496,11 @@ class _LifePageState extends State<LifePage> {
             color: const Color(0xFF1E88E5),
             bgColor: const Color(0xFFE8F3FC),
             onTap: () {
-              _toast('空间预约功能开发中（计划用于预定图书馆座位）');
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SpaceBookingPage(),
+                ),
+              );
             },
           ),
         ),
@@ -1498,12 +1508,16 @@ class _LifePageState extends State<LifePage> {
         Expanded(
           child: _quickToolTile(
             icon: Icons.meeting_room_outlined,
-            title: '教室查询',
-            desc: '教学楼 · 自习空间',
+            title: '教室与排课',
+            desc: '空教室 · 全校课表',
             color: AppColors.usstRed,
             bgColor: const Color(0xFFFDE8E8),
             onTap: () {
-              _toast('空教室查询功能正在接入中，敬请期待');
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ClassroomQueryPage(),
+                ),
+              );
             },
           ),
         ),

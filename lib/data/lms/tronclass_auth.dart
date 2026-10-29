@@ -117,6 +117,20 @@ class TronclassAuth {
     return cookies;
   }
 
+  /// 合并 CAS 与一网畅学本身的 Cookie，供内嵌 WebView 注入使用。
+  Future<List<CasCookie>> getMergedCookies() async {
+    final tronclass = await loadCookies();
+    final cas = JwglAuth.instance.client?.jar.cookies ?? const <CasCookie>[];
+    final cookies = <CasCookie>[];
+    final seen = <String>{};
+    for (final cookie in <CasCookie>[...cas, ...tronclass]) {
+      if (seen.add('${cookie.name}|${cookie.domain}|${cookie.path}')) {
+        cookies.add(cookie);
+      }
+    }
+    return cookies;
+  }
+
   Future<void> _save() async {
     try {
       await _storage.write(

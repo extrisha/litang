@@ -18,6 +18,35 @@ void main() {
       expect(list.first.deadline, isNotNull);
     });
 
+    test('解析考试/测验选择题待办', () {
+      const raw =
+          '{"todo_list":[{'
+          '"id": 198887, "course_id": 151502, "title": "科学与工程伦理选择题测验", "type": "exam",'
+          '"course_name": "科学与工程伦理", "end_time": "2026-11-05T15:59:00Z"}]}';
+      final list = LmsApi.parseTodos(raw);
+      expect(list.length, 1);
+      expect(list.first.id, 198887);
+      expect(list.first.courseId, 151502);
+      expect(list.first.title, '科学与工程伦理选择题测验');
+      expect(list.first.courseName, '科学与工程伦理');
+      expect(list.first.isHomework, isFalse);
+      expect(list.first.type, 'exam');
+      expect(list.first.typeLabel, '考试');
+    });
+
+    test('解析嵌套 course 对象与 activity_type 兼容结构', () {
+      const raw =
+          '{"todo_list":[{'
+          '"id": 198888, "course": {"id": 151502, "name": "科学与工程伦理"}, "title": "第二章测验",'
+          '"activity_type": "quiz", "deadline": "2026-11-06T12:00:00Z"}]}';
+      final list = LmsApi.parseTodos(raw);
+      expect(list.length, 1);
+      expect(list.first.id, 198888);
+      expect(list.first.courseId, 151502);
+      expect(list.first.courseName, '科学与工程伦理');
+      expect(list.first.type, 'quiz');
+    });
+
     test('空/异常数据返回空列表', () {
       expect(LmsApi.parseTodos(''), isEmpty);
       expect(LmsApi.parseTodos('<html>'), isEmpty);

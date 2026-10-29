@@ -45,12 +45,30 @@ class LmsTodo {
     if (raw.isNotEmpty) {
       deadline = DateTime.tryParse(raw)?.toLocal();
     }
+    var courseId = _asInt(json['course_id']);
+    if (courseId == 0 && json['course'] is Map) {
+      courseId = _asInt((json['course'] as Map)['id']);
+    }
+    if (courseId == 0 && json['courseId'] != null) {
+      courseId = _asInt(json['courseId']);
+    }
+
+    var courseName = (json['course_name'] ?? '').toString().trim();
+    if (courseName.isEmpty && json['course'] is Map) {
+      courseName = ((json['course'] as Map)['name'] ?? '').toString().trim();
+    }
+    if (courseName.isEmpty && json['courseName'] != null) {
+      courseName = (json['courseName'] ?? '').toString().trim();
+    }
+
+    final type = (json['type'] ?? json['activity_type'] ?? '').toString().trim();
+
     return LmsTodo(
       id: _asInt(json['id']),
-      courseId: _asInt(json['course_id']),
+      courseId: courseId,
       title: title,
-      courseName: (json['course_name'] ?? '').toString().trim(),
-      type: (json['type'] ?? '').toString().trim(),
+      courseName: courseName,
+      type: type,
       deadline: deadline,
     );
   }

@@ -134,6 +134,7 @@ class ReminderService {
     'courseId': todo.courseId,
     'title': todo.title,
     'courseName': todo.courseName,
+    'type': todo.type,
   };
 
   Map<String, dynamic> _workPayload(ChaoxingWork work) => <String, dynamic>{

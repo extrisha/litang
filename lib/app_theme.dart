@@ -7,6 +7,7 @@ class AppColors {
   static const Color card = Colors.white;
   static const Color textPrimary = Color(0xFF1A1A1A);
   static const Color textSecondary = Color(0xFF8A8A8E);
+  static const Color border = Color(0xFFE5E7EB);
   static const Color redTint = Color(0x1FA31C1C); // 12% 红，用于标签底 / 选中态
 
   /// 绩点颜色分级（0.5 一档细分，莫兰迪护眼低焦虑配色）：

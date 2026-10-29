@@ -9,8 +9,11 @@ import '../data/lms/todo_api.dart';
 import '../data/lms/tronclass_auth.dart';
 import '../services/reminder_service.dart';
 import 'homework_submit_page.dart';
+import '../data/lms/exam_forum_api.dart';
 import 'image_preview_page.dart';
 import 'pdf_preview_page.dart';
+import 'simple_web_page.dart';
+import 'tron_exam_detail_page.dart';
 
 /// 作业详情（原生）：只保留标题、截止时间、状态、说明和附件。
 class HomeworkPage extends StatefulWidget {
@@ -124,6 +127,25 @@ class _HomeworkPageState extends State<HomeworkPage> {
         _loading = false;
       });
     } catch (e) {
+      // 容错：有些选择题/客观题测试在接口里可能被当作测试/考试处理，尝试查考试接口
+      try {
+        await TronExamForumApi(client).fetchExam(widget.todo.id);
+        if (mounted) {
+          // 如果确实是测验/考试，直接无缝跳转到测验详情页并替换当前页
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute<void>(
+              builder: (_) => TronExamDetailPage(
+                courseId: widget.todo.courseId.toString(),
+                examId: widget.todo.id,
+                courseName: widget.todo.courseName,
+              ),
+            ),
+          );
+          return;
+        }
+      } catch (_) {
+        // 说明既不是普通作业也不是考试接口，或者网络错误
+      }
       if (mounted) {
         setState(() {
           _loading = false;
@@ -133,21 +155,87 @@ class _HomeworkPageState extends State<HomeworkPage> {
     }
   }
 
+  int get _effectiveCourseId {
+    if (widget.todo.courseId > 0) {
+      return widget.todo.courseId;
+    }
+    return _detail?.courseId ?? 0;
+  }
+
+  Future<void> _openWeb() async {
+    final cookies = await TronclassAuth.instance.getMergedCookies();
+    final courseId = _effectiveCourseId;
+    final isExam = widget.todo.type == 'exam' || widget.todo.type == 'quiz';
+    final targetRoute = isExam ? 'exam/${widget.todo.id}' : '${widget.todo.id}';
+    final url =
+        'https://1906.usst.edu.cn/course/$courseId'
+        '/learning-activity/full-screen#/$targetRoute';
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SimpleWebPage(
+          title: widget.todo.courseName.isEmpty ? '作业详情' : widget.todo.courseName,
+          url: url,
+          cookies: cookies,
+        ),
+      ),
+    );
+    if (mounted) {
+      _load();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final detail = _detail;
     return Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('作业详情')),
+      appBar: AppBar(
+        title: const Text('作业详情'),
+        actions: <Widget>[
+          IconButton(
+            tooltip: '在网页中打开',
+            icon: const Icon(Icons.open_in_new, size: 20),
+            onPressed: _openWeb,
+          ),
+        ],
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
           ? Center(
-              child: Text(
-                _error!,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppColors.textSecondary,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      _error!,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        TextButton(
+                          onPressed: _load,
+                          child: const Text('重试'),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed: _openWeb,
+                          icon: const Icon(Icons.open_in_new, size: 16),
+                          label: const Text('在网页中打开'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.usstRed,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             )

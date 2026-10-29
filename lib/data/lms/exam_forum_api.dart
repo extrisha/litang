@@ -30,6 +30,7 @@ class TronExamDetail {
     required this.submittedTimes,
     required this.score,
     required this.submissions,
+    this.courseId = 0,
   });
 
   final String title;
@@ -42,6 +43,7 @@ class TronExamDetail {
   final double? totalPoints;
   final int submitTimes;
   final int submittedTimes;
+  final int courseId;
 
   /// 我的得分（最高分口径）；没交卷时为 null。
   final double? score;
@@ -128,6 +130,7 @@ class TronExamForumApi {
       );
     }
 
+    final cId = (exam['course_id'] as num?)?.toInt() ?? 0;
     return TronExamDetail(
       title: (exam['title'] ?? '').toString().trim(),
       description: _plain((exam['description'] ?? '').toString()),
@@ -141,6 +144,7 @@ class TronExamForumApi {
       submittedTimes: (exam['submitted_times'] as num?)?.toInt() ?? 0,
       score: _double(scoreMap['exam_score']),
       submissions: submissions,
+      courseId: cId,
     );
   }
 

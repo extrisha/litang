@@ -11,6 +11,7 @@ import 'data/notice_source.dart';
 import 'pages/chaoxing_homework_page.dart';
 import 'pages/home_page.dart';
 import 'pages/homework_page.dart';
+import 'pages/tron_exam_detail_page.dart';
 import 'pages/update_page.dart';
 import 'services/reminder_service.dart';
 import 'services/update_service.dart';
@@ -128,13 +129,24 @@ class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver
       case 'tron':
         final id = (target['id'] as num?)?.toInt() ?? 0;
         if (id <= 0) return null;
+        final type = '${target['type'] ?? ''}';
+        final courseId = (target['courseId'] as num?)?.toInt() ?? 0;
+        final title = '${target['title'] ?? ''}';
+        final courseName = '${target['courseName'] ?? ''}';
+        if (type == 'exam' || type == 'quiz') {
+          return TronExamDetailPage(
+            courseId: courseId.toString(),
+            examId: id,
+            courseName: courseName,
+          );
+        }
         return HomeworkPage(
           todo: LmsTodo(
             id: id,
-            courseId: (target['courseId'] as num?)?.toInt() ?? 0,
-            title: '${target['title'] ?? ''}',
-            courseName: '${target['courseName'] ?? ''}',
-            type: 'homework',
+            courseId: courseId,
+            title: title,
+            courseName: courseName,
+            type: type.isEmpty ? 'homework' : type,
             deadline: null,
           ),
         );
