@@ -95,3 +95,6 @@ Project_USST_backups/
 /校园服务App_项目规划与讨论纪要.md
 /docs/
 /*App*.md
+
+# 本地打包产物输出目录
+/dist/

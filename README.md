@@ -87,20 +87,28 @@
 - **方式二（GitHub 页面一键触发）**：
   进入 GitHub 仓库的 **Actions** 标签页 -> 选择 **release-apk** -> 点击 **Run workflow**，输入版本号与更新说明即可一键发布。
 
-### 3. 本地发版与热更配置（可选备用）
+### 3. 本地极速发版（纯相对路径，推荐 ⚡）
+
+针对 GitHub Actions 云端构建较慢（约 6~10 分钟冷启动）的情况，推荐使用**本地一键极速打包脚本**（实测仅需 **67 秒**，且 **100% 相对路径驱动**，不依赖任何特定盘符或硬编码绝对路径，可在任何电脑与文件夹即开即用）：
 
 ```bash
-# 1) 本地打包
-flutter build apk --release
+# 方式 A：双击运行（Windows 最简）
+双击 tools/release/build_apk.bat
 
-# 2) 生成 update.json 配置（计算 sha256 并拼接下载地址）
-node tools/release/set-update.mjs \
-  --apk build/app/outputs/flutter-apk/app-release.apk \
-  --version 0.5.8 --code 34 \
-  [--mandatory] --notes "这次改了什么"
+# 方式 B：Node / 跨平台运行（自动打包并归档至 ./dist/）
+node tools/release/build_apk.mjs
 
-# 3) 提交并推送到 Gitee / GitHub
-# 4) 发布后自查
+# 方式 C：一键打包 + 自动解析并回写更新清单 update.json
+node tools/release/build_apk.mjs --update --notes "更新说明文字"
+
+# 方式 D：PowerShell 运行
+.\tools\release\build_apk.ps1 -UpdateManifest -Notes "更新说明文字"
+```
+
+* **产物位置**：`dist/litang-v<version>.apk` 与 `dist/app-release.apk`
+* **自动校验**：自动生成 `dist/litang-v<version>.apk.sha256` 校验和文件
+* **发布后自查**：
+```bash
 node tools/release/check-update.mjs
 ```
 
