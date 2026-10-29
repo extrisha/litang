@@ -2,8 +2,8 @@
   "version": "0.5.6-alpha",
   "versionCode": 32,
   "minVersionCode": 0,
-  "notes": "体验升级（0.5.6-alpha）：默认首页直达「今日」课表；新增「今日」日历动态日期图标；课表上下午（第5节底）与晚上（第10节底）增加上理红分割线；修复跨日唤醒时当天高亮停留在昨日的bug；当前节次支持每分钟自检与微红层指示；课表色块智能排版展示任课教师（多教师自动适配'等'）；学习通签到新增'拍照/直接签到'双通道支持。",
+  "notes": "体验升级（0.5.6-alpha）：统一节次行与日期列微红高亮色值（6.3%透明度），相交处柔和聚焦不浑浊；待办列表高度自适应；主框架增加前后台恢复监听保证日历图标实时刷新。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
   "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.6-alpha/app-release.apk",
-  "sha256": "9120c7d185e53a3369562ce2a971d3ad8d551796c0b001e723228ed4cc20e744"
+  "sha256": "fcfe2b8b34449d8932fde1e06af25e80607d33c60be3612643b9c32ed3024753"
 }

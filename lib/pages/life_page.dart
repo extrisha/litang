@@ -2094,9 +2094,10 @@ class _LifePageState extends State<LifePage> {
       );
     }
 
-    return SizedBox(
-      height: 180,
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 220),
       child: ListView.separated(
+        shrinkWrap: true,
         padding: const EdgeInsets.only(top: 8),
         itemCount: items.length,
         separatorBuilder: (_, _) => const SizedBox(height: 8),

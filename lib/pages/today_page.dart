@@ -1260,33 +1260,27 @@ class _GridPainter extends CustomPainter {
       ..color = const Color(0xFFEDEDED)
       ..strokeWidth = 0.6;
 
-    // 今天所在的列涂淡淡的高亮背景
+    // 统一日期列与节次行微红高亮底色 (约 6.3% 透明度)，保持色相与深度完全一致
+    // 当日与当前节次交叉单元格自然叠加至约 12%，温和聚集视线，不浑浊过深
+    const highlightColor = Color(0x10A31C1C);
+
+    // 今天所在的列涂微红背景
     for (var c = 0; c < visibleDays.length; c++) {
       if (isTodayCol(visibleDays[c])) {
-        final todayBg = Paint()..color = const Color(0x16A31C1C);
+        final todayBg = Paint()..color = highlightColor;
         canvas.drawRect(
           Rect.fromLTWH(c * dayWidth, 0, dayWidth, size.height),
           todayBg,
         );
+        break;
       }
     }
 
-    // 如果当前正处于某一节次 (activePeriod != null)，为整行及当日单元格叠加淡红微光层
+    // 如果当前正处于某一节次 (activePeriod != null)，整行使用与日期列完全一致的高亮底色
     if (activePeriod != null && activePeriod! >= 1 && activePeriod! <= periods) {
       final activeY = (activePeriod! - 1) * rowHeight;
-      final activeRowPaint = Paint()..color = const Color(0x0CA31C1C);
+      final activeRowPaint = Paint()..color = highlightColor;
       canvas.drawRect(Rect.fromLTWH(0, activeY, size.width, rowHeight), activeRowPaint);
-
-      for (var c = 0; c < visibleDays.length; c++) {
-        if (isTodayCol(visibleDays[c])) {
-          final activeCellPaint = Paint()..color = const Color(0x18A31C1C);
-          canvas.drawRect(
-            Rect.fromLTWH(c * dayWidth, activeY, dayWidth, rowHeight),
-            activeCellPaint,
-          );
-          break;
-        }
-      }
     }
 
     // 横向网格线 (13节) 与时段红线分割 (第5节底上午下午、第10节底下 cruise 晚上)

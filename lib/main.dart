@@ -56,7 +56,7 @@ class RootScaffold extends StatefulWidget {
   State<RootScaffold> createState() => _RootScaffoldState();
 }
 
-class _RootScaffoldState extends State<RootScaffold> {
+class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver {
   int _index = 2;
 
   static bool _checkedUpdate = false;
@@ -64,6 +64,7 @@ class _RootScaffoldState extends State<RootScaffold> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     MapFocus.target.addListener(_onMapFocus);
     ReminderService.pendingTarget.addListener(_onReminderTap);
     // App 是被通知点开的：首帧之后补一次跳转
@@ -86,7 +87,15 @@ class _RootScaffoldState extends State<RootScaffold> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     MapFocus.target.removeListener(_onMapFocus);
     ReminderService.pendingTarget.removeListener(_onReminderTap);
     super.dispose();
