@@ -1,0 +1,131 @@
+name: release-apk
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号（例如 0.5.8，不带 v）'
+        required: false
+        default: ''
+      notes:
+        description: '更新说明'
+        required: false
+        default: '修复已知问题，提升稳定性与流畅度。'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run unit tests
+        run: flutter test
+
+      - name: Configure signing keystore (if secrets available)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "正在从 Secret 写入发布签名密钥..."
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/litang-release.jks
+            cat <<EOF > android/key.properties
+          storeFile=litang-release.jks
+          keyAlias=${KEY_ALIAS}
+          storePassword=${STORE_PASSWORD}
+          keyPassword=${KEY_PASSWORD}
+          EOF
+            echo "✅ 签名配置已就绪"
+          else
+            echo "ℹ️ 未检测到签名 Secret，将使用 Debug 签名构建供测试与中性路径审计"
+          fi
+
+      - name: Build release APK (neutral path)
+        run: flutter build apk --release
+
+      - name: Calculate checksum & metadata
+        id: meta
+        run: |
+          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+          if [ ! -f "$APK_PATH" ]; then
+            echo "❌ 未找到构建产物: $APK_PATH"
+            exit 1
+          fi
+          SHA256=$(sha256sum "$APK_PATH" | awk '{print $1}')
+          SIZE_BYTES=$(stat -c%s "$APK_PATH")
+          SIZE_MB=$(awk "BEGIN {printf \"%.2f\", $SIZE_BYTES/1048576}")
+
+          # 从 pubspec.yaml 解析版本信息
+          PUB_VER=$(grep '^version:' pubspec.yaml | head -1 | awk '{print $2}')
+          VERSION_NAME=$(echo "$PUB_VER" | cut -d'+' -f1)
+          VERSION_CODE=$(echo "$PUB_VER" | cut -d'+' -f2)
+
+          TAG_NAME="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
+            VERSION_NAME="${{ inputs.version }}"
+            TAG_NAME="${{ inputs.version }}"
+          fi
+
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "size_mb=$SIZE_MB" >> $GITHUB_OUTPUT
+          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+          echo "=========================================="
+          echo "产物: app-release.apk"
+          echo "版本: $VERSION_NAME (code: $VERSION_CODE)"
+          echo "大小: ${SIZE_MB} MB"
+          echo "SHA256: $SHA256"
+          echo "构建环境路径: $(pwd) (中性路径，无本机用户名泄漏)"
+          echo "=========================================="
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: litang-${{ steps.meta.outputs.version_name }}-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: LiTang-${{ steps.meta.outputs.version_name }}
+          body: |
+            ### 理堂 LiTang ${{ steps.meta.outputs.version_name }}
+
+            ${{ inputs.notes || '修复已知问题，提升稳定性与流畅度。' }}
+
+            - **版本号**：`${{ steps.meta.outputs.version_name }}+${{ steps.meta.outputs.version_code }}`
+            - **文件大小**：`${{ steps.meta.outputs.size_mb }} MB`
+            - **SHA256**：`${{ steps.meta.outputs.sha256 }}`
+            - **构建环境**：GitHub Actions 中性路径构建（无本机路径泄漏）
+          files: build/app/outputs/flutter-apk/app-release.apk
+          draft: false
+          prerelease: false
