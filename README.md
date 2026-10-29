@@ -105,8 +105,8 @@ node tools/release/build_apk.mjs --update --notes "更新说明文字"
 .\tools\release\build_apk.ps1 -UpdateManifest -Notes "更新说明文字"
 ```
 
-* **产物位置**：`dist/litang-v<version>.apk` 与 `dist/app-release.apk`
-* **自动校验**：自动生成 `dist/litang-v<version>.apk.sha256` 校验和文件
+* **产物位置**：`dist/app-release.apk`（严格遵循规范统一命名）
+* **自动校验**：自动生成 `dist/app-release.apk.sha256` 校验和文件
 * **发布后自查**：
 ```bash
 node tools/release/check-update.mjs

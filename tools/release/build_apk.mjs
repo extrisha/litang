@@ -2,12 +2,12 @@
 /**
  * 本地一键极速打包 Release APK 脚本
  *
- * 特性：
- * 1. 100% 相对路径驱动，自动通过模块路径锚定项目根目录，跨盘符、跨机器、跨平台开箱即用；
- * 2. 动态读取 pubspec.yaml 版本号，绝不硬编码；
- * 3. 产物规范化归档至 ./dist/，自动计算 SHA-256 并生成校验文件；
- * 4. 可选自动联动 tools/release/set-update.mjs 更新 update.json；
- * 5. 耗时仅约 1 分钟，完全绕过 GitHub Actions 云端虚拟机的冗长冷启动排队。
+ * 遵循项目规范文件 (tools/release/set-update.mjs 及 update.json)：
+ * 1. 版本号统一不带 'v' 前缀（如 0.5.7，非 v0.5.7），保证 Gitee release tag 与 update.json 严格对应；
+ * 2. 安装包统一命名为 app-release.apk，保证 GitHub latest 与 Gitee tag 下载直链可用；
+ * 3. 100% 相对路径驱动，无任何机器环境绝对路径；
+ * 4. 产物输出至 dist/app-release.apk 并生成 dist/app-release.apk.sha256；
+ * 5. 可选联动 tools/release/set-update.mjs 自动更新 update.json 清单。
  *
  * 用法：
  *   node tools/release/build_apk.mjs
@@ -57,18 +57,24 @@ async function main() {
   const startTime = Date.now();
   console.log('==================================================');
   console.log(' 🚀 立棠 Project_USST 本地极速打包助手');
-  console.log(` 📁 项目根目录: ${RELATIVE_ROOT} (纯相对定位)`);
+  console.log(` 📁 根目录: ${RELATIVE_ROOT} (纯相对定位)`);
   console.log('==================================================');
 
-  // 1. 读取版本号
+  // 1. 读取版本号（规范要求：绝不带 v 前缀）
   const pubspecRaw = await readFile(PUBSPEC_PATH, 'utf8');
   const match = pubspecRaw.match(/^version:\s*([^\s+]+)(?:\+([^\s+]+))?/m);
   if (!match) {
     throw new Error('无法从 pubspec.yaml 解析 version 字段！');
   }
-  const versionName = match[1];
+  let versionName = match[1].trim();
+  if (versionName.startsWith('v')) {
+    versionName = versionName.slice(1);
+  }
   const versionCode = match[2] || '1';
-  console.log(`📌 当前版本: v${versionName} (Build ${versionCode})`);
+
+  console.log(`📌 当前版本: ${versionName} (Build ${versionCode}) [规范：不带 v]`);
+  console.log(`🏷️ Release Tag: ${versionName}`);
+  console.log(`📋 Release 标题: LiTang-${versionName}`);
 
   // 2. 静态分析检查
   if (!skipTest) {
@@ -92,7 +98,7 @@ async function main() {
   const buildSec = ((Date.now() - buildStart) / 1000).toFixed(1);
   console.log(`✅ Release APK 编译完成（耗时 ${buildSec} 秒）`);
 
-  // 4. 收集产物与校验
+  // 4. 收集产物并严格规范命名为 app-release.apk
   const sourceApk = join(ROOT, 'build', 'app', 'outputs', 'flutter-apk', 'app-release.apk');
   const apkStat = await stat(sourceApk).catch(() => null);
   if (!apkStat || !apkStat.isFile()) {
@@ -101,16 +107,13 @@ async function main() {
 
   await mkdir(DIST_DIR, { recursive: true });
 
-  const targetName = `litang-v${versionName}.apk`;
-  const targetApk = join(DIST_DIR, targetName);
-  const standardApk = join(DIST_DIR, 'app-release.apk');
-
+  const targetApk = join(DIST_DIR, 'app-release.apk');
   await copyFile(sourceApk, targetApk);
-  await copyFile(sourceApk, standardApk);
 
   const apkBytes = await readFile(targetApk);
   const sha256 = createHash('sha256').update(apkBytes).digest('hex');
-  await writeFile(`${targetApk}.sha256`, sha256, 'utf8');
+  const sha256Path = join(DIST_DIR, 'app-release.apk.sha256');
+  await writeFile(sha256Path, `${sha256} *app-release.apk\n`, 'utf8');
 
   const sizeMb = (apkStat.size / (1024 * 1024)).toFixed(2);
   const totalSec = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -118,11 +121,10 @@ async function main() {
   console.log('\n==================================================');
   console.log(` 🎉 打包成功！总耗时: ${totalSec} 秒`);
   console.log('==================================================');
-  console.log(` 📦 产物路径: dist/${targetName}`);
-  console.log(`    标准副本: dist/app-release.apk`);
-  console.log(` 📏 文件大小: ${sizeMb} MB (${apkStat.size.toLocaleString()} 字节)`);
-  console.log(` 🔑 SHA-256 : ${sha256}`);
-  console.log(` 📄 校验文件: dist/${targetName}.sha256`);
+  console.log(` 📦 规范命名产物: dist/app-release.apk (统一命名规范)`);
+  console.log(` 📏 文件大小    : ${sizeMb} MB (${apkStat.size.toLocaleString()} 字节)`);
+  console.log(` 🔑 SHA-256     : ${sha256}`);
+  console.log(` 📄 校验和文件  : dist/app-release.apk.sha256`);
 
   // 5. 可选更新 update.json
   if (updateManifest) {
@@ -137,7 +139,12 @@ async function main() {
     ]);
   }
 
-  console.log('\n👉 产物已输出至 dist 目录，可直接传输安装或发布至网盘/Releases。');
+  console.log('\n--------------------------------------------------');
+  console.log('⚠️ 发版与上传规范提示：');
+  console.log(`   1. Release Tag 必须为: ${versionName}（严禁加 v 前缀，Gitee 依赖 tag 严格一致）`);
+  console.log(`   2. Release 标题建议为: LiTang-${versionName}`);
+  console.log(`   3. 上传附件文件名必须为: app-release.apk`);
+  console.log('--------------------------------------------------');
 }
 
 main().catch((err) => {
