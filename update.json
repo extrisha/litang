@@ -1,9 +1,9 @@
 {
-  "version": "0.5.6",
-  "versionCode": 31,
+  "version": "0.5.6-alpha",
+  "versionCode": 32,
   "minVersionCode": 0,
-  "notes": "学业与生活细节优化：绩点分级全面升级为 0.5 一档莫兰迪低焦虑护眼过渡色（4.0~4.5麦芽流金，1.0~1.49珊瑚赤红），去除非必要字母评级徽章；课表教学周选择上限调整为第 20 周并精简右上角冗余刷新按钮；宿舍电费查询失败时增加校园网访问提示。",
+  "notes": "体验升级（0.5.6-alpha）：默认首页直达「今日」课表；新增「今日」日历动态日期图标；课表上下午（第5节底）与晚上（第10节底）增加上理红分割线；修复跨日唤醒时当天高亮停留在昨日的bug；当前节次支持每分钟自检与微红层指示；课表色块智能排版展示任课教师（多教师自动适配'等'）；学习通签到新增'拍照/直接签到'双通道支持。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.6/app-release.apk",
-  "sha256": "99cd0df64dfe9e6abeaa0e6e72d0e673e6f1dcd227de54701a993d93d22716e7"
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.6-alpha/app-release.apk",
+  "sha256": "9120c7d185e53a3369562ce2a971d3ad8d551796c0b001e723228ed4cc20e744"
 }

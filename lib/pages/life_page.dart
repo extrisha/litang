@@ -1126,6 +1126,90 @@ class _LifePageState extends State<LifePage> {
   ///
   /// 和一网畅学的签到是两套系统：一网畅学要 POST 到 RollcallApi，
   /// 学习通则是「GET 那个二维码地址」本身就算签到（详见 ChaoxingClient.signByQr）。
+  /// 学习通签到入口：支持「拍照/直接签到」与「扫码签到」双通道
+  Future<void> _handleChaoxingSign(ChaoxingActivity activity) async {
+    final client = ChaoxingAuth.instance.client;
+    if (client == null) {
+      _toast('请先登录学习通');
+      return;
+    }
+
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Row(
+                  children: <Widget>[
+                    const Icon(Icons.how_to_reg_outlined, color: AppColors.usstRed, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${activity.courseName} · 签到',
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFFFF1F0),
+                  child: Icon(Icons.camera_alt_outlined, color: AppColors.usstRed),
+                ),
+                title: const Text('拍照 / 直接签到', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('支持拍照上传、普通签到、手势及位置签到'),
+                onTap: () => Navigator.of(ctx).pop('web'),
+              ),
+              ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFE6F4FF),
+                  child: Icon(Icons.qr_code_scanner, color: Color(0xFF1677FF)),
+                ),
+                title: const Text('扫描二维码签到', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('扫描教师投影屏幕上展示的签到二维码'),
+                onTap: () => Navigator.of(ctx).pop('qr'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (!mounted || choice == null) return;
+
+    if (choice == 'web') {
+      final signUrl =
+          'https://mobilelearn.chaoxing.com/widget/sign/e?id=${activity.id}&c=${activity.id}&classId=${activity.classId}&courseId=${activity.courseId}';
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SimpleWebPage(
+            title: '${activity.courseName} · 签到',
+            url: signUrl,
+            cookies: client.jar.cookies,
+          ),
+        ),
+      );
+      if (mounted) {
+        await _refreshChaoxing();
+      }
+    } else if (choice == 'qr') {
+      await _signChaoxingByQr(activity);
+    }
+  }
+
   Future<void> _signChaoxingByQr(ChaoxingActivity activity) async {
     final client = ChaoxingAuth.instance.client;
     if (client == null) {
@@ -1893,14 +1977,18 @@ class _LifePageState extends State<LifePage> {
               ],
             ),
           ),
-          TextButton(
-            onPressed: () => _signChaoxingByQr(activity),
-            style: TextButton.styleFrom(
-              minimumSize: const Size(0, 32),
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+          ElevatedButton(
+            onPressed: () => _handleChaoxingSign(activity),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.usstRed,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 28),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
-            child: const Text('扫码签到', style: TextStyle(fontSize: 12)),
+            child: const Text('去签到', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
           ),
         ],
       ),

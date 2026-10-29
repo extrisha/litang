@@ -20,6 +20,7 @@ import 'pages/forum_page.dart';
 import 'pages/profile_page.dart';
 import 'pages/today_page.dart';
 import 'widgets/usst_campus_icon.dart';
+import 'widgets/usst_today_icon.dart';
 
 /// 全局导航 key：点通知时要能从任意位置跳转。
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
@@ -56,7 +57,7 @@ class RootScaffold extends StatefulWidget {
 }
 
 class _RootScaffoldState extends State<RootScaffold> {
-  int _index = 0;
+  int _index = 2;
 
   static bool _checkedUpdate = false;
 
@@ -175,8 +176,8 @@ class _RootScaffoldState extends State<RootScaffold> {
             label: '校园',
           ),
           const NavigationDestination(
-            icon: Icon(Icons.calendar_today_outlined),
-            selectedIcon: Icon(Icons.calendar_today),
+            icon: UsstTodayNavIcon(selected: false),
+            selectedIcon: UsstTodayNavIcon(selected: true),
             label: '今日',
           ),
           const NavigationDestination(

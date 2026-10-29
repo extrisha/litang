@@ -202,9 +202,21 @@ class TodayPage extends StatefulWidget {
   State<TodayPage> createState() => _TodayPageState();
 }
 
-class _TodayPageState extends State<TodayPage> {
+/// 教师姓名格式化：处理实验课等包含多位教师的情况
+String _formatTeacher(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return '';
+  final trimmed = raw.trim();
+  final parts = trimmed
+      .split(RegExp(r'[,，;；/、\s]+'))
+      .where((s) => s.isNotEmpty)
+      .toList();
+  if (parts.isEmpty) return '';
+  if (parts.length == 1) return parts.first;
+  return '${parts.first}等';
+}
+
+class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
   CourseSnapshot? _snapshot;
-  bool _loading = false;
   int _selectedWeek = 1;
   bool _showWeekSelector = false;
 
@@ -212,15 +224,34 @@ class _TodayPageState extends State<TodayPage> {
   static const double _headerHeight = 36.0;
   static const List<String> _dayNames = <String>['一', '二', '三', '四', '五', '六', '日'];
 
+  Timer? _minuteTimer;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     JwglAuth.instance.addListener(_onAuthChanged);
     _initSchedule();
+    // 每分钟自检，跨节次或跨日无需手动刷新即可实时高亮
+    _minuteTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 从后台切回（如第二天早上解锁唤醒）：立即刷新当天和当前节次高亮
+    if (state == AppLifecycleState.resumed && mounted) {
+      setState(() {});
+    }
   }
 
   @override
   void dispose() {
+    _minuteTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     JwglAuth.instance.removeListener(_onAuthChanged);
     super.dispose();
   }
@@ -272,7 +303,6 @@ class _TodayPageState extends State<TodayPage> {
       return;
     }
     if (!silent) {
-      setState(() => _loading = true);
     }
     try {
       final fresh = await CourseRepository.refresh(auth.client!);
@@ -291,7 +321,6 @@ class _TodayPageState extends State<TodayPage> {
       }
     } finally {
       if (mounted && !silent) {
-        setState(() => _loading = false);
       }
     }
   }
@@ -652,15 +681,7 @@ class _TodayPageState extends State<TodayPage> {
               );
             },
           ),
-          if (_loading)
-            const Padding(
-              padding: EdgeInsets.only(right: 8, left: 4),
-              child: SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
+
         ],
       ),
     );
@@ -1088,6 +1109,7 @@ class _TodayPageState extends State<TodayPage> {
   ) {
     final cardHeight = rowHeight * course.span - 3.5;
     final compact = course.span <= 1;
+    final teacher = _formatTeacher(course.teacher);
 
     return Positioned(
       left: colIndex * dayWidth + 1.5,
@@ -1131,32 +1153,81 @@ class _TodayPageState extends State<TodayPage> {
                   color: theme.text,
                 ),
               ),
-              if (course.room.isNotEmpty) ...<Widget>[
+              if (course.room.isNotEmpty || teacher.isNotEmpty) ...<Widget>[
                 const Spacer(),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Icon(
-                      Icons.location_on_rounded,
-                      size: 8.5,
-                      color: theme.subText,
-                    ),
-                    const SizedBox(width: 1),
-                    Expanded(
-                      child: Text(
-                        course.room,
-                        maxLines: compact ? 1 : 2,
-                        softWrap: true,
-                        style: TextStyle(
-                          fontSize: 8.5,
-                          height: 1.1,
-                          fontWeight: FontWeight.w600,
-                          color: theme.subText,
+                if (!compact && teacher.isNotEmpty) ...<Widget>[
+                  Row(
+                    children: <Widget>[
+                      Icon(
+                        Icons.person_outline_rounded,
+                        size: 8.5,
+                        color: theme.subText,
+                      ),
+                      const SizedBox(width: 1),
+                      Expanded(
+                        child: Text(
+                          teacher,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 8.5,
+                            height: 1.1,
+                            color: theme.subText,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+                  const SizedBox(height: 1.5),
+                ],
+                if (course.room.isNotEmpty)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Icon(
+                        Icons.location_on_rounded,
+                        size: 8.5,
+                        color: theme.subText,
+                      ),
+                      const SizedBox(width: 1),
+                      Expanded(
+                        child: Text(
+                          course.room,
+                          maxLines: compact ? 1 : 2,
+                          softWrap: true,
+                          style: TextStyle(
+                            fontSize: 8.5,
+                            height: 1.1,
+                            fontWeight: FontWeight.w600,
+                            color: theme.subText,
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                else if (compact && teacher.isNotEmpty)
+                  Row(
+                    children: <Widget>[
+                      Icon(
+                        Icons.person_outline_rounded,
+                        size: 8.5,
+                        color: theme.subText,
+                      ),
+                      const SizedBox(width: 1),
+                      Expanded(
+                        child: Text(
+                          teacher,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 8.5,
+                            height: 1.1,
+                            color: theme.subText,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
               ],
             ],
           ),
@@ -1200,10 +1271,36 @@ class _GridPainter extends CustomPainter {
       }
     }
 
-    // 横向网格线 (13节)
+    // 如果当前正处于某一节次 (activePeriod != null)，为整行及当日单元格叠加淡红微光层
+    if (activePeriod != null && activePeriod! >= 1 && activePeriod! <= periods) {
+      final activeY = (activePeriod! - 1) * rowHeight;
+      final activeRowPaint = Paint()..color = const Color(0x0CA31C1C);
+      canvas.drawRect(Rect.fromLTWH(0, activeY, size.width, rowHeight), activeRowPaint);
+
+      for (var c = 0; c < visibleDays.length; c++) {
+        if (isTodayCol(visibleDays[c])) {
+          final activeCellPaint = Paint()..color = const Color(0x18A31C1C);
+          canvas.drawRect(
+            Rect.fromLTWH(c * dayWidth, activeY, dayWidth, rowHeight),
+            activeCellPaint,
+          );
+          break;
+        }
+      }
+    }
+
+    // 横向网格线 (13节) 与时段红线分割 (第5节底上午下午、第10节底下 cruise 晚上)
+    final sessionDividerPaint = Paint()
+      ..color = const Color(0x70A31C1C)
+      ..strokeWidth = 1.5;
+
     for (var i = 0; i <= periods; i++) {
       final y = i * rowHeight;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
+      if (i == 5 || i == 10) {
+        canvas.drawLine(Offset(0, y), Offset(size.width, y), sessionDividerPaint);
+      } else {
+        canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
+      }
     }
 
     // 纵向网格线
