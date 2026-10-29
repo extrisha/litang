@@ -350,11 +350,8 @@ class _ClassroomQueryPageState extends State<ClassroomQueryPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                _buildBuildingSelector(),
-                _buildWeekAndDayBar(),
-                _buildSectionSelector(),
-                _buildClassroomSearchBox(),
-                _buildFilterSummary(total, freeCount),
+                _buildClassroomFilterHeader(),
+                _buildClassroomSummary(total, freeCount),
               ],
             ),
           ),
@@ -432,152 +429,193 @@ class _ClassroomQueryPageState extends State<ClassroomQueryPage> {
     );
   }
 
-  Widget _buildBuildingSelector() {
-    final buildings = <String>[
-      '全部教学楼',
-      ...allKnownBuildings,
-    ];
+  String get _displayBuilding {
+    if (_selectedBuilding == '全部教学楼') return '全部楼栋';
+    return _selectedBuilding
+        .replaceAll('第一教学楼', '一教')
+        .replaceAll('第三教学楼', '三教')
+        .replaceAll('第四教学楼', '四教');
+  }
 
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: buildings.map((b) {
-            final isSelected = _selectedBuilding == b;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                label: Text(
-                  b.replaceAll('第一教学楼', '一教')
-                      .replaceAll('第三教学楼', '三教')
-                      .replaceAll('第四教学楼', '四教'),
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? Colors.white : AppColors.textPrimary,
-                  ),
-                ),
-                selected: isSelected,
-                selectedColor: AppColors.usstRed,
-                backgroundColor: const Color(0xFFF2F3F5),
-                showCheckmark: false,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(
-                    color: isSelected ? AppColors.usstRed : Colors.transparent,
-                    width: 1,
-                  ),
-                ),
-                onSelected: (selected) {
-                  if (selected && _selectedBuilding != b) {
-                    setState(() => _selectedBuilding = b);
-                    _loadClassrooms();
-                  }
-                },
+  String get _displaySection {
+    final opt = defaultSectionOptions[_selectedSectionIndex];
+    return opt.label;
+  }
+
+  bool get _isDateFiltered {
+    final now = DateTime.now();
+    final currentWeek = CalendarService.instance.currentWeek ?? 1;
+    return _selectedWeek != currentWeek || _selectedDay != now.weekday;
+  }
+
+  Widget _buildFilterPill({
+    required IconData icon,
+    required String label,
+    required bool isFiltered,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            height: 38,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: isFiltered ? const Color(0xFFFEF2F2) : const Color(0xFFF7F8FA),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: isFiltered ? const Color(0xFFFECACA) : const Color(0xFFE5E7EB),
+                width: isFiltered ? 1 : 0.8,
               ),
-            );
-          }).toList(),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(
+                  icon,
+                  size: 14,
+                  color: isFiltered ? AppColors.usstRed : AppColors.textSecondary,
+                ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: isFiltered ? FontWeight.bold : FontWeight.w500,
+                      color: isFiltered ? AppColors.usstRed : AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 16,
+                  color: isFiltered ? AppColors.usstRed : AppColors.textSecondary,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildWeekAndDayBar() {
+  Widget _buildClassroomFilterHeader() {
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Column(
         children: <Widget>[
+          // Top Row: 搜索框 + "仅看空闲" 切换胶囊
           Row(
             children: <Widget>[
-              // 周次选择
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF7F8FA),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.border, width: 0.8),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<int>(
-                    value: _selectedWeek,
-                    isDense: true,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    items: List<DropdownMenuItem<int>>.generate(20, (i) {
-                      final w = i + 1;
-                      return DropdownMenuItem<int>(
-                        value: w,
-                        child: Text('第 $w 周'),
-                      );
-                    }),
-                    onChanged: (val) {
-                      if (val != null && val != _selectedWeek) {
-                        setState(() => _selectedWeek = val);
-                        _loadClassrooms();
-                      }
-                    },
+              Expanded(
+                child: Container(
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF7F8FA),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE5E7EB), width: 0.8),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Row(
+                    children: <Widget>[
+                      const Icon(Icons.search, size: 17, color: AppColors.textSecondary),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: TextField(
+                          controller: _classroomSearchController,
+                          style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                          decoration: const InputDecoration(
+                            hintText: '搜索教室名或占用课程',
+                            hintStyle: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
+                            border: InputBorder.none,
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ),
+                      if (_classroomKeyword.isNotEmpty)
+                        GestureDetector(
+                          onTap: () {
+                            _classroomSearchController.clear();
+                          },
+                          child: const Icon(Icons.cancel, size: 16, color: Color(0xFF9CA3AF)),
+                        ),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              // 星期切换按钮组
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
+              const SizedBox(width: 10),
+              // "仅看空闲" 切换胶囊
+              InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => setState(() => _onlyFree = !_onlyFree),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  height: 40,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: _onlyFree ? const Color(0xFFECFDF5) : const Color(0xFFF7F8FA),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: _onlyFree ? const Color(0xFFA7F3D0) : const Color(0xFFE5E7EB),
+                      width: 0.8,
+                    ),
+                  ),
                   child: Row(
-                    children: _days.map((d) {
-                      final isSelected = _selectedDay == d.day;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: () {
-                            if (_selectedDay != d.day) {
-                              setState(() => _selectedDay = d.day);
-                              _loadClassrooms();
-                            }
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? AppColors.usstRed.withValues(alpha: 0.1)
-                                  : const Color(0xFFF7F8FA),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: isSelected
-                                    ? AppColors.usstRed
-                                    : AppColors.border,
-                                width: isSelected ? 1.2 : 0.6,
-                              ),
-                            ),
-                            child: Text(
-                              d.name,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                                color: isSelected
-                                    ? AppColors.usstRed
-                                    : AppColors.textPrimary,
-                              ),
-                            ),
-                          ),
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(
+                        _onlyFree ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+                        size: 15,
+                        color: _onlyFree ? const Color(0xFF059669) : AppColors.textSecondary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '仅看空闲',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: _onlyFree ? FontWeight.bold : FontWeight.normal,
+                          color: _onlyFree ? const Color(0xFF059669) : AppColors.textSecondary,
                         ),
-                      );
-                    }).toList(),
+                      ),
+                    ],
                   ),
                 ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Bottom Row: 3 个并排简洁优雅筛选胶囊 (楼栋 / 节次 / 周次星期)
+          Row(
+            children: <Widget>[
+              _buildFilterPill(
+                icon: Icons.apartment_outlined,
+                label: _displayBuilding,
+                isFiltered: _selectedBuilding != '全部教学楼',
+                onTap: _showBuildingPickerModal,
+              ),
+              const SizedBox(width: 8),
+              _buildFilterPill(
+                icon: Icons.schedule_outlined,
+                label: _displaySection,
+                isFiltered: _selectedSectionIndex != 0,
+                onTap: _showSectionPickerModal,
+              ),
+              const SizedBox(width: 8),
+              _buildFilterPill(
+                icon: Icons.calendar_today_outlined,
+                label: '第$_selectedWeek周·${_days[_selectedDay - 1].name}',
+                isFiltered: _isDateFiltered,
+                onTap: _showDatePickerModal,
               ),
             ],
           ),
@@ -586,114 +624,16 @@ class _ClassroomQueryPageState extends State<ClassroomQueryPage> {
     );
   }
 
-  Widget _buildSectionSelector() {
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Divider(height: 1, thickness: 0.6, color: Color(0xFFEEEEEE)),
-          const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: List<Widget>.generate(defaultSectionOptions.length, (i) {
-                final opt = defaultSectionOptions[i];
-                final isSelected = _selectedSectionIndex == i;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    label: Text(
-                      opt.label,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight:
-                            isSelected ? FontWeight.bold : FontWeight.normal,
-                        color: isSelected ? Colors.white : AppColors.textPrimary,
-                      ),
-                    ),
-                    selected: isSelected,
-                    selectedColor: AppColors.usstRed,
-                    backgroundColor: const Color(0xFFF7F8FA),
-                    showCheckmark: false,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      side: BorderSide(
-                        color: isSelected ? AppColors.usstRed : AppColors.border,
-                        width: isSelected ? 1 : 0.6,
-                      ),
-                    ),
-                    onSelected: (selected) {
-                      if (selected && _selectedSectionIndex != i) {
-                        setState(() => _selectedSectionIndex = i);
-                        _loadClassrooms();
-                      }
-                    },
-                  ),
-                );
-              }),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildClassroomSearchBox() {
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Container(
-        height: 38,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF7F8FA),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.border, width: 0.8),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        child: Row(
-          children: <Widget>[
-            const Icon(Icons.search, size: 16, color: AppColors.textSecondary),
-            const SizedBox(width: 6),
-            Expanded(
-              child: TextField(
-                controller: _classroomSearchController,
-                style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
-                decoration: const InputDecoration(
-                  hintText: '搜索教室名或占用课程',
-                  hintStyle: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-            ),
-            if (_classroomKeyword.isNotEmpty)
-              GestureDetector(
-                onTap: () {
-                  _classroomSearchController.clear();
-                },
-                child: const Icon(Icons.cancel, size: 16, color: Color(0xFF9CA3AF)),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFilterSummary(int total, int freeCount) {
+  Widget _buildClassroomSummary(int total, int freeCount) {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Row(
         children: <Widget>[
           RichText(
             text: TextSpan(
-              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
               children: <TextSpan>[
-                const TextSpan(text: '当前条件：'),
+                const TextSpan(text: '检索统计：'),
                 TextSpan(
                   text: '$freeCount ',
                   style: const TextStyle(
@@ -704,39 +644,439 @@ class _ClassroomQueryPageState extends State<ClassroomQueryPage> {
                 const TextSpan(text: '间空闲 / 共 '),
                 TextSpan(
                   text: '$total ',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const TextSpan(text: '间教室'),
               ],
             ),
           ),
-          const Spacer(),
-          // 仅看空闲开关
-          InkWell(
-            onTap: () => setState(() => _onlyFree = !_onlyFree),
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              child: Row(
-                children: <Widget>[
-                  Icon(
-                    _onlyFree
-                        ? Icons.check_box_outlined
-                        : Icons.check_box_outline_blank,
-                    size: 18,
-                    color: _onlyFree ? AppColors.usstRed : AppColors.textSecondary,
-                  ),
-                  const SizedBox(width: 4),
-                  const Text(
-                    '仅看空闲',
-                    style: TextStyle(fontSize: 12.5, color: AppColors.textPrimary),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
+    );
+  }
+
+  void _showBuildingPickerModal() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const SizedBox(height: 10),
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD1D5DB),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 16, 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: <Widget>[
+                      const Text(
+                        '选择教学楼',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20, color: AppColors.textSecondary),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, thickness: 0.6, color: Color(0xFFF3F4F6)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: allKnownBuildings.map((b) {
+                      final isSelected = _selectedBuilding == b;
+                      final displayName = b == '全部教学楼'
+                          ? '全部教学楼'
+                          : b
+                              .replaceAll('第一教学楼', '一教')
+                              .replaceAll('第三教学楼', '三教')
+                              .replaceAll('第四教学楼', '四教');
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () {
+                          if (_selectedBuilding != b) {
+                            setState(() => _selectedBuilding = b);
+                            _loadClassrooms();
+                          }
+                          Navigator.of(ctx).pop();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isSelected ? const Color(0xFFFEF2F2) : const Color(0xFFF9FAFB),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isSelected ? AppColors.usstRed : const Color(0xFFE5E7EB),
+                              width: isSelected ? 1.4 : 0.8,
+                            ),
+                          ),
+                          child: Text(
+                            displayName,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSectionPickerModal() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const SizedBox(height: 10),
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD1D5DB),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 16, 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: <Widget>[
+                      const Text(
+                        '选择时段节次',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20, color: AppColors.textSecondary),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, thickness: 0.6, color: Color(0xFFF3F4F6)),
+                ...List<Widget>.generate(defaultSectionOptions.length, (i) {
+                  final opt = defaultSectionOptions[i];
+                  final isSelected = _selectedSectionIndex == i;
+                  return InkWell(
+                    onTap: () {
+                      if (_selectedSectionIndex != i) {
+                        setState(() => _selectedSectionIndex = i);
+                        _loadClassrooms();
+                      }
+                      Navigator.of(ctx).pop();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: isSelected ? const Color(0xFFFEF2F2) : Colors.transparent,
+                        border: const Border(
+                          bottom: BorderSide(color: Color(0xFFF3F4F6), width: 0.6),
+                        ),
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          Icon(
+                            isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                            size: 18,
+                            color: isSelected ? AppColors.usstRed : const Color(0xFFD1D5DB),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  opt.label,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                    color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
+                                  ),
+                                ),
+                                if (opt.range != null) ...<Widget>[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _getSectionTimeDesc(opt),
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: isSelected
+                                          ? AppColors.usstRed.withValues(alpha: 0.8)
+                                          : AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _getSectionTimeDesc(SectionOption opt) {
+    switch (opt.label) {
+      case '1-2节 (上午)':
+        return '08:00 - 09:35 · 上午第1大节';
+      case '3-5节 (上午)':
+        return '09:55 - 12:20 · 上午第2大节';
+      case '6-7节 (下午)':
+        return '13:30 - 15:05 · 下午第1大节';
+      case '8-10节 (下午)':
+        return '15:25 - 17:50 · 下午第2大节';
+      case '11-13节 (晚上)':
+        return '18:30 - 20:55 · 晚间课程';
+      default:
+        return '全天课表及教室占用';
+    }
+  }
+
+  void _showDatePickerModal() {
+    final currentWeek = CalendarService.instance.currentWeek ?? 1;
+    final nowWeekday = DateTime.now().weekday;
+
+    int tempWeek = _selectedWeek;
+    int tempDay = _selectedDay;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (sheetCtx, setModalState) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD1D5DB),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: <Widget>[
+                          const Text(
+                            '选择周次与星期',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.usstRed,
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                            ),
+                            icon: const Icon(Icons.restore, size: 16),
+                            label: const Text('今天与当前周', style: TextStyle(fontSize: 12)),
+                            onPressed: () {
+                              setModalState(() {
+                                tempWeek = currentWeek.clamp(1, 20);
+                                tempDay = nowWeekday;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 16, thickness: 0.6),
+                      const Text(
+                        '教学周',
+                        style: TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 36,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: 20,
+                          itemBuilder: (context, i) {
+                            final w = i + 1;
+                            final isSel = tempWeek == w;
+                            final isCur = w == currentWeek;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: ChoiceChip(
+                                label: Text(
+                                  isCur ? '第$w周(本周)' : '第$w周',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                                    color: isSel ? Colors.white : AppColors.textPrimary,
+                                  ),
+                                ),
+                                selected: isSel,
+                                selectedColor: AppColors.usstRed,
+                                backgroundColor: const Color(0xFFF3F4F6),
+                                showCheckmark: false,
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  side: BorderSide(
+                                    color: isSel ? AppColors.usstRed : Colors.transparent,
+                                  ),
+                                ),
+                                onSelected: (_) {
+                                  setModalState(() => tempWeek = w);
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        '星期',
+                        style: TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: _days.map((d) {
+                          final isSel = tempDay == d.day;
+                          final isToday = d.day == nowWeekday;
+                          return Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 2),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: () => setModalState(() => tempDay = d.day),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isSel
+                                        ? AppColors.usstRed
+                                        : (isToday ? const Color(0xFFFEF2F2) : const Color(0xFFF7F8FA)),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isSel
+                                          ? AppColors.usstRed
+                                          : (isToday ? const Color(0xFFFECACA) : const Color(0xFFE5E7EB)),
+                                      width: isSel ? 1.2 : 0.8,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    children: <Widget>[
+                                      Text(
+                                        d.name,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight:
+                                              (isSel || isToday) ? FontWeight.bold : FontWeight.normal,
+                                          color: isSel
+                                              ? Colors.white
+                                              : (isToday ? AppColors.usstRed : AppColors.textPrimary),
+                                        ),
+                                      ),
+                                      if (isToday)
+                                        Text(
+                                          '今天',
+                                          style: TextStyle(
+                                            fontSize: 9.5,
+                                            color: isSel ? Colors.white70 : AppColors.usstRed,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 44,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.usstRed,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _selectedWeek = tempWeek;
+                              _selectedDay = tempDay;
+                            });
+                            _loadClassrooms();
+                            Navigator.of(ctx).pop();
+                          },
+                          child: const Text('确定',
+                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -750,22 +1090,29 @@ class _ClassroomQueryPageState extends State<ClassroomQueryPage> {
         border: Border.all(
           color: room.isFree
               ? const Color(0xFFBBF7D0)
-              : AppColors.border,
+              : const Color(0xFFE5E7EB),
           width: room.isFree ? 1 : 0.8,
         ),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Color(0x06000000),
+            blurRadius: 4,
+            offset: Offset(0, 1),
+          ),
+        ],
       ),
       child: Row(
         children: <Widget>[
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: room.isFree
                   ? const Color(0xFFF0FDF4)
                   : const Color(0xFFFEF2F2),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
-              room.isFree ? Icons.check_circle_outline : Icons.block_outlined,
+              room.isFree ? Icons.meeting_room_outlined : Icons.lock_clock_outlined,
               size: 20,
               color: room.isFree ? const Color(0xFF16A34A) : AppColors.usstRed,
             ),
@@ -786,11 +1133,18 @@ class _ClassroomQueryPageState extends State<ClassroomQueryPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      room.building,
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        color: AppColors.textSecondary,
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3F4F6),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        room.building,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ),
                   ],
@@ -798,7 +1152,7 @@ class _ClassroomQueryPageState extends State<ClassroomQueryPage> {
                 const SizedBox(height: 4),
                 if (room.isFree)
                   const Text(
-                    '空闲 · 可自习',
+                    '当前时段空闲 · 可自习',
                     style: TextStyle(
                       fontSize: 12,
                       color: Color(0xFF16A34A),
@@ -819,7 +1173,7 @@ class _ClassroomQueryPageState extends State<ClassroomQueryPage> {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: room.isFree
                   ? const Color(0xFFDCFCE7)
@@ -827,7 +1181,7 @@ class _ClassroomQueryPageState extends State<ClassroomQueryPage> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              room.isFree ? '空闲' : '有课',
+              room.isFree ? '可自习' : '有课',
               style: TextStyle(
                 fontSize: 11.5,
                 fontWeight: FontWeight.bold,
@@ -1027,166 +1381,540 @@ class _ClassroomQueryPageState extends State<ClassroomQueryPage> {
     );
   }
 
+  String get _displayLevel {
+    switch (_selectedLevel) {
+      case 'UNDERGRADUATE':
+        return '仅本科';
+      case 'GRADUATE':
+        return '仅研究生';
+      default:
+        return '本研不限';
+    }
+  }
+
+  String _displayCourseWeek(int currentWeek) {
+    if (_selectedCourseWeek == 0) return '本周(第$currentWeek周)';
+    if (_selectedCourseWeek > 0) return '第$_selectedCourseWeek周';
+    return '全部周次';
+  }
+
+  bool get _hasActiveCourseFilters =>
+      _selectedCollege != '全部学院' ||
+      _selectedLevel != 'ALL' ||
+      _selectedCourseDay != -1 ||
+      _selectedCourseWeek != -1;
+
+  void _resetCourseFilters() {
+    setState(() {
+      _selectedCollege = '全部学院';
+      _selectedLevel = 'ALL';
+      _selectedCourseDay = -1;
+      _selectedCourseWeek = -1;
+    });
+    if (_courseSearched) {
+      _searchSchoolCourses();
+    }
+  }
+
+  Widget _buildActiveFilterChip(String label, VoidCallback onDeleted) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF2F2),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFFFECACA), width: 0.8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(
+            label,
+            style: const TextStyle(
+                fontSize: 11,
+                color: AppColors.usstRed,
+                fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: onDeleted,
+            child: const Icon(Icons.close, size: 13, color: AppColors.usstRed),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCourseFiltersRow(int currentWeek) {
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: <Widget>[
-            // 学院筛选
-            InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: _showCollegePickerModal,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: _selectedCollege == '全部学院'
-                      ? const Color(0xFFF7F8FA)
-                      : AppColors.usstRed.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: _selectedCollege == '全部学院'
-                        ? AppColors.border
-                        : AppColors.usstRed,
-                    width: _selectedCollege == '全部学院' ? 0.6 : 1.2,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              _buildFilterPill(
+                icon: Icons.apartment_outlined,
+                label: _selectedCollege == '全部学院' ? '全部学院' : _selectedCollege,
+                isFiltered: _selectedCollege != '全部学院',
+                onTap: _showCollegePickerModal,
+              ),
+              const SizedBox(width: 6),
+              _buildFilterPill(
+                icon: Icons.school_outlined,
+                label: _displayLevel,
+                isFiltered: _selectedLevel != 'ALL',
+                onTap: _showLevelPickerModal,
+              ),
+              const SizedBox(width: 6),
+              _buildFilterPill(
+                icon: Icons.calendar_today_outlined,
+                label: _selectedCourseDay == -1
+                    ? '全部星期'
+                    : _days[_selectedCourseDay - 1].name,
+                isFiltered: _selectedCourseDay != -1,
+                onTap: _showCourseDayPickerModal,
+              ),
+              const SizedBox(width: 6),
+              _buildFilterPill(
+                icon: Icons.date_range_outlined,
+                label: _displayCourseWeek(currentWeek),
+                isFiltered: _selectedCourseWeek != -1,
+                onTap: () => _showCourseWeekPickerModal(currentWeek),
+              ),
+            ],
+          ),
+          if (_hasActiveCourseFilters) ...<Widget>[
+            const SizedBox(height: 8),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: <Widget>[
+                      if (_selectedCollege != '全部学院')
+                        _buildActiveFilterChip('学院: $_selectedCollege', () {
+                          setState(() => _selectedCollege = '全部学院');
+                          if (_courseSearched) _searchSchoolCourses();
+                        }),
+                      if (_selectedLevel != 'ALL')
+                        _buildActiveFilterChip(_displayLevel,
+                            () => setState(() => _selectedLevel = 'ALL')),
+                      if (_selectedCourseDay != -1)
+                        _buildActiveFilterChip(
+                            _days[_selectedCourseDay - 1].name,
+                            () => setState(() => _selectedCourseDay = -1)),
+                      if (_selectedCourseWeek != -1)
+                        _buildActiveFilterChip(
+                            _displayCourseWeek(currentWeek),
+                            () => setState(() => _selectedCourseWeek = -1)),
+                    ],
                   ),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Icon(
-                      Icons.apartment_outlined,
-                      size: 14,
-                      color: _selectedCollege == '全部学院'
-                          ? AppColors.textSecondary
-                          : AppColors.usstRed,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _selectedCollege,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: _selectedCollege == '全部学院'
-                            ? FontWeight.normal
-                            : FontWeight.bold,
-                        color: _selectedCollege == '全部学院'
-                            ? AppColors.textPrimary
-                            : AppColors.usstRed,
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                    const Icon(Icons.arrow_drop_down,
-                        size: 16, color: AppColors.textSecondary),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-
-            // 本研筛选
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF7F8FA),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.border, width: 0.8),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: _selectedLevel,
-                  isDense: true,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                TextButton(
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    foregroundColor: AppColors.usstRed,
                   ),
-                  items: const <DropdownMenuItem<String>>[
-                    DropdownMenuItem<String>(value: 'ALL', child: Text('本研不限')),
-                    DropdownMenuItem<String>(
-                        value: 'UNDERGRADUATE', child: Text('仅本科')),
-                    DropdownMenuItem<String>(
-                        value: 'GRADUATE', child: Text('仅研究生')),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) setState(() => _selectedLevel = val);
-                  },
+                  onPressed: _resetCourseFilters,
+                  child: const Text('重置筛选', style: TextStyle(fontSize: 12)),
                 ),
-              ),
-            ),
-            const SizedBox(width: 8),
-
-            // 星期筛选
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF7F8FA),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.border, width: 0.8),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<int>(
-                  value: _selectedCourseDay,
-                  isDense: true,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  items: <DropdownMenuItem<int>>[
-                    const DropdownMenuItem<int>(value: -1, child: Text('全部星期')),
-                    ..._days.map((d) => DropdownMenuItem<int>(
-                          value: d.day,
-                          child: Text(d.name),
-                        )),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) setState(() => _selectedCourseDay = val);
-                  },
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-
-            // 周次筛选
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF7F8FA),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.border, width: 0.8),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<int>(
-                  value: _selectedCourseWeek,
-                  isDense: true,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  items: <DropdownMenuItem<int>>[
-                    const DropdownMenuItem<int>(value: -1, child: Text('全部周次')),
-                    DropdownMenuItem<int>(
-                        value: 0, child: Text('本周 (第$currentWeek周)')),
-                    ...List<DropdownMenuItem<int>>.generate(20, (i) {
-                      final w = i + 1;
-                      return DropdownMenuItem<int>(
-                        value: w,
-                        child: Text('第$w周'),
-                      );
-                    }),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) setState(() => _selectedCourseWeek = val);
-                  },
-                ),
-              ),
+              ],
             ),
           ],
-        ),
+        ],
       ),
+    );
+  }
+
+  void _showLevelPickerModal() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final options = <({String value, String label, String desc})>[
+          (value: 'ALL', label: '本研不限', desc: '显示本科生与研究生全部课程'),
+          (value: 'UNDERGRADUATE', label: '仅本科生', desc: '仅检索本科培养计划课程'),
+          (value: 'GRADUATE', label: '仅研究生', desc: '仅检索硕士及博士研究生课程'),
+        ];
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const SizedBox(height: 10),
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD1D5DB),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 16, 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: <Widget>[
+                      const Text(
+                        '选择培养层次',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close,
+                            size: 20, color: AppColors.textSecondary),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(
+                    height: 1, thickness: 0.6, color: Color(0xFFF3F4F6)),
+                ...options.map((opt) {
+                  final isSel = _selectedLevel == opt.value;
+                  return InkWell(
+                    onTap: () {
+                      setState(() => _selectedLevel = opt.value);
+                      Navigator.of(ctx).pop();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: isSel
+                            ? const Color(0xFFFEF2F2)
+                            : Colors.transparent,
+                        border: const Border(
+                            bottom: BorderSide(
+                                color: Color(0xFFF3F4F6), width: 0.6)),
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          Icon(
+                            isSel
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            size: 18,
+                            color: isSel
+                                ? AppColors.usstRed
+                                : const Color(0xFFD1D5DB),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  opt.label,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: isSel
+                                        ? FontWeight.bold
+                                        : FontWeight.w500,
+                                    color: isSel
+                                        ? AppColors.usstRed
+                                        : AppColors.textPrimary,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  opt.desc,
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: isSel
+                                        ? AppColors.usstRed
+                                            .withValues(alpha: 0.8)
+                                        : AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showCourseDayPickerModal() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final options = <({int value, String label})>[
+          (value: -1, label: '全部星期 (周一至周日)'),
+          ..._days.map((d) => (value: d.day, label: d.name)),
+        ];
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const SizedBox(height: 10),
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD1D5DB),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 16, 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: <Widget>[
+                      const Text(
+                        '选择星期几',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close,
+                            size: 20, color: AppColors.textSecondary),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(
+                    height: 1, thickness: 0.6, color: Color(0xFFF3F4F6)),
+                ...options.map((opt) {
+                  final isSel = _selectedCourseDay == opt.value;
+                  return InkWell(
+                    onTap: () {
+                      setState(() => _selectedCourseDay = opt.value);
+                      Navigator.of(ctx).pop();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: isSel
+                            ? const Color(0xFFFEF2F2)
+                            : Colors.transparent,
+                        border: const Border(
+                            bottom: BorderSide(
+                                color: Color(0xFFF3F4F6), width: 0.6)),
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          Icon(
+                            isSel
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            size: 18,
+                            color: isSel
+                                ? AppColors.usstRed
+                                : const Color(0xFFD1D5DB),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            opt.label,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight:
+                                  isSel ? FontWeight.bold : FontWeight.w500,
+                              color: isSel
+                                  ? AppColors.usstRed
+                                  : AppColors.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showCourseWeekPickerModal(int currentWeek) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD1D5DB),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: <Widget>[
+                        const Text(
+                          '选择教学周',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close,
+                              size: 20, color: AppColors.textSecondary),
+                          onPressed: () => Navigator.of(ctx).pop(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1, thickness: 0.6),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: _selectedCourseWeek == -1
+                                ? const Color(0xFFFEF2F2)
+                                : Colors.white,
+                            side: BorderSide(
+                              color: _selectedCourseWeek == -1
+                                  ? AppColors.usstRed
+                                  : const Color(0xFFE5E7EB),
+                            ),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () {
+                            setState(() => _selectedCourseWeek = -1);
+                            Navigator.of(ctx).pop();
+                          },
+                          child: Text(
+                            '全部周次',
+                            style: TextStyle(
+                              color: _selectedCourseWeek == -1
+                                  ? AppColors.usstRed
+                                  : AppColors.textPrimary,
+                              fontWeight: _selectedCourseWeek == -1
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: _selectedCourseWeek == 0
+                                ? const Color(0xFFFEF2F2)
+                                : Colors.white,
+                            side: BorderSide(
+                              color: _selectedCourseWeek == 0
+                                  ? AppColors.usstRed
+                                  : const Color(0xFFE5E7EB),
+                            ),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () {
+                            setState(() => _selectedCourseWeek = 0);
+                            Navigator.of(ctx).pop();
+                          },
+                          child: Text(
+                            '本周 (第$currentWeek周)',
+                            style: TextStyle(
+                              color: _selectedCourseWeek == 0
+                                  ? AppColors.usstRed
+                                  : AppColors.textPrimary,
+                              fontWeight: _selectedCourseWeek == 0
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('指定教学周：',
+                      style:
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: List<Widget>.generate(20, (i) {
+                      final w = i + 1;
+                      final isSel = _selectedCourseWeek == w;
+                      return ChoiceChip(
+                        label: Text('第$w周',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: isSel
+                                    ? Colors.white
+                                    : AppColors.textPrimary)),
+                        selected: isSel,
+                        selectedColor: AppColors.usstRed,
+                        backgroundColor: const Color(0xFFF3F4F6),
+                        showCheckmark: false,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          side: BorderSide(
+                              color: isSel
+                                  ? AppColors.usstRed
+                                  : Colors.transparent),
+                        ),
+                        onSelected: (_) {
+                          setState(() => _selectedCourseWeek = w);
+                          Navigator.of(ctx).pop();
+                        },
+                      );
+                    }),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

@@ -282,6 +282,12 @@ const List<SectionOption> defaultSectionOptions = <SectionOption>[
   SectionOption(label: '全部节次', queryJc: '-1', range: null),
 ];
 
+int _parseInt(dynamic val, int fallback) {
+  if (val == null) return fallback;
+  if (val is num) return val.toInt();
+  return int.tryParse(val.toString().trim()) ?? fallback;
+}
+
 /// 教室查询与全校课表 API（对接 lapp.usst.edu.cn 全校课表库）
 class ClassroomApi {
   ClassroomApi(this.client);
@@ -445,12 +451,12 @@ class ClassroomApi {
           id: (m['id'] ?? '').toString(),
           courseName: (m['kcmc'] ?? '').toString().trim(),
           teacherName: (m['lsmc'] ?? '').toString().trim(),
-          dayOfWeek: (m['zj'] as num?)?.toInt() ?? 1,
-          startPeriod: (m['jc'] as num?)?.toInt() ?? 1,
-          periodLength: (m['jccd'] as num?)?.toInt() ?? 2,
+          dayOfWeek: _parseInt(m['zj'], 1),
+          startPeriod: _parseInt(m['jc'], 1),
+          periodLength: _parseInt(m['jccd'], 2),
           classroom: (m['jsdd'] ?? '').toString().trim(),
-          startWeek: (m['qsz'] as num?)?.toInt() ?? 1,
-          endWeek: (m['jsz'] as num?)?.toInt() ?? 18,
+          startWeek: _parseInt(m['qsz'], 1),
+          endWeek: _parseInt(m['jsz'], 18),
           weeksText: (m['zc'] ?? '').toString().trim(),
           startTime: (m['classTimeBegin'] ?? '').toString().trim(),
           endTime: (m['classTimeEnd'] ?? '').toString().trim(),
