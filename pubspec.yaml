@@ -57,6 +57,8 @@ dependencies:
   flutter_local_notifications: ^22.3.3
   timezone: ^0.11.2
   flutter_timezone: ^5.1.1
+  flutter_map: ^8.3.2
+  latlong2: ^0.10.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -81,6 +83,7 @@ flutter:
 
   assets:
     - assets/map/
+    - assets/tiles/
     - assets/calendar.config
     - assets/emblem.webp
     - assets/sources/tronclass_tab.png

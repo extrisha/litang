@@ -151,7 +151,13 @@ class UpdateService {
   static List<String> candidateUrls(UpdateInfo info) {
     final out = <String>[];
     void add(String url) {
-      if (url.isNotEmpty && !out.contains(url)) out.add(url);
+      final trimmed = url.trim();
+      // 强制要求 HTTPS 下载链接，防止明文 HTTP 降级与中间人替换
+      if (trimmed.isNotEmpty &&
+          trimmed.startsWith('https://') &&
+          !out.contains(trimmed)) {
+        out.add(trimmed);
+      }
     }
 
     add(info.giteeUrl);
@@ -191,7 +197,9 @@ class UpdateService {
         throw Exception('HTTP ${response.statusCode}');
       }
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/litang-$version.apk');
+      // 防范路径穿越 (Path Traversal)
+      final safeVersion = version.replaceAll(RegExp(r'[^0-9A-Za-z_.-]'), '_');
+      final file = File('${dir.path}/litang-$safeVersion.apk');
       final sink = file.openWrite();
       var received = 0;
       final total = response.contentLength ?? 0;
@@ -217,13 +225,24 @@ class UpdateService {
         }
       }
       await sink.close();
-      if (expectedSha256.isNotEmpty) {
-        final digest = sha256.convert(await file.readAsBytes()).toString();
-        if (digest != expectedSha256) {
+
+      // 强制完整性核验：禁止空哈希跳过检查，流式计算防 OOM 崩溃
+      final cleanExpected = expectedSha256.trim().toLowerCase();
+      if (cleanExpected.isEmpty) {
+        try {
           await file.delete();
-          throw Exception('安装包校验失败');
-        }
+        } catch (_) {}
+        throw Exception('安装包校验失败：缺少预期 SHA-256');
       }
+
+      final digest = (await sha256.bind(file.openRead()).first).toString().toLowerCase();
+      if (digest != cleanExpected) {
+        try {
+          await file.delete();
+        } catch (_) {}
+        throw Exception('安装包校验失败');
+      }
+
       return file.path;
     } finally {
       client.close();

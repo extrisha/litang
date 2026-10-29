@@ -123,6 +123,7 @@ class DormElectricityCache {
 
   /// 从磁盘恢复上次的数据（冷启动用）。
   ///
+  /// 优先从系统安全存储（Keystore/Keychain）恢复；若为空，兼容读取旧版文件存储并迁移。
   /// 内存里已有数据时不覆盖：那是本次会话刚拉到的，比磁盘新。
   static Future<void> load(String username) async {
     final key = username.trim();
@@ -132,11 +133,22 @@ class DormElectricityCache {
     if (_data != null && _username == key) {
       return;
     }
-    // 换账号时先清掉内存里的旧账号数据，磁盘按 username 各存一份。
+    // 换账号时先清掉内存里的旧账号数据，安全存储按 username 各存一份。
     _username = null;
     _data = null;
     _fetchedAt = null;
-    final entry = await CacheStore.read(_keyFor(key));
+
+    var entry = await CacheStore.read(_keyFor(key), secure: true);
+    if (entry == null) {
+      // 兼容读取旧版本明文文件缓存
+      entry = await CacheStore.read(_keyFor(key), secure: false);
+      if (entry != null && entry.data is Map) {
+        // 自动迁移升级到加密存储，并清除旧的明文缓存
+        unawaited(CacheStore.write(_keyFor(key), entry.data!, secure: true));
+        unawaited(CacheStore.remove(_keyFor(key), secure: false));
+      }
+    }
+
     final raw = entry?.data;
     if (raw is! Map) {
       return;
@@ -173,8 +185,8 @@ class DormElectricityCache {
     _username = key;
     _data = data;
     _fetchedAt = DateTime.now();
-    // 落盘，下次冷启动直接显示；失败不影响功能
-    unawaited(CacheStore.write(_keyFor(key), data.toCacheJson()));
+    // 加密落盘（安全存储，避免明文泄露宿舍物理住址与用电账单）
+    unawaited(CacheStore.write(_keyFor(key), data.toCacheJson(), secure: true));
   }
 
   static Future<void> clear() async {
@@ -183,7 +195,8 @@ class DormElectricityCache {
     _data = null;
     _fetchedAt = null;
     if (key != null) {
-      await CacheStore.remove(_keyFor(key));
+      await CacheStore.remove(_keyFor(key), secure: true);
+      await CacheStore.remove(_keyFor(key), secure: false);
     }
   }
 
@@ -390,6 +403,11 @@ class DormElectricityService {
       final location = resp.headers.value('location');
       if (status >= 300 && status < 400 && location != null) {
         current = current.resolve(location);
+        // 强制将学校域名的 http 升级为 https，防局域网会话被嗅探
+        if (current.scheme == 'http' &&
+            (current.host == 'usst.edu.cn' || current.host.endsWith('.usst.edu.cn'))) {
+          current = current.replace(scheme: 'https');
+        }
         if (status == 303) {
           currentMethod = 'GET';
           currentBody = null;

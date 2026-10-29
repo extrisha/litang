@@ -130,6 +130,41 @@ void main() {
       // 别的域不能带上
       expect(jar.headerFor(Uri.parse('https://example.com/')), isNull);
     });
+
+    test('跨域 Cookie 投毒拦截（RFC 6265 域安全隔离）', () {
+      final jar = CasCookieJar();
+
+      // 1. 来源与目标域不匹配：恶意第三方尝试给学校域种 Cookie
+      jar.absorbSetCookie(
+        Uri.parse('https://evil.com/login'),
+        'CASTGC=evil_token; Domain=.usst.edu.cn; Path=/',
+      );
+      expect(jar.headerFor(Uri.parse('https://jwgl.usst.edu.cn/')), isNull);
+
+      // 2. 伪装相似域名试图跨域：evil-usst.edu.cn != usst.edu.cn
+      jar.absorbSetCookie(
+        Uri.parse('https://evil-usst.edu.cn/'),
+        'TICKET=123; Domain=.usst.edu.cn; Path=/',
+      );
+      expect(jar.headerFor(Uri.parse('https://jwgl.usst.edu.cn/')), isNull);
+
+      // 3. 试图给公共后缀 / 顶级域设置 Cookie (Public Suffix)
+      jar.absorbSetCookie(
+        Uri.parse('https://other.edu.cn/'),
+        'SHARED=bad; Domain=.edu.cn; Path=/',
+      );
+      expect(jar.headerFor(Uri.parse('https://usst.edu.cn/')), isNull);
+
+      // 4. 正确的来源域允许设置其自身或父域 Cookie
+      jar.absorbSetCookie(
+        Uri.parse('https://ids6.usst.edu.cn/authserver/login'),
+        'CASTGC=valid_tgt; Domain=.usst.edu.cn; Path=/',
+      );
+      expect(
+        jar.headerFor(Uri.parse('https://jwgl.usst.edu.cn/')),
+        contains('CASTGC=valid_tgt'),
+      );
+    });
   });
 
   group('验证码识别', () {

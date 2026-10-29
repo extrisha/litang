@@ -115,6 +115,51 @@ class CasCookieJar {
 
   void clear() => cookies.clear();
 
+  /// 校验请求来源 [requestHost] 是否允许为 [cookieDomain] 设置 Cookie。
+  ///
+  /// 符合 RFC 6265 核心规范：
+  /// 1. 来源域名必须与目标域名相同，或是目标域名的合法子域；
+  /// 2. 目标域名不得为公共后缀（Public Suffix，如 .edu.cn, .com, .cn 等）；
+  /// 3. 若来源为主机 IP，禁止设置前导点通配域。
+  static bool isDomainAllowed(String requestHost, String cookieDomain) {
+    final host = requestHost.toLowerCase().trim();
+    var domain = cookieDomain.toLowerCase().trim();
+    if (domain.startsWith('.')) {
+      domain = domain.substring(1);
+    }
+    if (host.isEmpty || domain.isEmpty) {
+      return false;
+    }
+
+    final isIp = RegExp(r'^\d+\.\d+\.\d+\.\d+$').hasMatch(host);
+    if (isIp) {
+      return host == domain;
+    }
+
+    // 来源域名必须等于目标域名，或是其下级子域
+    final isSuffixMatch = host == domain || host.endsWith('.$domain');
+    if (!isSuffixMatch) {
+      return false;
+    }
+
+    // 防范单段顶级域或公共后缀 (Public Suffix) 跨站投毒
+    final parts = domain.split('.');
+    if (parts.length < 2) {
+      return false;
+    }
+
+    const publicSuffixes = <String>{
+      'cn', 'com', 'net', 'org', 'edu', 'gov',
+      'edu.cn', 'com.cn', 'net.cn', 'org.cn', 'gov.cn', 'ac.cn', 'mil.cn',
+      'sh.cn', 'bj.cn',
+    };
+    if (publicSuffixes.contains(domain)) {
+      return false;
+    }
+
+    return true;
+  }
+
   void absorbSetCookie(Uri from, String line) {
     final parts = line.split(';');
     if (parts.isEmpty) {
@@ -129,16 +174,20 @@ class CasCookieJar {
     final value = pair.substring(eq + 1).trim();
     var domain = from.host;
     var path = _defaultPath(from.path);
+    var hasExplicitDomain = false;
+    String? explicitDomain;
 
     for (final raw in parts.skip(1)) {
       final attr = raw.trim();
       final lower = attr.toLowerCase();
       if (lower.startsWith('domain=')) {
         var d = attr.substring(7).trim();
-        if (d.isNotEmpty && !d.startsWith('.')) {
-          d = '.$d';
-        }
         if (d.isNotEmpty) {
+          hasExplicitDomain = true;
+          explicitDomain = d;
+          if (!d.startsWith('.')) {
+            d = '.$d';
+          }
           domain = d;
         }
       } else if (lower.startsWith('path=')) {
@@ -146,6 +195,13 @@ class CasCookieJar {
         if (p.startsWith('/')) {
           path = p;
         }
+      }
+    }
+
+    // RFC 6265 校验：如果显式指定了 Domain，必须符合作用域白名单与公共后缀保护，否则丢弃该 Cookie
+    if (hasExplicitDomain && explicitDomain != null) {
+      if (!isDomainAllowed(from.host, explicitDomain)) {
+        return;
       }
     }
 

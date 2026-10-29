@@ -559,13 +559,27 @@ class ChaoxingClient {
   ///
   /// 另外服务端会看 UA：桌面浏览器 UA 只会得到「请使用客户端进行扫码签到」，
   /// 所以这里必须伪装成学习通客户端。
+  /// 校验二维码 URL 是否合法且属于超星签到服务。
+  @visibleForTesting
+  static bool isValidSignQrUrl(Uri uri) {
+    if (!uri.hasScheme) return false;
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme != 'https' && scheme != 'http') return false;
+    final host = uri.host.toLowerCase();
+    final isChaoxingHost = host == 'chaoxing.com' || host.endsWith('.chaoxing.com');
+    if (!isChaoxingHost) return false;
+    if (!uri.path.contains('/widget/sign/')) return false;
+    return uri.queryParameters.containsKey('enc');
+  }
+
   Future<ChaoxingSignResult> signByQr(String raw) async {
     final uri = Uri.tryParse(raw.trim());
     if (uri == null || !uri.hasScheme) {
       return const ChaoxingSignResult(ChaoxingSignStatus.invalid, '不是有效的二维码');
     }
-    if (!uri.host.endsWith('chaoxing.com') ||
-        !uri.path.contains('/widget/sign/')) {
+    final host = uri.host.toLowerCase();
+    final isChaoxingHost = host == 'chaoxing.com' || host.endsWith('.chaoxing.com');
+    if (!isChaoxingHost || !uri.path.contains('/widget/sign/')) {
       return const ChaoxingSignResult(
         ChaoxingSignStatus.invalid,
         '这不是学习通的签到二维码',

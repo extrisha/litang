@@ -44,6 +44,50 @@ class ChaoxingLoginPage extends StatefulWidget {
       'https://tyrzfw.chaoxing.com/auth3/usst/cas/init?isLogout=0'
       '&refer=https%3A%2F%2Fi.chaoxing.com&casinfo=&casenc=&casfrom=login';
 
+  /// 判断 URL 是否为超星官方登录页（防止恶意钓鱼 URL 匹配注入密码）。
+  @visibleForTesting
+  static bool isOfficialLoginPage(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    final host = uri.host.toLowerCase();
+    if (host != 'passport2.chaoxing.com') return false;
+    return uri.path == '/login' || uri.path.startsWith('/login/');
+  }
+
+  /// 校验 WebView 导航目标是否在受信任的域名白名单内。
+  @visibleForTesting
+  static bool isAllowedNavigation(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    if (uri.scheme == 'about') return true;
+    if (uri.scheme != 'http' && uri.scheme != 'https') return false;
+    final host = uri.host.toLowerCase();
+    return host == 'chaoxing.com' ||
+        host.endsWith('.chaoxing.com') ||
+        host == 'usst.edu.cn' ||
+        host.endsWith('.usst.edu.cn');
+  }
+
+  /// 判断是否已进入登录后的业务页。
+  @visibleForTesting
+  static bool looksLoggedIn(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    final host = uri.host.toLowerCase();
+    if (host == 'passport2.chaoxing.com' ||
+        host.endsWith('.passport2.chaoxing.com')) {
+      return false;
+    }
+    if (host == 'i.chaoxing.com' ||
+        host == 'mooc1.chaoxing.com' ||
+        host == 'mooc2-ans.chaoxing.com') {
+      return true;
+    }
+    return host.endsWith('.chaoxing.com') &&
+        !host.contains('passport') &&
+        !host.contains('auth');
+  }
+
   @override
   State<ChaoxingLoginPage> createState() => _ChaoxingLoginPageState();
 }
@@ -71,6 +115,11 @@ class _ChaoxingLoginPageState extends State<ChaoxingLoginPage> {
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
+          onNavigationRequest: (NavigationRequest request) {
+            return ChaoxingLoginPage.isAllowedNavigation(request.url)
+                ? NavigationDecision.navigate
+                : NavigationDecision.prevent;
+          },
           onPageStarted: (_) {
             if (mounted) setState(() => _loading = true);
           },
@@ -78,12 +127,12 @@ class _ChaoxingLoginPageState extends State<ChaoxingLoginPage> {
             if (!mounted) return;
             setState(() => _loading = false);
             // 登录成功后超星会跳到 i.chaoxing.com（或课程首页），这时抓一次 cookie
-            if (!_finishing && _looksLoggedIn(url)) {
+            if (!_finishing && ChaoxingLoginPage.looksLoggedIn(url)) {
               _finish();
               return;
             }
             if (!_autoLoginAttempted &&
-                url.contains('passport2.chaoxing.com/login') &&
+                ChaoxingLoginPage.isOfficialLoginPage(url) &&
                 (widget.username?.isNotEmpty ?? false) &&
                 (widget.password?.isNotEmpty ?? false)) {
               _autoLoginAttempted = true;
@@ -161,13 +210,6 @@ class _ChaoxingLoginPageState extends State<ChaoxingLoginPage> {
     }
   }
 
-  bool _looksLoggedIn(String url) {
-    if (url.contains('passport2.chaoxing.com')) return false;
-    return url.contains('i.chaoxing.com') ||
-        url.contains('mooc1.chaoxing.com') ||
-        url.contains('mooc2-ans.chaoxing.com');
-  }
-
   /// 用教务保存的学号/密码填超星官方登录页并提交。
   ///
   /// 这样超星自己的 JS 仍会做 AES 加密、验证码和双因子判断；
@@ -183,6 +225,13 @@ class _ChaoxingLoginPageState extends State<ChaoxingLoginPage> {
         password.isEmpty) {
       return;
     }
+
+    // 执行前二次核实当前加载的实际 URL，防范竞态跳转
+    final current = await controller.currentUrl();
+    if (current == null || !ChaoxingLoginPage.isOfficialLoginPage(current)) {
+      return;
+    }
+
     final userJs = jsonEncode(username);
     final passJs = jsonEncode(password);
     try {

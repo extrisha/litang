@@ -39,4 +39,55 @@ void main() {
     expect(result.status, ChaoxingSignStatus.unknown);
     expect(result.success, isFalse);
   });
+
+  group('ChaoxingClient.isValidSignQrUrl 安全校验', () {
+    test('合法的超星签到二维码 URL', () {
+      expect(
+        ChaoxingClient.isValidSignQrUrl(
+          Uri.parse('https://mobilelearn.chaoxing.com/widget/sign/e?id=123&enc=ABC'),
+        ),
+        isTrue,
+      );
+      expect(
+        ChaoxingClient.isValidSignQrUrl(
+          Uri.parse('https://chaoxing.com/widget/sign/p?enc=XYZ'),
+        ),
+        isTrue,
+      );
+    });
+
+    test('防止 Host 后缀绕过与恶意仿冒域名（防 SSRF / Cookie 窃取）', () {
+      // 1. 相似域名仿冒：evilchaoxing.com
+      expect(
+        ChaoxingClient.isValidSignQrUrl(
+          Uri.parse('https://evilchaoxing.com/widget/sign/e?enc=ABC'),
+        ),
+        isFalse,
+      );
+
+      // 2. 伪造连字符域：attack-chaoxing.com
+      expect(
+        ChaoxingClient.isValidSignQrUrl(
+          Uri.parse('https://attack-chaoxing.com/widget/sign/e?enc=ABC'),
+        ),
+        isFalse,
+      );
+
+      // 3. 缺少 enc 签到参数
+      expect(
+        ChaoxingClient.isValidSignQrUrl(
+          Uri.parse('https://mobilelearn.chaoxing.com/widget/sign/e?id=123'),
+        ),
+        isFalse,
+      );
+
+      // 4. 非签到路由
+      expect(
+        ChaoxingClient.isValidSignQrUrl(
+          Uri.parse('https://mobilelearn.chaoxing.com/other/path?enc=ABC'),
+        ),
+        isFalse,
+      );
+    });
+  });
 }
