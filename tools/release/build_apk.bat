@@ -1,24 +1,20 @@
 @echo off
 setlocal
-chcp 65001 >nul
+cd /d "%~dp0..\.."
 
-:: 纯相对路径引导：通过批处理目录定位 Node.js 打包脚本
-set "SCRIPT_DIR=%~dp0"
-set "NODE_SCRIPT=%SCRIPT_DIR%build_apk.mjs"
+echo ==================================================
+echo  Project_USST Release Packaging Launcher
+echo ==================================================
 
-if not exist "%NODE_SCRIPT%" (
-    echo [错误] 未找到构建脚本: %NODE_SCRIPT%
-    pause
-    exit /b 1
+where node >nul 2>nul
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Node.js not found in PATH!
+    echo Please make sure Node.js is installed or run: flutter build apk --release
+    goto :END
 )
 
-node "%NODE_SCRIPT%" %*
-set "EXIT_CODE=%ERRORLEVEL%"
+node "%~dp0build_apk.mjs" %*
 
-if not "%1"=="--no-pause" (
-    echo.
-    echo 请按任意键继续...
-    pause >nul
-)
-
-exit /b %EXIT_CODE%
+:END
+echo.
+pause
