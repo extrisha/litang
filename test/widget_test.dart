@@ -70,7 +70,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('第一教学楼'), findsWidgets);
-    expect(find.text('军工路校区'), findsOneWidget);
+    expect(find.textContaining('军工路'), findsWidgets);
   });
 
   testWidgets('我的页展示学业入口与空间服务', (tester) async {

@@ -1,0 +1,792 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "node/603947492",
+      "properties": {
+        "id": "603947492",
+        "name": "",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "highway": "traffic_signals"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5515781,
+          31.2890128
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/603947497",
+      "properties": {
+        "id": "603947497",
+        "name": "",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "highway": "traffic_signals"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5513042,
+          31.2888412
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/603947527",
+      "properties": {
+        "id": "603947527",
+        "name": "",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "highway": "traffic_signals"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5514532,
+          31.2891148
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/603947531",
+      "properties": {
+        "id": "603947531",
+        "name": "",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "highway": "traffic_signals"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5511826,
+          31.2889408
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/879880647",
+      "properties": {
+        "id": "879880647",
+        "name": "复兴岛",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "bus": "yes",
+          "name": "复兴岛",
+          "name:zh": "复兴岛",
+          "public_transport": "stop_position"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5567386,
+          31.2924606
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1585869811",
+      "properties": {
+        "id": "1585869811",
+        "name": "军工路周家嘴路",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "bus": "yes",
+          "name": "军工路周家嘴路",
+          "name:zh": "军工路周家嘴路",
+          "public_transport": "stop_position"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5517364,
+          31.2883819
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1585869828",
+      "properties": {
+        "id": "1585869828",
+        "name": "",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "highway": "traffic_signals"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.551468,
+          31.2889493
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1585869829",
+      "properties": {
+        "id": "1585869829",
+        "name": "",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "highway": "traffic_signals"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.551348,
+          31.289043
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1585869836",
+      "properties": {
+        "id": "1585869836",
+        "name": "军工路周家嘴路",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "bus": "yes",
+          "name": "军工路周家嘴路",
+          "name:zh": "军工路周家嘴路",
+          "public_transport": "stop_position"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5507947,
+          31.289609
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1596383962",
+      "properties": {
+        "id": "1596383962",
+        "name": "",
+        "amenity": null,
+        "entrance": null,
+        "barrier": "gate",
+        "tags": {
+          "barrier": "gate"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5523651,
+          31.2881362
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1596485046",
+      "properties": {
+        "id": "1596485046",
+        "name": "",
+        "amenity": null,
+        "entrance": null,
+        "barrier": "gate",
+        "tags": {
+          "barrier": "gate"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.552673,
+          31.2875756
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1596515294",
+      "properties": {
+        "id": "1596515294",
+        "name": "",
+        "amenity": null,
+        "entrance": "yes",
+        "barrier": null,
+        "tags": {
+          "entrance": "yes"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5523224,
+          31.291931
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1596515298",
+      "properties": {
+        "id": "1596515298",
+        "name": "",
+        "amenity": null,
+        "entrance": "yes",
+        "barrier": null,
+        "tags": {
+          "entrance": "yes"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5528344,
+          31.2920981
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1657771651",
+      "properties": {
+        "id": "1657771651",
+        "name": "",
+        "amenity": null,
+        "entrance": null,
+        "barrier": "gate",
+        "tags": {
+          "barrier": "gate"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5521994,
+          31.2969638
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1755029153",
+      "properties": {
+        "id": "1755029153",
+        "name": "",
+        "amenity": null,
+        "entrance": null,
+        "barrier": "gate",
+        "tags": {
+          "barrier": "gate"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5567576,
+          31.2932851
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1881893891",
+      "properties": {
+        "id": "1881893891",
+        "name": "周家嘴路军工路",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "bus": "yes",
+          "name": "周家嘴路军工路",
+          "name:en": "Zhoujiazui Road Jungong Road",
+          "name:zh": "周家嘴路军工路",
+          "public_transport": "stop_position"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5487764,
+          31.2874503
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1883220817",
+      "properties": {
+        "id": "1883220817",
+        "name": "周家嘴路军工路",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "bus": "yes",
+          "name": "周家嘴路军工路",
+          "name:en": "Zhoujiazui Road Jungong Road",
+          "name:zh": "周家嘴路军工路",
+          "public_transport": "stop_position"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5496719,
+          31.2878451
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1904556598",
+      "properties": {
+        "id": "1904556598",
+        "name": "浴室",
+        "amenity": null,
+        "entrance": "yes",
+        "barrier": null,
+        "tags": {
+          "entrance": "yes",
+          "name": "浴室",
+          "name:en": "Shower"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5536155,
+          31.2946289
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1905596449",
+      "properties": {
+        "id": "1905596449",
+        "name": "",
+        "amenity": null,
+        "entrance": "yes",
+        "barrier": null,
+        "tags": {
+          "entrance": "yes"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5519627,
+          31.2949722
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1905718792",
+      "properties": {
+        "id": "1905718792",
+        "name": "能源与动力工程学院",
+        "amenity": "college",
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "amenity": "college",
+          "name": "能源与动力工程学院"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5489601,
+          31.2930371
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1906548436",
+      "properties": {
+        "id": "1906548436",
+        "name": "",
+        "amenity": null,
+        "entrance": "yes",
+        "barrier": null,
+        "tags": {
+          "entrance": "yes"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5517298,
+          31.2951374
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1911280016",
+      "properties": {
+        "id": "1911280016",
+        "name": "",
+        "amenity": null,
+        "entrance": null,
+        "barrier": "gate",
+        "tags": {
+          "barrier": "gate"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5532564,
+          31.2919404
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1911683647",
+      "properties": {
+        "id": "1911683647",
+        "name": "教育超市",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "name": "教育超市",
+          "shop": "supermarket"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5523152,
+          31.2926434
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/1911727434",
+      "properties": {
+        "id": "1911727434",
+        "name": "",
+        "amenity": null,
+        "entrance": null,
+        "barrier": "gate",
+        "tags": {
+          "barrier": "gate"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5535812,
+          31.2913863
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/5290763174",
+      "properties": {
+        "id": "5290763174",
+        "name": "",
+        "amenity": "parking",
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "access": "yes",
+          "amenity": "parking",
+          "operator": "卜蜂莲花",
+          "parking": "surface"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5499345,
+          31.288446
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/6746399886",
+      "properties": {
+        "id": "6746399886",
+        "name": "",
+        "amenity": "waste_basket",
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "amenity": "waste_basket"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5506072,
+          31.2938444
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/9807885598",
+      "properties": {
+        "id": "9807885598",
+        "name": "军工路周家嘴路",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "bus": "yes",
+          "highway": "bus_stop",
+          "name": "军工路周家嘴路",
+          "name:zh": "军工路周家嘴路",
+          "public_transport": "platform"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5516695,
+          31.2883571
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/9807885599",
+      "properties": {
+        "id": "9807885599",
+        "name": "军工路周家嘴路",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "bus": "yes",
+          "highway": "bus_stop",
+          "name": "军工路周家嘴路",
+          "name:zh": "军工路周家嘴路",
+          "public_transport": "platform"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.550822,
+          31.2896521
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/12312439049",
+      "properties": {
+        "id": "12312439049",
+        "name": "复兴岛公园",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "bus": "yes",
+          "name": "复兴岛公园",
+          "name:zh": "复兴岛公园",
+          "public_transport": "stop_position"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5573315,
+          31.288341
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/12312439050",
+      "properties": {
+        "id": "12312439050",
+        "name": "复兴岛公园",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "bus": "yes",
+          "name": "复兴岛公园",
+          "name:zh": "复兴岛公园",
+          "public_transport": "stop_position"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5573041,
+          31.2886114
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/12312439051",
+      "properties": {
+        "id": "12312439051",
+        "name": "复兴岛公园",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "bus": "yes",
+          "highway": "bus_stop",
+          "name": "复兴岛公园",
+          "name:zh": "复兴岛公园",
+          "public_transport": "platform"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5572298,
+          31.2886069
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/12312439052",
+      "properties": {
+        "id": "12312439052",
+        "name": "复兴岛公园",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "bus": "yes",
+          "highway": "bus_stop",
+          "name": "复兴岛公园",
+          "name:zh": "复兴岛公园",
+          "public_transport": "platform"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5573746,
+          31.2883318
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/12312439060",
+      "properties": {
+        "id": "12312439060",
+        "name": "复兴岛",
+        "amenity": null,
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "bus": "yes",
+          "highway": "bus_stop",
+          "name": "复兴岛",
+          "name:zh": "复兴岛",
+          "public_transport": "platform"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5566812,
+          31.2924656
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/12662840326",
+      "properties": {
+        "id": "12662840326",
+        "name": "",
+        "amenity": "shelter",
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "amenity": "shelter",
+          "shelter_type": "gazebo"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5579189,
+          31.2891259
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "node/12662840340",
+      "properties": {
+        "id": "12662840340",
+        "name": "",
+        "amenity": "shelter",
+        "entrance": null,
+        "barrier": null,
+        "tags": {
+          "amenity": "shelter",
+          "shelter_type": "gazebo"
+        }
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          121.5581794,
+          31.2884579
+        ]
+      }
+    }
+  ]
+}

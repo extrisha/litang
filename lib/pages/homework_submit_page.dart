@@ -50,6 +50,8 @@ class HomeworkSubmitPage extends StatefulWidget {
 }
 
 class _HomeworkSubmitPageState extends State<HomeworkSubmitPage> {
+  static const int maxSingleAttachmentBytes = 50 * 1024 * 1024; // 50MB
+
   late final TextEditingController _controller = TextEditingController(
     text: widget.initialText,
   );
@@ -67,6 +69,15 @@ class _HomeworkSubmitPageState extends State<HomeworkSubmitPage> {
     if (files.isEmpty || !mounted) return;
     for (var i = 0; i < files.length; i++) {
       final file = files[i];
+      final length = await file.length();
+      if (length > maxSingleAttachmentBytes) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('图片 ${file.name} 超过 50MB，无法添加')),
+          );
+        }
+        continue;
+      }
       final bytes = await file.readAsBytes();
       _attachments.add(
         SubmitAttachment(
@@ -84,6 +95,15 @@ class _HomeworkSubmitPageState extends State<HomeworkSubmitPage> {
   Future<void> _pickVideo() async {
     final file = await ImagePicker().pickVideo(source: ImageSource.gallery);
     if (file == null || !mounted) return;
+    final length = await file.length();
+    if (length > maxSingleAttachmentBytes) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('视频文件过大（超过 50MB），请压缩后添加')),
+        );
+      }
+      return;
+    }
     final bytes = await file.readAsBytes();
     _attachments.add(
       SubmitAttachment(
@@ -103,6 +123,15 @@ class _HomeworkSubmitPageState extends State<HomeworkSubmitPage> {
     );
     if (files.isEmpty || !mounted) return;
     for (final file in files) {
+      final length = await file.length();
+      if (length > maxSingleAttachmentBytes) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('文件 ${file.name} 超过 50MB，无法添加')),
+          );
+        }
+        continue;
+      }
       final bytes = await file.readAsBytes();
       if (bytes.isEmpty) continue;
       _attachments.add(

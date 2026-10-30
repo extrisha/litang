@@ -184,9 +184,6 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
       return;
     }
     MapFocus.focus(place);
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const MapPage()),
-    );
   }
 
   void _showCourseDetailModal(Course course) {

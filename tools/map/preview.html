@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Preview 校园寻物局 Map</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; background: #f0f0f0; }
+    .container { display: flex; gap: 20px; }
+    .map-box { position: relative; border: 2px solid #ccc; background: #fff; }
+    svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    polygon { fill: rgba(163, 28, 28, 0.2); stroke: #A31C1C; stroke-width: 2; cursor: pointer; pointer-events: auto; }
+    polygon:hover { fill: rgba(163, 28, 28, 0.5); }
+    text { fill: #333; font-size: 11px; font-weight: bold; text-anchor: middle; }
+  </style>
+</head>
+<body>
+  <h2>校园寻物局地图解析预览</h2>
+  <div class="container">
+    <div>
+      <h3>平面室外底图 (campus_flat.webp, 1899 x 2400)</h3>
+      <div class="map-box" style="width: 500px; height: 631px;">
+        <img src="layer_flat.webp" style="width: 100%; height: 100%;" />
+        <svg id="flatSvg" viewBox="0 0 1 1"></svg>
+      </div>
+    </div>
+    <div>
+      <h3>2.5D 鸟瞰底图 (campus_25d.webp, 2400 x 1842)</h3>
+      <div class="map-box" style="width: 600px; height: 460px;">
+        <img src="layer_iso.webp" style="width: 100%; height: 100%;" />
+        <svg id="isoSvg" viewBox="0 0 1 1"></svg>
+      </div>
+    </div>
+  </div>
+  <script>
+    fetch('target_buildings.json').then(r => r.json()).then(buildings => {
+      const flatSvg = document.getElementById('flatSvg');
+      const isoSvg = document.getElementById('isoSvg');
+
+      buildings.forEach(b => {
+        // Flat polygon
+        if (b.click_region && b.click_region.length > 0) {
+          const pts = b.click_region.map(p => `${p.x},${p.y}`).join(' ');
+          const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+          poly.setAttribute('points', pts);
+          poly.innerHTML = `<title>${b.name}</title>`;
+          flatSvg.appendChild(poly);
+        }
+        // Flat text
+        if (b.label_position) {
+          const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          t.setAttribute('x', b.label_position.x);
+          t.setAttribute('y', b.label_position.y);
+          t.textContent = b.name;
+          flatSvg.appendChild(t);
+        }
+
+        // Iso polygon
+        if (b.iso_hit_area && b.iso_hit_area.length > 0) {
+          const pts = b.iso_hit_area.map(p => `${p.x},${p.y}`).join(' ');
+          const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+          poly.setAttribute('points', pts);
+          poly.innerHTML = `<title>${b.name}</title>`;
+          isoSvg.appendChild(poly);
+        }
+        // Iso text
+        if (b.iso_label_position) {
+          const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          t.setAttribute('x', b.iso_label_position.x);
+          t.setAttribute('y', b.iso_label_position.y);
+          t.textContent = b.name;
+          isoSvg.appendChild(t);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

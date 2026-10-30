@@ -676,6 +676,25 @@ class CasClient {
     );
   }
 
+  /// 带登录态与额外请求头提交 JSON（PUT/POST）。
+  Future<Response<String>> sendJsonWithHeaders(
+    Uri uri, {
+    String method = 'POST',
+    Map<String, dynamic> data = const <String, dynamic>{},
+    Map<String, String> extraHeaders = const <String, String>{},
+  }) {
+    return _send(
+      uri,
+      method: method,
+      jsonBody: data,
+      accept: 'application/json, text/plain, */*',
+      extraHeaders: <String, String>{
+        'X-Requested-With': 'XMLHttpRequest',
+        ...extraHeaders,
+      },
+    );
+  }
+
   /// 带登录态 GET 一个 JSON API（会带上 cookie，不设 jwgl 的 Referer）。
   Future<Response<String>> getApi(Uri uri, {Map<String, String>? headers}) {
     return _send(

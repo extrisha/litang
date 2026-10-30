@@ -1,0 +1,35 @@
+{
+  "points": [
+    {
+      "id": "3999e8c0-958f-4553-b618-84ad46e116e6",
+      "kind": "help_point",
+      "label": "保卫处",
+      "norm_x": 0.473986,
+      "norm_y": 0.664466,
+      "is_simulated": true,
+      "is_public": true,
+      "description": "24 小时值班，可协助查询监控与登记失物"
+    },
+    {
+      "id": "11d88363-120f-4607-9506-542839308360",
+      "kind": "help_point",
+      "label": "失物招领处",
+      "norm_x": 0.483986,
+      "norm_y": 0.664466,
+      "is_simulated": true,
+      "is_public": true,
+      "description": "设于保卫处，位置待核实"
+    },
+    {
+      "id": "e5d082c1-1f50-4d59-8e7b-9358ba6944b1",
+      "kind": "help_point",
+      "label": "校园服务台",
+      "norm_x": 0.628924,
+      "norm_y": 0.770148,
+      "is_simulated": true,
+      "is_public": true,
+      "description": "提供咨询与失物登记指引"
+    }
+  ],
+  "has_monitor": false
+}

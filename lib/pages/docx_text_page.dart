@@ -20,6 +20,9 @@ class DocxTextPage extends StatefulWidget {
 }
 
 class _DocxTextPageState extends State<DocxTextPage> {
+  static const int maxDocxFileSize = 20 * 1024 * 1024; // 20 MB
+  static const int maxXmlDecompressedSize = 15 * 1024 * 1024; // 15 MB
+
   String? _text;
   String? _error;
 
@@ -31,13 +34,32 @@ class _DocxTextPageState extends State<DocxTextPage> {
 
   Future<void> _load() async {
     try {
-      final bytes = await File(widget.path).readAsBytes();
+      final file = File(widget.path);
+      if (!await file.exists()) {
+        if (mounted) setState(() => _error = '文档文件不存在');
+        return;
+      }
+      final size = await file.length();
+      if (size > maxDocxFileSize) {
+        if (mounted) {
+          setState(() => _error = '文档文件过大（超过 20MB），请使用右上角外部应用打开');
+        }
+        return;
+      }
+      final bytes = await file.readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
       final entry = archive.files.firstWhere(
         (e) => e.name == 'word/document.xml',
         orElse: () => throw Exception('不是有效的 DOCX'),
       );
-      final xml = utf8.decode(entry.content as List<int>, allowMalformed: true);
+      final entryBytes = entry.content as List<int>;
+      if (entryBytes.length > maxXmlDecompressedSize) {
+        if (mounted) {
+          setState(() => _error = '文档内容过大，请使用右上角外部应用打开');
+        }
+        return;
+      }
+      final xml = utf8.decode(entryBytes, allowMalformed: true);
       final text = _extract(xml);
       if (mounted) setState(() => _text = text);
     } catch (_) {

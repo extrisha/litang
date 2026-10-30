@@ -68,9 +68,23 @@ void main() {
         RankApi.resolvePdfUrl('jwglxt/x.pdf'),
         'https://jwgl.usst.edu.cn/jwglxt/x.pdf',
       );
+    });
+
+    test('HTTP 协议自动升级为 HTTPS，保持教务域名', () {
       expect(
-        RankApi.resolvePdfUrl('https://other/x.pdf'),
-        'https://other/x.pdf',
+        RankApi.resolvePdfUrl('http://jwgl.usst.edu.cn/jwglxt/x.pdf'),
+        'https://jwgl.usst.edu.cn/jwglxt/x.pdf',
+      );
+    });
+
+    test('拦截外部未知域名并回落到官方教务地址', () {
+      expect(
+        RankApi.resolvePdfUrl('https://evil.example.com/scorePrint/x.pdf'),
+        'https://jwgl.usst.edu.cn/scorePrint/x.pdf',
+      );
+      expect(
+        RankApi.resolvePdfUrl('http://attacker.com/jwglxt/templete/a.pdf'),
+        'https://jwgl.usst.edu.cn/jwglxt/templete/a.pdf',
       );
     });
   });

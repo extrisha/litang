@@ -19,16 +19,28 @@ class AttachmentCache {
     return dir;
   }
 
+  static String safeFilename(String name) {
+    var safe = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    while (safe.contains('..')) {
+      safe = safe.replaceAll('..', '_');
+    }
+    final stripped = safe.replaceAll(RegExp(r'[._]'), '');
+    if (stripped.isEmpty) {
+      safe = 'attachment_${DateTime.now().millisecondsSinceEpoch}';
+    }
+    return safe;
+  }
+
   static Future<String?> existing(String name) async {
     final dir = await _dir();
-    final safe = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+    final safe = safeFilename(name);
     final file = File('${dir.path}/$safe');
     return await file.exists() ? file.path : null;
   }
 
   static Future<String> save(String name, List<int> bytes) async {
     final dir = await _dir();
-    final safe = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+    final safe = safeFilename(name);
     final file = File('${dir.path}/$safe');
     await file.writeAsBytes(bytes, flush: true);
     await refreshSize();

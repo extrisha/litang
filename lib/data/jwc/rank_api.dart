@@ -143,11 +143,22 @@ class RankApi {
   }
 
   /// 把 dyList 返回的路径拼成完整 URL（path 自带 /jwglxt 前缀）。
+  /// 校验协议与主机，强制升级为 HTTPS 且限制为校内域名，防止向外部第三方泄露教务凭据。
   static String resolvePdfUrl(String path) {
-    if (path.startsWith('http')) {
-      return path;
+    final trimmed = path.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      final uri = Uri.tryParse(trimmed);
+      if (uri != null) {
+        final host = uri.host.toLowerCase();
+        if (host == 'jwgl.usst.edu.cn' || host.endsWith('.usst.edu.cn')) {
+          return uri.replace(scheme: 'https').toString();
+        }
+        // 若第三方传入外部域名，强制去除外部主机，回落到官方教务地址
+        final safePath = uri.path.startsWith('/') ? uri.path : '/${uri.path}';
+        return 'https://jwgl.usst.edu.cn$safePath';
+      }
     }
-    final normalized = path.startsWith('/') ? path : '/$path';
+    final normalized = trimmed.startsWith('/') ? trimmed : '/$trimmed';
     return 'https://jwgl.usst.edu.cn$normalized';
   }
 

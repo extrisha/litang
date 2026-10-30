@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../app_theme.dart';
@@ -61,6 +62,20 @@ class CookieWebViewState extends State<CookieWebView> {
               });
             }
           },
+          onNavigationRequest: (request) async {
+            final uri = Uri.tryParse(request.url);
+            if (uri == null) return NavigationDecision.prevent;
+            if (uri.scheme == 'http' || uri.scheme == 'https') {
+              return NavigationDecision.navigate;
+            }
+            // 拦截非 http/https 协议（如 tel:, mailto:, intent:// 等），交给外部系统处理
+            if (await canLaunchUrl(uri)) {
+              try {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              } catch (_) {}
+            }
+            return NavigationDecision.prevent;
+          },
         ),
       );
     _bootstrap();
@@ -69,26 +84,35 @@ class CookieWebViewState extends State<CookieWebView> {
   Future<void> _bootstrap() async {
     final controller = _controller;
     if (controller == null) return;
+    final html = widget.html;
+    if (html != null && html.isNotEmpty) {
+      await controller.loadHtmlString(html, baseUrl: widget.url);
+      return;
+    }
+    final target = Uri.tryParse(widget.url);
+    if (target == null || (target.scheme != 'http' && target.scheme != 'https')) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = '不支持的网页地址协议';
+        });
+      }
+      return;
+    }
     if (widget.cookies.isNotEmpty) {
       try {
         final manager = WebViewCookieManager();
-        final target = Uri.parse(widget.url);
-        final host = target.host;
+        final host = target.host.toLowerCase();
         for (final cookie in widget.cookies) {
-          // 每条 cookie 按「它自己适用的 host」注入：
-          //   - 带前导点的（.chaoxing.com）→ 当前页面的 host；
-          //   - host-only 的（mooc1.chaoxing.com）→ 它自己的域名。
-          // 这样万一页面中途跳到别的子域，那边的登录态也在。
-          final String targetUrl;
-          if (cookie.domain.startsWith('.')) {
-            if (host.isEmpty || !cookie.matchesHost(host)) continue;
-            targetUrl = 'https://$host/';
-          } else {
-            if (cookie.domain.isEmpty) continue;
-            targetUrl = 'https://${cookie.domain}/';
-          }
-          // Android 的 setCookie(url, ...) 只能设成 host-only cookie，
-          // 所以 URL 必须带上目标 host，不能用裸域名。
+          // 只向属于目标主机或其父域的主机注入 cookie，防止向无关第三方站点泄露凭据
+          final cookieDomain =
+              cookie.domain.replaceFirst(RegExp(r'^\.'), '').toLowerCase();
+          if (cookieDomain.isEmpty || host.isEmpty) continue;
+          final matchesTarget =
+              host == cookieDomain || host.endsWith('.$cookieDomain');
+          if (!matchesTarget) continue;
+
+          final String targetUrl = 'https://$host/';
           final domain = defaultTargetPlatform == TargetPlatform.android
               ? targetUrl
               : cookie.domain;
@@ -105,12 +129,7 @@ class CookieWebViewState extends State<CookieWebView> {
         // 注入失败也继续打开
       }
     }
-    final html = widget.html;
-    if (html != null && html.isNotEmpty) {
-      await controller.loadHtmlString(html, baseUrl: widget.url);
-      return;
-    }
-    await controller.loadRequest(Uri.parse(widget.url));
+    await controller.loadRequest(target);
   }
 
   @override

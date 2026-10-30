@@ -166,16 +166,32 @@ class _ChaoxingContentPageState extends State<ChaoxingContentPage> {
   }
 
   Future<List<int>> _fetchBytes(String url) async {
-    final response = await http
-        .get(
-          Uri.parse(url),
-          headers: const <String, String>{'User-Agent': 'Mozilla/5.0'},
-        )
-        .timeout(const Duration(seconds: 120));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('HTTP ${response.statusCode}');
+    var uri = Uri.parse(url);
+    if (uri.scheme == 'http') {
+      uri = uri.replace(scheme: 'https');
     }
-    return response.bodyBytes;
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', uri)
+        ..headers['User-Agent'] = 'Mozilla/5.0';
+      final response =
+          await client.send(request).timeout(const Duration(seconds: 120));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('HTTP ${response.statusCode}');
+      }
+      const maxDownloadSize = 50 * 1024 * 1024; // 50MB
+      final contentLength = response.contentLength;
+      if (contentLength != null && contentLength > maxDownloadSize) {
+        throw Exception('附件过大（超过 50MB），建议在网页端下载');
+      }
+      final bytes = await response.stream.toBytes();
+      if (bytes.length > maxDownloadSize) {
+        throw Exception('附件过大（超过 50MB），建议在网页端下载');
+      }
+      return bytes;
+    } finally {
+      client.close();
+    }
   }
 
   @override

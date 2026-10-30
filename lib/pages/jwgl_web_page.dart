@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../app_theme.dart';
@@ -11,6 +12,17 @@ class JwglWebPage extends StatefulWidget {
 
   static const String homeUrl =
       'https://jwgl.usst.edu.cn/jwglxt/xtgl/index_initMenu.html?jsdm=xs';
+
+  /// 仅允许教务系统与校内认证域名的导航，防止在教务宿主内打开外部恶意网页
+  static bool isAllowedUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    if (uri.scheme != 'http' && uri.scheme != 'https') return false;
+    final host = uri.host.toLowerCase();
+    return host == 'jwgl.usst.edu.cn' ||
+        host == 'ids6.usst.edu.cn' ||
+        host.endsWith('.usst.edu.cn');
+  }
 
   @override
   State<JwglWebPage> createState() => _JwglWebPageState();
@@ -45,6 +57,22 @@ class _JwglWebPageState extends State<JwglWebPage> {
             if (mounted) {
               setState(() => _loading = false);
             }
+          },
+          onNavigationRequest: (request) async {
+            final uri = Uri.tryParse(request.url);
+            if (uri == null) {
+              return NavigationDecision.prevent;
+            }
+            if (JwglWebPage.isAllowedUrl(request.url)) {
+              return NavigationDecision.navigate;
+            }
+            // 外部链接或非校内域名：在系统外部浏览器中安全打开，防止在教务宿主内钓鱼或会话泄露
+            if (uri.scheme == 'http' || uri.scheme == 'https') {
+              try {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              } catch (_) {}
+            }
+            return NavigationDecision.prevent;
           },
         ),
       );
