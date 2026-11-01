@@ -5,5 +5,5 @@
   "notes": "升级 0.6.0：新增桌面今日课表与天气小组件支持、优化空间预约与教室详情、轻量化打包（暂时禁用离线地图底图与瓦片）、强化校内认证与缓存机制。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
   "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.6.0/app-release.apk",
-  "sha256": "b9f261a8b7226e214dba38aeb063d22aa571fb25b6ab030fc6ca84c97c4fe39e"
+  "sha256": "382e3c0c48a3af5affd7a9918065f13a1d42b6b36cab4ddf3a8419b9a18fe795"
 }

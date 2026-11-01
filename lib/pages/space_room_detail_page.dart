@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
+import '../data/auth/cas_client.dart';
+import '../data/auth/jwgl_auth.dart';
 import '../data/jwc/space_booking_api.dart';
 import 'simple_web_page.dart';
 
@@ -68,6 +70,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
 
     final dateStr = _formatDate(_selectedDate);
     try {
+      await widget.api.ensureAuthenticated();
       final detail = await widget.api.fetchRoomReservationDetail(
         roomId: widget.room.id,
         date: dateStr,
@@ -90,28 +93,58 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
     }
   }
 
-  /// 自动初始化一个合理的默认时间段（例如当前时间之后最近的一个空闲时段）
+  /// 自动初始化一个合理的默认时间段（例如当前时间之后最近的一个1小时空闲时段）
   void _initDefaultTimeSlot(SpaceRoom room) {
-    final slices = _detail?.timeSlices ?? <SpaceTimeSlice>[];
-    if (slices.isEmpty) return;
+    final slots = _detail?.hourSlots ?? <SpaceHourSlot>[];
+    if (slots.isEmpty) return;
 
-    // 寻找第一个连续空闲至少 reservationMinTime 的区间
-    final freeSlots = slices.where((s) => !s.isOccupied).toList();
-    if (freeSlots.isNotEmpty) {
-      _selectedStartTime = freeSlots.first.startTime;
-      // 默认时长为最短时长（如 60 分钟 = 6个10分钟切片）
-      final stepCount = (room.reservationMinTime / 10).round();
-      final startIdx = slices.indexWhere((s) => s.startTime == _selectedStartTime);
-      if (startIdx != -1 && startIdx + stepCount <= slices.length) {
-        // 检查该区间是否全部空闲
-        final candidate = slices.sublist(startIdx, startIdx + stepCount);
-        if (!candidate.any((s) => s.isOccupied)) {
-          _selectedEndTime = candidate.last.endTime;
-          return;
-        }
-      }
-      _selectedEndTime = freeSlots.length >= 6 ? freeSlots[5].endTime : freeSlots.last.endTime;
+    for (final slot in slots) {
+      if (slot.isOccupied || slot.isPastFor(_selectedDate)) continue;
+      _selectedStartTime = slot.startHour;
+      _selectedEndTime = slot.endHour;
+      return;
     }
+
+    _selectedStartTime = null;
+    _selectedEndTime = null;
+  }
+
+  /// 点击选择整点时段
+  void _onTapHourSlot(SpaceHourSlot slot) {
+    if (slot.isOccupied || slot.isPastFor(_selectedDate)) return;
+
+    setState(() {
+      if (_selectedStartTime == null ||
+          _selectedEndTime == null ||
+          slot.startHour.compareTo(_selectedStartTime!) <= 0) {
+        // 点击当前起始或更早的时段，重置为当前选中1小时
+        _selectedStartTime = slot.startHour;
+        _selectedEndTime = slot.endHour;
+        return;
+      }
+
+      // 点击较晚的时段：尝试扩展
+      final startH = int.tryParse(_selectedStartTime!.split(':').first) ?? 8;
+      final endH = int.tryParse(slot.endHour.split(':').first) ?? 9;
+      final durationHours = endH - startH;
+      final maxAllowedHours = (widget.room.reservationMaxTime / 60).round();
+
+      if (durationHours > maxAllowedHours) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('单次预约最多允许 $maxAllowedHours 小时')),
+        );
+        return;
+      }
+
+      if (_hasTimeConflict(_selectedStartTime!, slot.endHour)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('所选区间包含已占用时段，无法选择')),
+        );
+        return;
+      }
+
+      _selectedEndTime = slot.endHour;
+    });
   }
 
   /// 检查所选时间段是否与已被占用的时段冲突
@@ -161,12 +194,16 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
         ? 'https://libspace.usst.edu.cn/mStudent/room?roomId=${widget.room.id}&date=$dateStr&code=$code'
         : 'https://libspace.usst.edu.cn/mStudent/room?roomId=${widget.room.id}&date=$dateStr';
 
+    final cookies =
+        JwglAuth.instance.client?.jar.cookies ?? const <CasCookie>[];
+
     if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SimpleWebPage(
           title: '网页端预约 · ${widget.room.name}',
           url: webUrl,
+          cookies: cookies,
         ),
       ),
     );
@@ -297,7 +334,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                   children: <Widget>[
                     _buildOverviewCard(currentRoom),
                     const SizedBox(height: 12),
-                    if (currentRoom.devices.isNotEmpty) ...<Widget>[
+                    if (currentRoom.deviceList.isNotEmpty) ...<Widget>[
                       _buildDevicesCard(currentRoom),
                       const SizedBox(height: 12),
                     ],
@@ -444,7 +481,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${room.buildingName.isNotEmpty ? room.buildingName : room.shortBuildingName} · ${room.floor}',
+                      room.locationDesc.isNotEmpty
+                          ? room.locationDesc
+                          : (room.buildingName.isNotEmpty ? room.buildingName : '校内研讨室'),
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textSecondary,
@@ -484,7 +523,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 room.verify == 1 ? '须审核' : '免审核',
               ),
               if (room.spaceTime > 0)
-                _buildMetaTag(Icons.timelapse_outlined, '剩余空闲 ${room.spaceTime} 分钟'),
+                _buildMetaTag(Icons.timelapse_outlined, room.freeTimeDesc),
             ],
           ),
         ],
@@ -610,7 +649,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
           _buildRuleRow(
             Icons.timelapse_outlined,
             '预约时长',
-            '单次 $minHours ~ $maxHours 小时 (${room.reservationMinTime} - ${room.reservationMaxTime} 分钟)',
+            '单次 $minHours ~ $maxHours 小时（按小时整点预约）',
           ),
           const SizedBox(height: 8),
           _buildRuleRow(
@@ -681,8 +720,15 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
     );
   }
 
+  String _calculateDurationText(String start, String end) {
+    final s = int.tryParse(start.split(':').first) ?? 0;
+    final e = int.tryParse(end.split(':').first) ?? 0;
+    final h = e - s;
+    return h > 0 ? '共 $h 小时' : '';
+  }
+
   // =========================================================================
-  // 卡片 4: 实时时段分布卡片
+  // 卡片 4: 实时时段分布卡片（按小时整点颗粒度）
   // =========================================================================
   Widget _buildSlicesCard(SpaceRoom room) {
     return Container(
@@ -701,7 +747,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
               const Icon(Icons.calendar_view_day_outlined, size: 16, color: AppColors.usstRed),
               const SizedBox(width: 6),
               const Text(
-                '实时时段分布',
+                '当日时段预约',
                 style: TextStyle(
                   fontSize: 14.5,
                   fontWeight: FontWeight.bold,
@@ -709,9 +755,11 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 ),
               ),
               const Spacer(),
-              _buildLegend(const Color(0xFFDCFCE7), const Color(0xFF15803D), '空闲'),
-              const SizedBox(width: 10),
-              _buildLegend(const Color(0xFFF3F4F6), const Color(0xFF9CA3AF), '已占用'),
+              _buildLegend(const Color(0xFFDCFCE7), const Color(0xFF15803D), '可预约'),
+              const SizedBox(width: 8),
+              _buildLegend(const Color(0xFFFEE2E2), AppColors.usstRed, '已选'),
+              const SizedBox(width: 8),
+              _buildLegend(const Color(0xFFF3F4F6), const Color(0xFF9CA3AF), '不可约'),
             ],
           ),
           const SizedBox(height: 12),
@@ -745,91 +793,104 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 ],
               ),
             )
-          else if (_detail != null && _detail!.timeSlices.isNotEmpty) ...<Widget>[
-            // 时段切片流（支持点击快速选择）
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _detail!.timeSlices.map((slice) {
-                final occupied = slice.isOccupied;
+          else if (_detail != null && _detail!.hourSlots.isNotEmpty) ...<Widget>[
+            // 1小时整点颗粒度时段网格
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: 2.7,
+              ),
+              itemCount: _detail!.hourSlots.length,
+              itemBuilder: (ctx, idx) {
+                final slot = _detail!.hourSlots[idx];
+                final occupied = slot.isOccupied;
+                final isPast = slot.isPastFor(_selectedDate);
                 final isSelected = (_selectedStartTime != null && _selectedEndTime != null) &&
-                    (slice.startTime.compareTo(_selectedStartTime!) >= 0 &&
-                        slice.endTime.compareTo(_selectedEndTime!) <= 0);
+                    (slot.startHour.compareTo(_selectedStartTime!) >= 0 &&
+                        slot.endHour.compareTo(_selectedEndTime!) <= 0);
+                final isAvailable = !occupied && !isPast;
 
                 Color bg;
                 Color border;
                 Color textColor;
+                String statusText;
+                IconData icon;
 
-                if (occupied) {
-                  bg = const Color(0xFFF3F4F6);
-                  border = const Color(0xFFE5E7EB);
-                  textColor = const Color(0xFF9CA3AF);
-                } else if (isSelected) {
+                if (isSelected) {
                   bg = const Color(0xFFFEE2E2);
                   border = AppColors.usstRed;
                   textColor = AppColors.usstRed;
+                  statusText = '已选中';
+                  icon = Icons.check_circle_rounded;
+                } else if (occupied) {
+                  bg = const Color(0xFFF3F4F6);
+                  border = const Color(0xFFE5E7EB);
+                  textColor = const Color(0xFF9CA3AF);
+                  statusText = slot.occupantDesc.isNotEmpty ? slot.occupantDesc : '已被约';
+                  icon = Icons.lock_outline;
+                } else if (isPast) {
+                  bg = const Color(0xFFF9FAFB);
+                  border = const Color(0xFFE5E7EB);
+                  textColor = const Color(0xFF9CA3AF);
+                  statusText = '已过时';
+                  icon = Icons.history;
                 } else {
                   bg = const Color(0xFFF0FDF4);
                   border = const Color(0xFFBBF7D0);
                   textColor = const Color(0xFF15803D);
+                  statusText = '可预约';
+                  icon = Icons.radio_button_unchecked;
                 }
 
                 return InkWell(
-                  onTap: occupied
-                      ? null
-                      : () {
-                          setState(() {
-                            // 若尚未选择，或者点选了比开始还早的时段，重设开始时间
-                            if (_selectedStartTime == null ||
-                                (_selectedEndTime != null && slice.startTime.compareTo(_selectedStartTime!) <= 0)) {
-                              _selectedStartTime = slice.startTime;
-                              _selectedEndTime = slice.endTime;
-                            } else {
-                              // 尝试扩展结束时间
-                              if (!_hasTimeConflict(_selectedStartTime!, slice.endTime)) {
-                                _selectedEndTime = slice.endTime;
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('所选区间包含已占用时段，无法选择')),
-                                );
-                              }
-                            }
-                          });
-                        },
-                  borderRadius: BorderRadius.circular(6),
+                  onTap: isAvailable ? () => _onTapHourSlot(slot) : null,
+                  borderRadius: BorderRadius.circular(8),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
                       color: bg,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: border, width: isSelected ? 1.2 : 0.8),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: border, width: isSelected ? 1.4 : 0.8),
                     ),
                     child: Row(
-                      mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        Icon(
-                          occupied
-                              ? Icons.remove_circle_outline
-                              : isSelected
-                                  ? Icons.check_circle_rounded
-                                  : Icons.radio_button_unchecked,
-                          size: 13,
-                          color: textColor,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${slice.startTime}-${slice.endTime}',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                            color: textColor,
+                        Icon(icon, size: 16, color: textColor),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                slot.timeRange,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                  color: textColor,
+                                ),
+                              ),
+                              const SizedBox(height: 1),
+                              Text(
+                                statusText,
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  color: textColor.withValues(alpha: 0.85),
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
                 );
-              }).toList(),
+              },
             ),
             if (_selectedStartTime != null && _selectedEndTime != null) ...<Widget>[
               const SizedBox(height: 12),
@@ -844,11 +905,12 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                   children: <Widget>[
                     const Icon(Icons.touch_app_outlined, size: 16, color: AppColors.usstRed),
                     const SizedBox(width: 6),
-                    Text(
-                      '已选时段：$_selectedStartTime - $_selectedEndTime',
-                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                    Expanded(
+                      child: Text(
+                        '已选：$_selectedStartTime - $_selectedEndTime (${_calculateDurationText(_selectedStartTime!, _selectedEndTime!)})',
+                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                      ),
                     ),
-                    const Spacer(),
                     TextButton(
                       style: TextButton.styleFrom(
                         padding: EdgeInsets.zero,
@@ -986,9 +1048,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 const SizedBox(height: 2),
                 Text(
                   _selectedStartTime != null && _selectedEndTime != null
-                      ? '已选时段：$_selectedStartTime - $_selectedEndTime'
+                      ? '已选：$_selectedStartTime - $_selectedEndTime (${_calculateDurationText(_selectedStartTime!, _selectedEndTime!)})'
                       : available
-                          ? '点击上方切片或直接预约'
+                          ? '点击上方时段卡片选择'
                           : room.statusDesc,
                   style: TextStyle(
                     fontSize: 11.5,
@@ -1052,8 +1114,8 @@ class _NativeBookingBottomSheet extends StatefulWidget {
 }
 
 class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
-  late String _startTime;
-  late String _endTime;
+  late String _startHour;
+  late int _durationHours;
   SpacePurpose? _selectedPurpose;
   final List<String> _memberIds = <String>[];
   final TextEditingController _memberInputCtrl = TextEditingController();
@@ -1063,11 +1125,64 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
   bool _submitting = false;
   String? _formError;
 
+  List<String> get _availableStartHours {
+    final startH = int.tryParse(widget.room.openStartTime.split(':').first) ?? 8;
+    final endH = int.tryParse(widget.room.openEndTime.split(':').first) ?? 21;
+    final list = <String>[];
+    for (var h = startH; h < endH; h++) {
+      list.add('${h.toString().padLeft(2, '0')}:00');
+    }
+    return list;
+  }
+
+  List<int> get _allowedDurations {
+    final minH = (widget.room.reservationMinTime / 60).round().clamp(1, 4);
+    final maxH = (widget.room.reservationMaxTime / 60).round().clamp(minH, 4);
+    final list = <int>[];
+    for (var d = minH; d <= maxH; d++) {
+      list.add(d);
+    }
+    return list;
+  }
+
+  String get _endHour {
+    final sH = int.tryParse(_startHour.split(':').first) ?? 8;
+    final openEndH = int.tryParse(widget.room.openEndTime.split(':').first) ?? 21;
+    final eH = (sH + _durationHours).clamp(sH + 1, openEndH);
+    return '${eH.toString().padLeft(2, '0')}:00';
+  }
+
+  bool get _hasConflict {
+    final end = _endHour;
+    for (final b in widget.bookedSegments) {
+      if (_startHour.compareTo(b.endTime) < 0 && end.compareTo(b.startTime) > 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   @override
   void initState() {
     super.initState();
-    _startTime = widget.initialStartTime ?? widget.room.openStartTime;
-    _endTime = widget.initialEndTime ?? _calculateDefaultEndTime(_startTime);
+    final allowed = _allowedDurations;
+    final minH = allowed.first;
+    final maxH = allowed.last;
+
+    if (widget.initialStartTime != null && widget.initialStartTime!.isNotEmpty) {
+      final sH = int.tryParse(widget.initialStartTime!.split(':').first) ?? 8;
+      _startHour = '${sH.toString().padLeft(2, '0')}:00';
+      if (widget.initialEndTime != null && widget.initialEndTime!.isNotEmpty) {
+        final eH = int.tryParse(widget.initialEndTime!.split(':').first) ?? (sH + minH);
+        _durationHours = (eH - sH).clamp(minH, maxH);
+      } else {
+        _durationHours = minH;
+      }
+    } else {
+      final hours = _availableStartHours;
+      _startHour = hours.isNotEmpty ? hours.first : '08:00';
+      _durationHours = minH;
+    }
 
     // 默认用途
     if (widget.purposes.isNotEmpty) {
@@ -1095,20 +1210,6 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
     _mobileCtrl.dispose();
     _remarkCtrl.dispose();
     super.dispose();
-  }
-
-  String _calculateDefaultEndTime(String start) {
-    final parts = start.split(':');
-    if (parts.length >= 2) {
-      final h = int.tryParse(parts[0]) ?? 8;
-      final m = int.tryParse(parts[1]) ?? 0;
-      final minDuration = widget.room.reservationMinTime;
-      final totalMin = h * 60 + m + minDuration;
-      final endH = (totalMin ~/ 60).toString().padLeft(2, '0');
-      final endM = (totalMin % 60).toString().padLeft(2, '0');
-      return '$endH:$endM';
-    }
-    return widget.room.openEndTime;
   }
 
   String _formatDate(DateTime dt) {
@@ -1158,17 +1259,10 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
       _formError = null;
     });
 
-    if (_startTime.compareTo(_endTime) >= 0) {
-      setState(() => _formError = '结束时间必须晚于开始时间');
+    final end = _endHour;
+    if (_hasConflict) {
+      setState(() => _formError = '所选时间段 ($_startHour - $end) 与已有预约冲突，请重新选择');
       return;
-    }
-
-    // 检查冲突
-    for (final b in widget.bookedSegments) {
-      if (_startTime.compareTo(b.endTime) < 0 && _endTime.compareTo(b.startTime) > 0) {
-        setState(() => _formError = '所选时间段与已有预约 (${b.timeRange}) 冲突');
-        return;
-      }
     }
 
     // 检查人数
@@ -1184,8 +1278,8 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
     });
 
     final dateStr = _formatDate(widget.selectedDate);
-    final fullStart = '$dateStr $_startTime:00';
-    final fullEnd = '$dateStr $_endTime:00';
+    final fullStart = '$dateStr $_startHour:00';
+    final fullEnd = '$dateStr $end:00';
     final dictId = _selectedPurpose?.id ?? 1;
 
     final result = await widget.api.submitReservation(
@@ -1296,29 +1390,123 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                   ),
                   const SizedBox(height: 14),
 
-                  // 2. 时段选择
-                  const Text('预约起止时间', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  // 2. 时段选择（整点小时）
+                  const Text('预约时段（按小时整点预约）',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                   const SizedBox(height: 8),
                   Row(
                     children: <Widget>[
                       Expanded(
-                        child: _buildTimeInputBox('开始时间', _startTime, (newVal) {
-                          setState(() {
-                            _startTime = newVal;
-                            _endTime = _calculateDefaultEndTime(_startTime);
-                          });
-                        }),
+                        flex: 5,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            const Text('开始时间', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                            const SizedBox(height: 4),
+                            Container(
+                              height: 40,
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFFD1D5DB)),
+                                color: const Color(0xFFFAFAFA),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _startHour,
+                                  isExpanded: true,
+                                  icon: const Icon(Icons.keyboard_arrow_down, size: 20, color: AppColors.textSecondary),
+                                  items: _availableStartHours.map((h) {
+                                    return DropdownMenuItem<String>(
+                                      value: h,
+                                      child: Text(
+                                        h,
+                                        style: const TextStyle(
+                                            fontSize: 13.5, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                      ),
+                                    );
+                                  }).toList(),
+                                  onChanged: (newStart) {
+                                    if (newStart != null) {
+                                      setState(() {
+                                        _startHour = newStart;
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 10),
-                        child: Text('至', style: TextStyle(color: AppColors.textSecondary)),
-                      ),
+                      const SizedBox(width: 12),
                       Expanded(
-                        child: _buildTimeInputBox('结束时间', _endTime, (newVal) {
-                          setState(() => _endTime = newVal);
-                        }),
+                        flex: 6,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            const Text('预约时长', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                            const SizedBox(height: 4),
+                            Wrap(
+                              spacing: 6,
+                              children: _allowedDurations.map((d) {
+                                final isSelected = _durationHours == d;
+                                return ChoiceChip(
+                                  label: Text('$d小时'),
+                                  selected: isSelected,
+                                  selectedColor: const Color(0xFFFEE2E2),
+                                  backgroundColor: const Color(0xFFF3F4F6),
+                                  labelStyle: TextStyle(
+                                    fontSize: 12,
+                                    color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                  side: BorderSide(color: isSelected ? AppColors.usstRed : Colors.transparent),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  visualDensity: VisualDensity.compact,
+                                  onSelected: (val) {
+                                    if (val) {
+                                      setState(() => _durationHours = d);
+                                    }
+                                  },
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _hasConflict ? const Color(0xFFFEF2F2) : const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _hasConflict ? const Color(0xFFFECACA) : const Color(0xFFBBF7D0)),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Icon(
+                          _hasConflict ? Icons.error_outline : Icons.check_circle_outline,
+                          size: 16,
+                          color: _hasConflict ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _hasConflict
+                                ? '所选时段 $_startHour 至 $_endHour 已被占用，请更改'
+                                : '预约时段：$_startHour 至 $_endHour (共 $_durationHours 小时)',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: _hasConflict ? const Color(0xFFDC2626) : const Color(0xFF15803D),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 14),
 
@@ -1522,41 +1710,6 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildTimeInputBox(String label, String value, ValueChanged<String> onChanged) {
-    return InkWell(
-      onTap: () async {
-        final parts = value.split(':');
-        final initH = parts.isNotEmpty ? (int.tryParse(parts[0]) ?? 8) : 8;
-        final initM = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
-        final picked = await showTimePicker(
-          context: context,
-          initialTime: TimeOfDay(hour: initH, minute: initM),
-        );
-        if (picked != null) {
-          final hh = picked.hour.toString().padLeft(2, '0');
-          final mm = picked.minute.toString().padLeft(2, '0');
-          onChanged('$hh:$mm');
-        }
-      },
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        height: 38,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: const Color(0xFFD1D5DB)),
-        ),
-        child: Row(
-          children: <Widget>[
-            Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-            const Spacer(),
-            const Icon(Icons.access_time, size: 16, color: Color(0xFF9CA3AF)),
-          ],
-        ),
       ),
     );
   }

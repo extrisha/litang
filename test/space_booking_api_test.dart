@@ -293,6 +293,19 @@ void main() {
       expect(detail.bookedSegments.length, 1);
       expect(detail.bookedSegments[0].timeRange, '08:30 - 09:00');
       expect(detail.bookedSegments[0].statusDesc, '已预约');
+
+      final hourSlots = detail.hourSlots;
+      expect(hourSlots.isNotEmpty, isTrue);
+      expect(hourSlots[0].startHour, '08:00');
+      expect(hourSlots[0].endHour, '09:00');
+      expect(hourSlots[0].isOccupied, isTrue); // 08:30-09:00 was occupied
+      expect(hourSlots[0].occupantDesc, '已预约');
+
+      // Test isPastFor
+      final pastDate = DateTime(2020, 1, 1);
+      expect(hourSlots[0].isPastFor(pastDate), isFalse); // not today
+      final futureDate = DateTime(2035, 1, 1);
+      expect(hourSlots[0].isPastFor(futureDate), isFalse);
     });
 
     test('fetchUserProfile and fetchPurposes work as expected', () async {

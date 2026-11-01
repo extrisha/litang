@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_theme.dart';
+import '../data/auth/cas_client.dart';
 import '../data/auth/jwgl_auth.dart';
 import '../data/jwc/space_booking_api.dart';
 import 'simple_web_page.dart';
@@ -54,8 +55,9 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
       _error = null;
     });
 
+    final sessionOk = await JwglAuth.instance.ensureSession();
     final client = JwglAuth.instance.client;
-    if (client == null) {
+    if (!sessionOk || client == null) {
       setState(() {
         _error = '请先在“我的”页面登录统一身份认证（CAS）后再使用空间预约';
         _loading = false;
@@ -63,7 +65,7 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
       return;
     }
 
-    _api ??= SpaceBookingApi(client);
+    _api = SpaceBookingApi(client);
 
     try {
       if (forceRefresh || !_api!.isTokenValid) {
@@ -109,6 +111,7 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     });
     if (_api != null) {
       try {
+        await _api!.ensureAuthenticated();
         final dateStr = _formatDate(date);
         final rooms = await _api!.fetchRooms(date: dateStr);
         if (mounted) {
@@ -512,12 +515,16 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
             ? 'https://libspace.usst.edu.cn/mStudent/room?roomId=${room.id}&date=$dateStr'
             : 'https://libspace.usst.edu.cn/mStudent/index');
 
+    final cookies =
+        JwglAuth.instance.client?.jar.cookies ?? const <CasCookie>[];
+
     if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SimpleWebPage(
           title: room != null ? '网页预约 · ${room.name}' : '图书馆空间预约',
           url: webUrl,
+          cookies: cookies,
         ),
       ),
     );
@@ -1127,10 +1134,7 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     if (room.isAvailable) {
       badgeBg = const Color(0xFFDCFCE7);
       badgeText = const Color(0xFF15803D);
-    } else if (room.status == 2) {
-      badgeBg = const Color(0xFFF3F4F6);
-      badgeText = const Color(0xFF6B7280);
-    } else if (room.status == 1) {
+    } else if (room.status == 2 || room.status == 1) {
       badgeBg = const Color(0xFFF3F4F6);
       badgeText = const Color(0xFF6B7280);
     } else {
@@ -1141,210 +1145,187 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     final devList = room.deviceList;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.border, width: 0.8),
       ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => _openRoomDetail(room),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              // 第一行：房间名称与状态
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      room.name,
-                      style: const TextStyle(
-                        fontSize: 15.5,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => _openRoomDetail(room),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                // 左侧主要信息
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      // 第一行：房间名称与状态
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              room.name,
+                              style: const TextStyle(
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: badgeBg,
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                            child: Text(
+                              room.statusDesc,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: badgeText,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
+                      const SizedBox(height: 6),
+                      // 第二行：位置与容量
+                      Row(
+                        children: <Widget>[
+                          if (room.locationDesc.isNotEmpty) ...<Widget>[
+                            const Icon(Icons.place_outlined,
+                                size: 13.5, color: AppColors.textSecondary),
+                            const SizedBox(width: 2.5),
+                            Text(
+                              room.locationDesc,
+                              style: const TextStyle(
+                                  fontSize: 12, color: AppColors.textSecondary),
+                            ),
+                            const SizedBox(width: 10),
+                          ],
+                          const Icon(Icons.people_outline,
+                              size: 13.5, color: AppColors.textSecondary),
+                          const SizedBox(width: 2.5),
+                          Text(
+                            room.capacityDesc,
+                            style: const TextStyle(
+                                fontSize: 12, color: AppColors.textSecondary),
+                          ),
+                          if (room.roomType.isNotEmpty) ...<Widget>[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                              child: Text(
+                                room.roomType,
+                                style: const TextStyle(
+                                    fontSize: 10.5, color: Color(0xFF64748B)),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      // 第三行：开放时段与空闲时长
+                      Row(
+                        children: <Widget>[
+                          const Icon(Icons.access_time_outlined,
+                              size: 13.5, color: AppColors.textSecondary),
+                          const SizedBox(width: 3),
+                          Text(
+                            '${room.openStartTime} - ${room.openEndTime}',
+                            style: const TextStyle(
+                                fontSize: 11.5, color: Color(0xFF64748B)),
+                          ),
+                          if (room.isAvailable && room.spaceTime > 0) ...<Widget>[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF0FDF4),
+                                borderRadius: BorderRadius.circular(3),
+                                border: Border.all(
+                                    color: const Color(0xFFBBF7D0), width: 0.6),
+                              ),
+                              child: Text(
+                                room.freeTimeDesc,
+                                style: const TextStyle(
+                                    fontSize: 10.5,
+                                    color: Color(0xFF15803D),
+                                    fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          ],
+                          if (room.verify == 1) ...<Widget>[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFEF3C7),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                              child: const Text(
+                                '须审核',
+                                style: TextStyle(
+                                    fontSize: 10, color: Color(0xFF92400E)),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      if (devList.isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 5,
+                          runSpacing: 4,
+                          children: devList.take(3).map((d) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(3),
+                                border: Border.all(
+                                    color: const Color(0xFFE2E8F0), width: 0.5),
+                              ),
+                              child: Text(
+                                d,
+                                style: const TextStyle(
+                                    fontSize: 10, color: Color(0xFF64748B)),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    ],
                   ),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
-                    decoration: BoxDecoration(
-                      color: badgeBg,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      room.statusDesc,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: badgeText,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              // 第二行：位置与容量
-              Row(
-                children: <Widget>[
-                  if (room.shortBuildingName != '其他') ...<Widget>[
-                    const Icon(Icons.apartment_outlined,
-                        size: 14, color: AppColors.textSecondary),
-                    const SizedBox(width: 3),
-                    Text(
-                      room.shortBuildingName,
-                      style: const TextStyle(
-                          fontSize: 12, color: AppColors.textSecondary),
-                    ),
-                    const SizedBox(width: 12),
-                  ],
-                  if (room.floor.isNotEmpty) ...<Widget>[
-                    const Icon(Icons.place_outlined,
-                        size: 14, color: AppColors.textSecondary),
-                    const SizedBox(width: 3),
-                    Text(
-                      room.floor,
-                      style: const TextStyle(
-                          fontSize: 12, color: AppColors.textSecondary),
-                    ),
-                    const SizedBox(width: 12),
-                  ],
-                  const Icon(Icons.people_outline,
-                      size: 14, color: AppColors.textSecondary),
-                  const SizedBox(width: 3),
-                  Text(
-                    room.capacityDesc,
-                    style: const TextStyle(
-                        fontSize: 12, color: AppColors.textSecondary),
-                  ),
-                  const SizedBox(width: 10),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF4F4F5),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      room.roomType,
-                      style:
-                          const TextStyle(fontSize: 10.5, color: Color(0xFF52525B)),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              // 第三行：开放时段与空闲时长
-              Row(
-                children: <Widget>[
-                  const Icon(Icons.access_time_outlined,
-                      size: 14, color: AppColors.textSecondary),
-                  const SizedBox(width: 4),
-                  Text(
-                    '开放时段：${room.openStartTime} - ${room.openEndTime}',
-                    style: const TextStyle(
-                        fontSize: 11.5, color: Color(0xFF6B7280)),
-                  ),
-                  if (room.spaceTime > 0) ...<Widget>[
-                    const SizedBox(width: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0FDF4),
-                        borderRadius: BorderRadius.circular(3),
-                        border: Border.all(color: const Color(0xFFBBF7D0), width: 0.6),
-                      ),
-                      child: Text(
-                        '剩余 ${room.spaceTime} 分钟',
-                        style: const TextStyle(fontSize: 10.5, color: Color(0xFF15803D)),
-                      ),
-                    ),
-                  ],
-                  if (room.verify == 1) ...<Widget>[
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFEF3C7),
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                      child: const Text(
-                        '须审核',
-                        style: TextStyle(fontSize: 10, color: Color(0xFF92400E)),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              if (devList.isNotEmpty) ...<Widget>[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: devList.take(3).map((d) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: const Color(0xFFE2E8F0), width: 0.6),
-                      ),
-                      child: Text(
-                        d,
-                        style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
-                      ),
-                    );
-                  }).toList(),
+                ),
+                const SizedBox(width: 8),
+                // 右侧箭头指示符
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  size: 22,
+                  color: Color(0xFFCBD5E1),
                 ),
               ],
-              const SizedBox(height: 12),
-              // 第四行：操作按钮
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: SizedBox(
-                      height: 36,
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.textPrimary,
-                          side: const BorderSide(color: Color(0xFFD1D5DB)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        icon: const Icon(Icons.calendar_month_outlined, size: 15),
-                        label: const Text('时段分布',
-                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
-                        onPressed: () => _openRoomDetail(room),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: SizedBox(
-                      height: 36,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: room.isAvailable ? AppColors.usstRed : const Color(0xFF9CA3AF),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        icon: const Icon(Icons.event_available_outlined, size: 15),
-                        label: Text(room.isAvailable ? '立即预约' : '查看时段',
-                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
-                        onPressed: () => _openRoomDetail(room),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            ),
           ),
         ),
       ),

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../auth/cas_client.dart';
+import '../auth/jwgl_auth.dart';
 
 /// 图书馆研修间/研讨室模型
 class SpaceRoom {
@@ -80,6 +81,24 @@ class SpaceRoom {
     return '多功能研讨空间';
   }
 
+  String get locationDesc {
+    final b = buildingName.isNotEmpty ? buildingName : shortBuildingName;
+    if (floor.isNotEmpty && !b.contains(floor)) {
+      return '$b · $floor';
+    }
+    return b;
+  }
+
+  String get freeTimeDesc {
+    if (allTime == 1) return '全天可约';
+    if (spaceTime <= 0) return '暂无空闲';
+    if (spaceTime >= 120) {
+      final hours = (spaceTime / 60).toStringAsFixed(spaceTime % 60 == 0 ? 0 : 1);
+      return '余约 $hours 小时';
+    }
+    return '剩余 $spaceTime 分钟';
+  }
+
   List<String> get deviceList {
     if (devices.isEmpty) return const <String>[];
     return devices
@@ -130,6 +149,80 @@ class SpaceRoomDetail {
   final List<SpaceTimeSlice> timeSlices;
   final List<Map<String, dynamic>> existingReservations;
   final List<SpaceBookedSegment> bookedSegments;
+
+  /// 将原始分钟切片聚合为 1 小时整点颗粒度时段列表
+  List<SpaceHourSlot> get hourSlots {
+    final slots = <SpaceHourSlot>[];
+    final openStartParts = room.openStartTime.split(':');
+    final openEndParts = room.openEndTime.split(':');
+    final startH = int.tryParse(openStartParts.first) ?? 8;
+    final endH = int.tryParse(openEndParts.first) ?? 21;
+
+    for (var h = startH; h < endH; h++) {
+      final sHour = '${h.toString().padLeft(2, '0')}:00';
+      final eHour = '${(h + 1).toString().padLeft(2, '0')}:00';
+
+      bool occupied = false;
+      String desc = '';
+
+      for (final b in bookedSegments) {
+        if (sHour.compareTo(b.endTime) < 0 && eHour.compareTo(b.startTime) > 0) {
+          occupied = true;
+          desc = b.statusDesc;
+          break;
+        }
+      }
+
+      if (!occupied && timeSlices.isNotEmpty) {
+        for (final slice in timeSlices) {
+          if (slice.isOccupied &&
+              sHour.compareTo(slice.endTime) < 0 &&
+              eHour.compareTo(slice.startTime) > 0) {
+            occupied = true;
+            desc = '已被约';
+            break;
+          }
+        }
+      }
+
+      slots.add(SpaceHourSlot(
+        startHour: sHour,
+        endHour: eHour,
+        isOccupied: occupied,
+        occupantDesc: desc,
+      ));
+    }
+
+    return slots;
+  }
+}
+
+/// 1 小时整点颗粒度时段模型
+class SpaceHourSlot {
+  const SpaceHourSlot({
+    required this.startHour,
+    required this.endHour,
+    required this.isOccupied,
+    this.occupantDesc = '',
+  });
+
+  final String startHour; // 如 "08:00"
+  final String endHour;   // 如 "09:00"
+  final bool isOccupied;
+  final String occupantDesc;
+
+  String get timeRange => '$startHour - $endHour';
+
+  /// 判断该时段对于指定日期是否已经过期
+  bool isPastFor(DateTime date) {
+    final now = DateTime.now();
+    if (date.year == now.year && date.month == now.month && date.day == now.day) {
+      final startH = int.tryParse(startHour.split(':').first) ?? 0;
+      if (startH < now.hour) return true;
+      if (startH == now.hour && now.minute >= 10) return true;
+    }
+    return false;
+  }
 }
 
 /// 用户在空间预约系统中的账户与信用档案
@@ -241,9 +334,16 @@ class SpaceReservation {
 
 /// 空间预约服务（对接 libspace.usst.edu.cn 原生接口）
 class SpaceBookingApi {
-  SpaceBookingApi(this.casClient);
+  SpaceBookingApi([CasClient? client]) : _casClient = client;
 
-  final CasClient casClient;
+  CasClient? _casClient;
+
+  CasClient get casClient =>
+      _casClient ?? JwglAuth.instance.client ?? CasClient();
+
+  set casClient(CasClient client) {
+    _casClient = client;
+  }
 
   static const String _libspaceBase = 'https://libspace.usst.edu.cn';
 
@@ -257,12 +357,20 @@ class SpaceBookingApi {
   SpaceUserProfile? userProfile;
   List<SpacePurpose>? cachedPurposes;
 
-  /// 检查 Token 是否仍在有效期内（预留 30 分钟缓冲期防边缘失效）
+  /// 检查 Token 是否仍在有效期内（预留 10 分钟缓冲期防边缘失效）
   bool get isTokenValid {
     if (accessToken == null || accessToken!.isEmpty) return false;
+
+    // 优先检查 JWT 内部自带的 exp 真实过期秒数时间戳
+    final exp = _extractExpFromJwt(accessToken!);
+    if (exp != null) {
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      if (nowSec >= exp - 600) return false;
+    }
+
     if (tokenObtainedAt == null) return false;
     final elapsed = DateTime.now().difference(tokenObtainedAt!).inSeconds;
-    return elapsed < (tokenExpiresInSeconds - 1800);
+    return elapsed < (tokenExpiresInSeconds - 600);
   }
 
   /// 确保已认证；若未登录或 Token 即将过期，自动静默通过 CAS SSO 重新获取
@@ -278,9 +386,9 @@ class SpaceBookingApi {
       final authorizeUri = Uri.parse(
         '$_libspaceBase/api/oauth/v1/authorize?redirectURI=${Uri.encodeComponent('$_libspaceBase$path')}',
       );
-      final resp = await casClient.getApi(authorizeUri);
+      var resp = await casClient.getApi(authorizeUri);
 
-      final realUri = resp.realUri;
+      var realUri = resp.realUri;
       String? code = realUri.queryParameters['code'];
 
       if (code == null || code.isEmpty) {
@@ -290,6 +398,30 @@ class SpaceBookingApi {
           code = uri?.queryParameters['code'];
         }
       }
+
+      // 若未拿到 code，检查是否被 CAS 登录页拦截；若是则自动重登 CAS 恢复
+      if (code == null || code.isEmpty) {
+        final isCasIntercepted = realUri.toString().contains('cas.usst.edu.cn') ||
+            (resp.data?.contains('username') == true && resp.data?.contains('password') == true);
+        if (isCasIntercepted) {
+          final sessionOk = await JwglAuth.instance.ensureSession();
+          if (sessionOk) {
+            if (JwglAuth.instance.client != null) {
+              _casClient = JwglAuth.instance.client;
+            }
+            resp = await casClient.getApi(authorizeUri);
+            realUri = resp.realUri;
+            code = realUri.queryParameters['code'];
+            if (code == null || code.isEmpty) {
+              final loc = resp.headers.value('location') ?? '';
+              if (loc.contains('code=')) {
+                code = Uri.tryParse(loc)?.queryParameters['code'];
+              }
+            }
+          }
+        }
+      }
+
       return code;
     } catch (_) {}
     return null;
@@ -301,9 +433,9 @@ class SpaceBookingApi {
       final authorizeUri = Uri.parse(
         '$_libspaceBase/api/oauth/v1/authorize?redirectURI=${Uri.encodeComponent('$_libspaceBase/student/studentIndex')}',
       );
-      final resp = await casClient.getApi(authorizeUri);
+      var resp = await casClient.getApi(authorizeUri);
 
-      final realUri = resp.realUri;
+      var realUri = resp.realUri;
       String? code = realUri.queryParameters['code'];
 
       if (code == null || code.isEmpty) {
@@ -311,6 +443,29 @@ class SpaceBookingApi {
         if (loc.contains('code=')) {
           final uri = Uri.tryParse(loc);
           code = uri?.queryParameters['code'];
+        }
+      }
+
+      // 如果未拿到 code，说明 CAS SSO 会话已过期，被重定向到了 cas.usst.edu.cn/cas/login
+      if (code == null || code.isEmpty) {
+        final isCasIntercepted = realUri.toString().contains('cas.usst.edu.cn') ||
+            (resp.data?.contains('username') == true && resp.data?.contains('password') == true);
+        if (isCasIntercepted) {
+          final sessionOk = await JwglAuth.instance.ensureSession();
+          if (sessionOk) {
+            if (JwglAuth.instance.client != null) {
+              _casClient = JwglAuth.instance.client;
+            }
+            resp = await casClient.getApi(authorizeUri);
+            realUri = resp.realUri;
+            code = realUri.queryParameters['code'];
+            if (code == null || code.isEmpty) {
+              final loc = resp.headers.value('location') ?? '';
+              if (loc.contains('code=')) {
+                code = Uri.tryParse(loc)?.queryParameters['code'];
+              }
+            }
+          }
         }
       }
 
@@ -527,7 +682,7 @@ class SpaceBookingApi {
       var resp = await casClient.getApi(
         uri,
         headers: <String, String>{
-          'Authorization': ?accessToken,
+          'Authorization': accessToken ?? '',
           'Accept': 'application/json;charset=UTF-8',
         },
       );
@@ -539,7 +694,7 @@ class SpaceBookingApi {
           resp = await casClient.getApi(
             uri,
             headers: <String, String>{
-              'Authorization': ?accessToken,
+              'Authorization': accessToken ?? '',
               'Accept': 'application/json;charset=UTF-8',
             },
           );
@@ -589,7 +744,7 @@ class SpaceBookingApi {
       var resp = await casClient.getApi(
         uri,
         headers: <String, String>{
-          'Authorization': ?accessToken,
+          'Authorization': accessToken ?? '',
           'Accept': 'application/json;charset=UTF-8',
         },
       );
@@ -599,7 +754,7 @@ class SpaceBookingApi {
           resp = await casClient.getApi(
             uri,
             headers: <String, String>{
-              'Authorization': ?accessToken,
+              'Authorization': accessToken ?? '',
               'Accept': 'application/json;charset=UTF-8',
             },
           );
@@ -1069,12 +1224,29 @@ class SpaceBookingApi {
 
   static bool _isUnauthorized(Response<String> resp) {
     if (resp.statusCode == 401 || resp.statusCode == 403) return true;
+    final realUriStr = resp.realUri.toString();
+    if (realUriStr.contains('cas.usst.edu.cn') || realUriStr.contains('/oauth/v1/authorize')) {
+      return true;
+    }
     final body = resp.data ?? '';
     if (body.contains('token is null') ||
         body.contains('未登录') ||
+        body.contains('请先登录') ||
+        body.contains('token invalid') ||
+        body.contains('token expired') ||
+        body.contains('token已过期') ||
+        body.contains('token失效') ||
+        body.contains('code过期') ||
+        body.contains('code已过期') ||
+        body.contains('code不存在') ||
+        body.contains('凭据失效') ||
+        body.contains('认证失败') ||
         body.contains('"code":401') ||
+        body.contains('"code":403') ||
+        body.contains('"code":2001') ||
         body.contains('"code":2002') ||
-        body.contains('"code":2004')) {
+        body.contains('"code":2004') ||
+        body.contains('"code":2005')) {
       return true;
     }
     return false;
@@ -1255,6 +1427,23 @@ class SpaceBookingApi {
       } else if (sub is Map<String, dynamic>) {
         return sub['uid']?.toString();
       }
+    } catch (_) {}
+    return null;
+  }
+
+  /// 从 JWT 载荷中解析 exp（过期 UNIX 秒数时间戳）
+  static int? _extractExpFromJwt(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+      var payload = parts[1];
+      while (payload.length % 4 != 0) {
+        payload += '=';
+      }
+      final decoded = utf8.decode(base64Url.decode(payload));
+      final map = jsonDecode(decoded) as Map<String, dynamic>;
+      final exp = map['exp'];
+      if (exp is num) return exp.toInt();
     } catch (_) {}
     return null;
   }
