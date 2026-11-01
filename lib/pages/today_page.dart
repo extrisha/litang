@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 
@@ -178,6 +178,10 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
   }
 
   void _locateCourseOnMap(Course course) {
+    if (!kMapFeatureEnabled) {
+      _showToast('校园地图升级维护中，暂未开放');
+      return;
+    }
     final place = placeForRoom(course.room);
     if (place == null) {
       _showToast('未在校园地图找到【${course.room}】对应楼栋');
@@ -311,6 +315,10 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
             tooltip: '校园地图',
             icon: const Icon(Icons.map_outlined, size: 21, color: AppColors.textPrimary),
             onPressed: () {
+              if (!kMapFeatureEnabled) {
+                _showToast('校园地图升级维护中，暂未开放');
+                return;
+              }
               Navigator.of(context).push(
                 MaterialPageRoute<void>(builder: (_) => const MapPage()),
               );

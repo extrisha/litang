@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import '../auth/cas_client.dart';
 import '../cache_store.dart';
 import 'course_api.dart';
+import '../../services/widget_sync_service.dart';
 
 /// 课表本地缓存：走 [CacheStore] 的加密后端（Android Keystore / iOS Keychain），
 /// 不用每次联网。
@@ -36,8 +39,9 @@ class CourseRepository {
     return entry != null && entry.isFresh(ttl);
   }
 
-  static Future<void> save(CourseSnapshot snapshot) {
-    return CacheStore.write(_key, snapshot.toJson(), secure: true);
+  static Future<void> save(CourseSnapshot snapshot) async {
+    await CacheStore.write(_key, snapshot.toJson(), secure: true);
+    unawaited(WidgetSyncService.instance.syncTodayWidget());
   }
 
   /// 退出登录时清掉缓存的课表，避免换账号后串数据。

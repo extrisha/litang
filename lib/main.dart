@@ -15,6 +15,8 @@ import 'pages/tron_exam_detail_page.dart';
 import 'pages/update_page.dart';
 import 'services/reminder_service.dart';
 import 'services/update_service.dart';
+import 'services/widget_sync_service.dart';
+import 'package:home_widget/home_widget.dart';
 import 'pages/life_page.dart';
 import 'pages/map_page.dart';
 import 'pages/forum_page.dart';
@@ -32,6 +34,7 @@ Future<void> main() async {
   runApp(const CampusApp());
   // 启动后在后台静默同步一次作业提醒（不阻塞首屏，6 小时内不会重复跑）
   unawaited(ReminderService.instance.syncInBackground());
+  unawaited(WidgetSyncService.instance.syncTodayWidget());
 }
 
 class CampusApp extends StatelessWidget {
@@ -59,6 +62,7 @@ class RootScaffold extends StatefulWidget {
 
 class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver {
   int _index = 2;
+  StreamSubscription<Uri?>? _widgetSubscription;
 
   static bool _checkedUpdate = false;
 
@@ -68,6 +72,8 @@ class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver
     WidgetsBinding.instance.addObserver(this);
     MapFocus.target.addListener(_onMapFocus);
     ReminderService.pendingTarget.addListener(_onReminderTap);
+    HomeWidget.initiallyLaunchedFromHomeWidget().then(_handleWidgetUri);
+    _widgetSubscription = HomeWidget.widgetClicked.listen(_handleWidgetUri);
     // App 是被通知点开的：首帧之后补一次跳转
     if (ReminderService.pendingTarget.value != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _onReminderTap());
@@ -90,6 +96,7 @@ class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
+      unawaited(WidgetSyncService.instance.syncTodayWidget());
       setState(() {});
     }
   }
@@ -99,10 +106,15 @@ class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver
     WidgetsBinding.instance.removeObserver(this);
     MapFocus.target.removeListener(_onMapFocus);
     ReminderService.pendingTarget.removeListener(_onReminderTap);
+    _widgetSubscription?.cancel();
     super.dispose();
   }
 
   void _onMapFocus() {
+    if (!kMapFeatureEnabled) {
+      MapFocus.consume();
+      return;
+    }
     final target = MapFocus.target.value;
     if (target != null && mounted) {
       Navigator.of(context).push(
@@ -122,6 +134,41 @@ class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver
       if (page == null) return;
       Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
     });
+  }
+
+
+  /// 点击桌面小组件深层链接：跳转到对应作业或课表
+  void _handleWidgetUri(Uri? uri) {
+    if (uri == null || !mounted) return;
+    if (uri.scheme == 'litang') {
+      if (uri.host == 'todo') {
+        final target = <String, dynamic>{
+          'kind': uri.queryParameters['kind'] ?? 'tron',
+          'id': int.tryParse(uri.queryParameters['id'] ?? '0') ?? 0,
+          'courseId': int.tryParse(uri.queryParameters['courseId'] ?? '0') ?? 0,
+          'title': uri.queryParameters['title'] ?? '',
+          'courseName': uri.queryParameters['courseName'] ?? '',
+          'type': uri.queryParameters['type'] ?? 'homework',
+          'taskUrl': uri.queryParameters['taskUrl'] ?? '',
+          'workId': uri.queryParameters['workId'] ?? '',
+          'statusText': uri.queryParameters['statusText'] ?? '',
+          'deadline': uri.queryParameters['deadline'] ?? '',
+        };
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          final page = _pageForReminder(target);
+          if (page != null) {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => page),
+            );
+          }
+        });
+      } else if (uri.host == 'schedule') {
+        if (_index != 2 && mounted) {
+          setState(() => _index = 2);
+        }
+      }
+    }
   }
 
   Widget? _pageForReminder(Map<String, dynamic> target) {

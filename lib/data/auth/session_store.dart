@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../cache_store.dart';
+
 import 'cas_client.dart';
 
 /// 本地保存的登录会话。
@@ -36,7 +38,7 @@ class StoredSession {
 class SessionStore {
   // v2：新增加密保存的学号/密码，旧格式直接作废
   static const String _key = 'usst_cas_session_v2';
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = kDefaultSecureStorage;
 
   Future<void> save(
     CasClient client, {

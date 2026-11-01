@@ -3,8 +3,10 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
+
+import '../http/api_client.dart';
 
 import 'academic_calendar.dart';
 
@@ -80,17 +82,19 @@ class CalendarService {
       '$_giteeBase/$fileName?download=1',
     ]) {
       try {
-        final response = await http
-            .get(
-              Uri.parse(url),
-              headers: <String, String>{'User-Agent': 'Litang-Calendar'},
-            )
-            .timeout(const Duration(seconds: 12));
-        if (response.statusCode != 200) continue;
-        final calendar = AcademicCalendar.fromYaml(response.body);
+        final response = await ApiClient.dio.get<String>(
+          url,
+          options: Options(
+            headers: <String, String>{'User-Agent': 'Litang-Calendar'},
+            responseType: ResponseType.plain,
+            receiveTimeout: const Duration(seconds: 12),
+          ),
+        );
+        if ((response.statusCode ?? 0) != 200 || response.data == null) continue;
+        final calendar = AcademicCalendar.fromYaml(response.data!);
         if (calendar == null) continue;
         notifier.value = calendar;
-        await _saveCache(response.body);
+        await _saveCache(response.data!);
         return;
       } catch (_) {
         // 换下一个源

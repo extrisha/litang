@@ -57,11 +57,12 @@ html = f"""<!DOCTYPE html>
     .btn-purple:hover {{ background: #7e22ce; }}
     .btn-success {{ background: #16a34a; color: #fff; }}
     .btn-success:hover {{ background: #15803d; }}
+    .btn-warning {{ background: #f59e0b; color: #fff; }}
+    .btn-warning:hover {{ background: #d97706; }}
     .btn-danger {{ background: #ef4444; color: #fff; }}
     .btn-danger:hover {{ background: #dc2626; }}
     .btn-outline {{ background: #fff; border: 1px solid #cbd5e1; color: #334155; }}
     .btn-outline:hover {{ background: #f1f5f9; }}
-    .btn-active {{ background: #fef08a !important; color: #854d0e !important; border: 2px solid #eab308 !important; }}
     
     /* 状态指示与提示 */
     .status-hint {{
@@ -123,7 +124,7 @@ html = f"""<!DOCTYPE html>
   <div class="panel">
     <h2>
       <span>🏫 USST 516 校园地图</span>
-      <span style="font-size:12px; color:#16a34a; font-weight:bold;">可深度放大至21级</span>
+      <span style="font-size:12px; color:#16a34a; font-weight:bold;">深度放大至21级</span>
     </h2>
 
     <!-- 模式切换 -->
@@ -159,10 +160,9 @@ html = f"""<!DOCTYPE html>
     <!-- 编辑模式面板 -->
     <div id="editPanel" style="display:none;">
       <div class="status-hint" id="statusHint">
-        💡 <b>编辑模式已开启（已支持放大至 21 级）</b>：<br/>
-        1. 鼠标<b>点击任意已有建筑</b>，可直接修改名称、类别或拉动黄色手柄调整轮廓；<br/>
-        2. <b>普通多边形</b>：点击【绘制新建筑】，在卫星图上依次点击拐角即可描摹；<br/>
-        3. <b>圆形建筑</b>：点击【绘制圆形建筑】，先点圆心、再点半径即可自动生成平滑正多边形。
+        💡 <b>编辑模式就绪</b>：<br/>
+        • 鼠标点击已有建筑可修改名称或拉拽黄色角点；<br/>
+        • 绘图点错可用 <b>【↩️ 撤销上一个点】</b> 或直接按键盘 <b>Backspace / Ctrl+Z</b>。
       </div>
 
       <div class="editor-tools">
@@ -179,12 +179,18 @@ html = f"""<!DOCTYPE html>
             🚶 绘制新步道 (路线)
           </button>
         </div>
-        <div class="tool-row" id="drawControlRow" style="display:none;">
-          <button class="btn btn-success" style="flex:1;" onclick="finishCurrentDrawing()">
+        <!-- 绘制中操作栏 -->
+        <div class="tool-row" id="drawControlRow" style="display:none; flex-direction:column; gap:6px;">
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-warning" style="flex:1;" onclick="undoLastPoint()">
+              ↩️ 撤销上一个点 (Backspace)
+            </button>
+            <button class="btn btn-danger" style="flex:1;" onclick="cancelCurrentDrawing()">
+              ❌ 取消重来
+            </button>
+          </div>
+          <button class="btn btn-success" style="width:100%;" onclick="finishCurrentDrawing()">
             ✅ 完成绘制并填信息
-          </button>
-          <button class="btn btn-danger" style="flex:1;" onclick="cancelCurrentDrawing()">
-            ❌ 取消本次绘制
           </button>
         </div>
         <div class="tool-row">
@@ -247,7 +253,7 @@ html = f"""<!DOCTYPE html>
 
     const campusBounds = L.latLngBounds([31.2840, 121.5430], [31.3030, 121.5640]);
 
-    // 初始化地图：已将 maxZoom 放大倍率提高到 21 级！
+    // 初始化地图（最大缩放21级）
     const map = L.map('map', {{
       center: [31.2935, 121.5490],
       zoom: 17,
@@ -256,7 +262,7 @@ html = f"""<!DOCTYPE html>
       maxBounds: campusBounds.pad(0.15)
     }});
 
-    // 1. 本地离线瓦片（原生支持到18级，深度缩放到21级自动超分平滑放大）
+    // 1. 本地离线瓦片
     const localTiles = L.tileLayer('../../assets/tiles/{{z}}_{{x}}_{{y}}.png', {{
       minZoom: 14,
       maxNativeZoom: 18,
@@ -265,7 +271,7 @@ html = f"""<!DOCTYPE html>
       attribution: '本地离线瓦片 (assets/tiles)'
     }}).addTo(map);
 
-    // 2. Esri 高清卫星遥感图层（原生19级，可平滑缩放到21级超近距离细节）
+    // 2. Esri 高清卫星遥感图层
     const esriSatellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
       attribution: 'Tiles &copy; Esri World Imagery',
       minZoom: 14,
@@ -439,7 +445,7 @@ html = f"""<!DOCTYPE html>
     }};
 
     // ==========================================
-    // ✏️ 交互式绘图功能
+    // ✏️ 交互式绘图功能与撤销节点支持
     // ==========================================
     window.startDrawPolygon = function() {{
       cancelVertexEditing();
@@ -448,7 +454,7 @@ html = f"""<!DOCTYPE html>
       drawingPoints = [];
       clearDrawingVisuals();
       document.getElementById('drawControlRow').style.display = 'flex';
-      document.getElementById('statusHint').innerHTML = '📍 <b>正在绘制多边形建筑</b>：请在卫星底图上依次点击建筑物拐角点，点击完毕后点击【完成绘制并填信息】。';
+      document.getElementById('statusHint').innerHTML = '📍 <b>正在绘制多边形建筑</b>：依次点击拐角点打点；按 <b>Backspace</b> 或点击下方按钮可随时撤销上一个点。';
       map.getContainer().style.cursor = 'crosshair';
     }};
 
@@ -459,7 +465,7 @@ html = f"""<!DOCTYPE html>
       circleCenter = null;
       clearDrawingVisuals();
       document.getElementById('drawControlRow').style.display = 'flex';
-      document.getElementById('statusHint').innerHTML = '⭕ <b>正在绘制圆形建筑</b>：第 1 次点击：确定圆心；移动鼠标可预览大小；第 2 次点击：确定半径边缘。';
+      document.getElementById('statusHint').innerHTML = '⭕ <b>正在绘制圆形建筑</b>：第 1 次点击：确定圆心；移动鼠标预览；第 2 次点击：确定半径边缘。';
       map.getContainer().style.cursor = 'crosshair';
     }};
 
@@ -470,9 +476,43 @@ html = f"""<!DOCTYPE html>
       drawingPoints = [];
       clearDrawingVisuals();
       document.getElementById('drawControlRow').style.display = 'flex';
-      document.getElementById('statusHint').innerHTML = '🚶 <b>正在绘制步道</b>：请沿着道路走向依次点击打点，点击完毕后点击【完成绘制并填信息】。';
+      document.getElementById('statusHint').innerHTML = '🚶 <b>正在绘制步道</b>：沿道路走向依次打点；按 <b>Backspace</b> 或点击下方按钮可撤销上一个点。';
       map.getContainer().style.cursor = 'crosshair';
     }};
+
+    // 撤销上一个打点 (Undo Last Node)
+    window.undoLastPoint = function() {{
+      if (!isDrawing) return;
+      if (drawType === 'circle') {{
+        circleCenter = null;
+        if (circlePreview) map.removeLayer(circlePreview);
+        circlePreview = null;
+        if (drawingMarkers.length > 0) {{
+          map.removeLayer(drawingMarkers.pop());
+        }}
+        document.getElementById('statusHint').innerHTML = '⭕ <b>已重置圆心</b>：请重新点击卫星图确定圆心。';
+        return;
+      }}
+
+      if (drawingPoints.length === 0) return;
+      drawingPoints.pop();
+      const lastMarker = drawingMarkers.pop();
+      if (lastMarker) map.removeLayer(lastMarker);
+      updateDrawingVisuals();
+      document.getElementById('statusHint').innerHTML = `↩️ <b>已撤销上一个点</b>，当前剩余 ${{drawingPoints.length}} 个拐角点。`;
+    }};
+
+    // 键盘快捷键监听：Backspace / Ctrl+Z 自动撤销上一个打点
+    window.addEventListener('keydown', function(e) {{
+      if (isDrawing && (e.key === 'Backspace' || (e.ctrlKey && e.key.toLowerCase() === 'z'))) {{
+        // 避免在输入框中打字时误触发撤销点
+        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {{
+          return;
+        }}
+        e.preventDefault();
+        undoLastPoint();
+      }}
+    }});
 
     map.on('click', function(e) {{
       if (!isDrawing) return;
@@ -481,13 +521,11 @@ html = f"""<!DOCTYPE html>
 
       if (drawType === 'circle') {{
         if (!circleCenter) {{
-          // 第 1 步：定圆心
           circleCenter = e.latlng;
           const cm = L.circleMarker([lat, lng], {{ radius: 5, color: '#9333ea', fillColor: '#fff', fillOpacity: 1 }}).addTo(map);
           drawingMarkers.push(cm);
-          document.getElementById('statusHint').innerHTML = '⭕ <b>圆心已定</b>：请移动鼠标观察大小，并在圆周边缘再次点击确定。';
+          document.getElementById('statusHint').innerHTML = '⭕ <b>圆心已定</b>：请移动鼠标观察大小，在圆周边缘点击以确定半径。';
         }} else {{
-          // 第 2 步：定半径，生成平滑24边形
           const radiusMeters = circleCenter.distanceTo(e.latlng);
           const circlePolyCoords = generateCirclePolygon(circleCenter, radiusMeters, 24);
           openNewModalForDrawnPolygon(circlePolyCoords);
@@ -495,11 +533,11 @@ html = f"""<!DOCTYPE html>
         return;
       }}
 
-      // 多边形或线
       drawingPoints.push([lng, lat]);
       const m = L.circleMarker([lat, lng], {{ radius: 4, color: '#ef4444', fillColor: '#fff', fillOpacity: 1 }}).addTo(map);
       drawingMarkers.push(m);
       updateDrawingVisuals();
+      document.getElementById('statusHint').innerHTML = `📍 已记录 ${{drawingPoints.length}} 个拐角点 (点错可按 Backspace 撤销)`;
     }});
 
     map.on('mousemove', function(e) {{
@@ -516,7 +554,6 @@ html = f"""<!DOCTYPE html>
       }}).addTo(map);
     }});
 
-    // 生成正多边形逼近圆形的标准算法（24边形）
     function generateCirclePolygon(center, radiusMeters, sides = 24) {{
       const coords = [];
       const dLat = radiusMeters / 111319.5;
@@ -527,7 +564,7 @@ html = f"""<!DOCTYPE html>
         const lng = center.lng + dLng * Math.cos(theta);
         coords.push([Number(lng.toFixed(7)), Number(lat.toFixed(7))]);
       }}
-      coords.push(coords[0]); // 闭合
+      coords.push(coords[0]);
       return coords;
     }}
 
@@ -779,4 +816,4 @@ html = f"""<!DOCTYPE html>
 with open('tools/map/viewer.html', 'w', encoding='utf-8') as f:
     f.write(html)
 
-print("Updated viewer.html with Zoom 21 support and Circle Tool!")
+print("Updated viewer.html with Undo Node (Backspace / Ctrl+Z) support!")

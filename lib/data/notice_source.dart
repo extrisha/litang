@@ -1,7 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
+
+import 'http/api_client.dart';
 
 import 'cache_store.dart';
 import 'models.dart';
@@ -165,13 +167,17 @@ class RemoteNoticeSource implements NoticeSource {
 
   Future<NoticeFeed?> _download(String url) async {
     try {
-      final res = await http
-          .get(Uri.parse(url))
-          .timeout(const Duration(seconds: 20));
-      if (res.statusCode != 200) return null;
+      final res = await ApiClient.dio.get<String>(
+        url,
+        options: Options(
+          responseType: ResponseType.plain,
+          receiveTimeout: const Duration(seconds: 20),
+        ),
+      );
+      if (res.statusCode != 200 || res.data == null) return null;
       // 云端 feed 有 1.2 MB / 7000+ 条，jsonDecode + 建模放主线会卡掉首帧，
       // 扔到后台 isolate 做（Web 上 compute 会退化成同步执行）。
-      return await compute(parseFeed, utf8.decode(res.bodyBytes));
+      return await compute(parseFeed, res.data!);
     } catch (_) {
       return null;
     }
@@ -322,12 +328,16 @@ class JwcNoticeSource implements NoticeSource {
     final result = <Notice>[];
     for (final entry in _listUrls.entries) {
       try {
-        final res = await http
-            .get(Uri.parse(entry.value))
-            .timeout(const Duration(seconds: 8));
-        if (res.statusCode == 200) {
+        final res = await ApiClient.dio.get<String>(
+          entry.value,
+          options: Options(
+            responseType: ResponseType.plain,
+            receiveTimeout: const Duration(seconds: 8),
+          ),
+        );
+        if (res.statusCode == 200 && res.data != null) {
           final parsed = _parse(
-            utf8.decode(res.bodyBytes),
+            res.data!,
             entry.key,
             entry.value,
           );

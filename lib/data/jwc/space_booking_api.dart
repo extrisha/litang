@@ -39,7 +39,7 @@ class SpaceRoom {
   final String devices;
   final int status; // 0: 正常, 1: 禁用, 2: 维护中
   final String buildingName; // 建筑/馆舍名称，如 "湛恩图书馆"
-  final int spaceTime; // 剩余空闲时间
+  final int spaceTime; // 剩余空闲时间（分钟）
   final int allTime; // 1: 全天可用
   final String openStartTime; // 开放开始时间
   final String openEndTime; // 开放结束时间
@@ -78,6 +78,14 @@ class SpaceRoom {
     }
     if (maxNum > 0) return '最多 $maxNum 人';
     return '多功能研讨空间';
+  }
+
+  List<String> get deviceList {
+    if (devices.isEmpty) return const <String>[];
+    return devices
+        .split(RegExp(r'[,，、;；\s]+'))
+        .where((s) => s.trim().isNotEmpty)
+        .toList();
   }
 }
 
@@ -124,6 +132,59 @@ class SpaceRoomDetail {
   final List<SpaceBookedSegment> bookedSegments;
 }
 
+/// 用户在空间预约系统中的账户与信用档案
+class SpaceUserProfile {
+  const SpaceUserProfile({
+    required this.userId,
+    required this.realName,
+    required this.departmentName,
+    required this.totalScore,
+    this.cardNumber = '',
+    this.mobile = '',
+    this.faceUrl = '',
+  });
+
+  final String userId;
+  final String realName;
+  final String departmentName;
+  final int totalScore; // 信用积分，满分 10
+  final String cardNumber;
+  final String mobile;
+  final String faceUrl;
+}
+
+/// 空间预约用途类型模型（字典）
+class SpacePurpose {
+  const SpacePurpose({
+    required this.id,
+    required this.label,
+    required this.minNum,
+    required this.maxTime,
+    required this.verify,
+    required this.remark,
+  });
+
+  final int id;
+  final String label; // 研讨交流, 面试, 单人研习
+  final int minNum; // 最少人数
+  final int maxTime; // 最长时长（分钟）
+  final int verify; // 0: 免审, 1: 须审核
+  final String remark;
+}
+
+/// 预约操作结果
+class ReservationResult {
+  const ReservationResult({
+    required this.success,
+    required this.message,
+    this.reservationId,
+  });
+
+  final bool success;
+  final String message;
+  final String? reservationId;
+}
+
 /// 空间预约订单记录
 class SpaceReservation {
   const SpaceReservation({
@@ -136,6 +197,16 @@ class SpaceReservation {
     required this.statusDesc,
     required this.isLeader,
     required this.qrCode,
+    this.roomId = '',
+    this.minSignTime = '',
+    this.maxSignTime = '',
+    this.signInTime = '',
+    this.signOutTime = '',
+    this.remark = '',
+    this.departmentName = '',
+    this.mobile = '',
+    this.dictId = 0,
+    this.dictName = '',
   });
 
   final String id;
@@ -147,9 +218,25 @@ class SpaceReservation {
   final String statusDesc;
   final bool isLeader;
   final String qrCode;
+  final String roomId;
+  final String minSignTime;
+  final String maxSignTime;
+  final String signInTime;
+  final String signOutTime;
+  final String remark;
+  final String departmentName;
+  final String mobile;
+  final int dictId;
+  final String dictName;
 
   String get timeRange => '$beginTime - $endTime';
   bool get canCancel => status == 0 && isLeader;
+  bool get isInProgress => status == 1; // 使用中
+  bool get isUpcoming => status == 0; // 待使用
+  bool get isFinished => status == 2; // 已完成
+  bool get isCancelled => status == 3; // 已取消
+  bool get canSignOut => status == 1; // 使用中可手动签退
+  bool get canAfk => status == 1; // 使用中可暂离
 }
 
 /// 空间预约服务（对接 libspace.usst.edu.cn 原生接口）
@@ -166,6 +253,9 @@ class SpaceBookingApi {
   String? authCode;
   DateTime? tokenObtainedAt;
   int tokenExpiresInSeconds = 7200;
+
+  SpaceUserProfile? userProfile;
+  List<SpacePurpose>? cachedPurposes;
 
   /// 检查 Token 是否仍在有效期内（预留 30 分钟缓冲期防边缘失效）
   bool get isTokenValid {
@@ -285,6 +375,141 @@ class SpaceBookingApi {
       }
     } catch (_) {}
     return false;
+  }
+
+  /// 获取当前登录用户的空间预约信用与个人信息档案
+  Future<SpaceUserProfile?> fetchUserProfile({bool force = false}) async {
+    if (!force && userProfile != null) return userProfile;
+    await ensureAuthenticated();
+    if (userId == null || accessToken == null) return null;
+
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/user/$userId');
+    try {
+      var resp = await casClient.getApi(
+        uri,
+        headers: <String, String>{
+          'Authorization': accessToken!,
+          'Accept': 'application/json;charset=UTF-8',
+        },
+      );
+      if (_isUnauthorized(resp)) {
+        if (await login()) {
+          resp = await casClient.getApi(
+            uri,
+            headers: <String, String>{
+              'Authorization': accessToken!,
+              'Accept': 'application/json;charset=UTF-8',
+            },
+          );
+        }
+      }
+
+      if (resp.statusCode == 200 && resp.data != null) {
+        final dynamic json = jsonDecode(resp.data!);
+        if (json is Map) {
+          final m = (json['data'] is Map ? json['data'] : json) as Map;
+          final profile = SpaceUserProfile(
+            userId: (m['userId'] ?? userId ?? '').toString(),
+            realName: (m['realName'] ?? m['nickName'] ?? realName ?? '').toString(),
+            departmentName: (m['departmentName'] ?? '').toString(),
+            totalScore: _parseInt(m['totalScore'], 10),
+            cardNumber: (m['cardNumber'] ?? '').toString(),
+            mobile: (m['mobile'] ?? '').toString(),
+            faceUrl: (m['faceUrl'] ?? '').toString(),
+          );
+          userProfile = profile;
+          return profile;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// 获取预约用途类型列表（研讨交流、单人研习、面试）
+  Future<List<SpacePurpose>> fetchPurposes({bool force = false}) async {
+    if (!force && cachedPurposes != null && cachedPurposes!.isNotEmpty) {
+      return cachedPurposes!;
+    }
+    await ensureAuthenticated();
+
+    const fallbackPurposes = <SpacePurpose>[
+      SpacePurpose(
+        id: 1,
+        label: '研讨交流',
+        minNum: 3,
+        maxTime: 240,
+        verify: 0,
+        remark: '3人及以上预约',
+      ),
+      SpacePurpose(
+        id: 3,
+        label: '单人研习',
+        minNum: 1,
+        maxTime: 120,
+        verify: 0,
+        remark: '静音舱规则',
+      ),
+      SpacePurpose(
+        id: 2,
+        label: '面试',
+        minNum: 1,
+        maxTime: 120,
+        verify: 1,
+        remark: '需上传面试凭证',
+      ),
+    ];
+
+    if (accessToken == null) return fallbackPurposes;
+
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/dict/type?type=reservation_use');
+    try {
+      var resp = await casClient.getApi(
+        uri,
+        headers: <String, String>{
+          'Authorization': accessToken!,
+          'Accept': 'application/json;charset=UTF-8',
+        },
+      );
+      if (_isUnauthorized(resp)) {
+        if (await login()) {
+          resp = await casClient.getApi(
+            uri,
+            headers: <String, String>{
+              'Authorization': accessToken!,
+              'Accept': 'application/json;charset=UTF-8',
+            },
+          );
+        }
+      }
+
+      if (resp.statusCode == 200 && resp.data != null) {
+        final dynamic raw = jsonDecode(resp.data!);
+        final records = (raw is Map && raw['records'] is List)
+            ? (raw['records'] as List)
+            : (raw is List ? raw : null);
+        if (records != null && records.isNotEmpty) {
+          final list = <SpacePurpose>[];
+          for (final r in records) {
+            if (r is! Map) continue;
+            list.add(
+              SpacePurpose(
+                id: _parseInt(r['id'], 0),
+                label: (r['label'] ?? '').toString(),
+                minNum: _parseInt(r['minNum'], 1),
+                maxTime: _parseInt(r['maxTime'], 120),
+                verify: _parseInt(r['verify'], 0),
+                remark: (r['remark'] ?? '').toString(),
+              ),
+            );
+          }
+          if (list.isNotEmpty) {
+            cachedPurposes = list;
+            return list;
+          }
+        }
+      }
+    } catch (_) {}
+    return fallbackPurposes;
   }
 
   /// 获取研讨间列表 (mRooms)
@@ -541,6 +766,264 @@ class SpaceBookingApi {
     return list;
   }
 
+  /// 原生提交预约
+  ///
+  /// 对接官方 POST /api/studyroom/v1.1/reservation/reservation
+  /// [startTime] 和 [endTime] 格式: "YYYY-MM-DD HH:mm:ss"
+  Future<ReservationResult> submitReservation({
+    required String roomId,
+    required String startTime,
+    required String endTime,
+    required int dictId,
+    List<String> memberIds = const <String>[],
+    String mobile = '',
+    String remark = '',
+    String filePath = '',
+  }) async {
+    await ensureAuthenticated();
+    if (accessToken == null || userId == null) {
+      return const ReservationResult(success: false, message: '未登录空间预约系统，请重试');
+    }
+
+    final queryParams = <String, String>{
+      'userId': userId!,
+      'roomId': roomId,
+      'startTime': startTime,
+      'endTime': endTime,
+      'dictId': dictId.toString(),
+      'behaviorMode': '4', // 移动端标识
+      'memberIds': memberIds.join(','),
+      'mobile': mobile,
+      'remark': remark,
+      'filePath': filePath,
+    };
+
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1.1/reservation/reservation').replace(
+      queryParameters: queryParams,
+    );
+
+    try {
+      var resp = await casClient.postApi(
+        uri,
+        <String, String>{},
+        extraHeaders: <String, String>{
+          'Authorization': accessToken!,
+          'Accept': 'application/json;charset=UTF-8',
+        },
+      );
+
+      if (_isUnauthorized(resp)) {
+        if (await login()) {
+          resp = await casClient.postApi(
+            uri,
+            <String, String>{},
+            extraHeaders: <String, String>{
+              'Authorization': accessToken!,
+              'Accept': 'application/json;charset=UTF-8',
+            },
+          );
+        }
+      }
+
+      final body = resp.data ?? '';
+      if (body.isEmpty) {
+        return const ReservationResult(success: false, message: '服务器未返回响应，请稍后重试');
+      }
+
+      final dynamic raw = jsonDecode(body);
+      if (raw is Map) {
+        final code = _parseInt(raw['code'], -1);
+        final success = raw['success'] == true || code == 200 || code == 0;
+        final msg = (raw['msg'] ?? raw['message'] ?? (success ? '预约成功' : '预约失败')).toString();
+        final resId = (raw['data'] is Map ? (raw['data'] as Map)['id'] : raw['data'])?.toString();
+
+        return ReservationResult(
+          success: success,
+          message: msg,
+          reservationId: resId,
+        );
+      }
+    } catch (e) {
+      return ReservationResult(success: false, message: '提交预约异常：$e');
+    }
+
+    return const ReservationResult(success: false, message: '提交预约失败，请检查网络后重试');
+  }
+
+  /// 预约前成员冲突预检查 (reservationUserJudge)
+  Future<bool> checkReservationUserJudge({
+    required String startTime,
+    List<String> memberIds = const <String>[],
+  }) async {
+    await ensureAuthenticated();
+    if (accessToken == null || userId == null) return false;
+
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/reservation/reservationUserJudge').replace(
+      queryParameters: <String, String>{
+        'userId': userId!,
+        'memberIds': memberIds.join(','),
+        'startTime': startTime,
+      },
+    );
+
+    try {
+      final resp = await casClient.getApi(
+        uri,
+        headers: <String, String>{
+          'Authorization': accessToken!,
+          'Accept': 'application/json;charset=UTF-8',
+        },
+      );
+      return resp.statusCode == 200;
+    } catch (_) {}
+    return true;
+  }
+
+  /// 获取常用同行人列表 (topContactsByUserId)
+  Future<List<Map<String, dynamic>>> fetchTopContacts() async {
+    await ensureAuthenticated();
+    if (accessToken == null || userId == null) return const <Map<String, dynamic>>[];
+
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/reservation/topContactsByUserId').replace(
+      queryParameters: <String, String>{'userId': userId!},
+    );
+
+    try {
+      final resp = await casClient.getApi(
+        uri,
+        headers: <String, String>{
+          'Authorization': accessToken!,
+          'Accept': 'application/json;charset=UTF-8',
+        },
+      );
+      if (resp.statusCode == 200 && resp.data != null) {
+        final dynamic raw = jsonDecode(resp.data!);
+        final dynamic list = (raw is Map && raw['data'] is List) ? raw['data'] : (raw is List ? raw : null);
+        if (list is List) {
+          return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+        }
+      }
+    } catch (_) {}
+    return const <Map<String, dynamic>>[];
+  }
+
+  /// 根据学号精确查询同学信息（用于研讨交流添加同行成员）
+  Future<Map<String, dynamic>?> searchUser(String studentIdOrName) async {
+    await ensureAuthenticated();
+    if (accessToken == null) return null;
+
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/user/pageUser').replace(
+      queryParameters: <String, String>{
+        'param': studentIdOrName.trim(),
+        'page': '1',
+        'size': '10',
+      },
+    );
+
+    try {
+      final resp = await casClient.getApi(
+        uri,
+        headers: <String, String>{
+          'Authorization': accessToken!,
+          'Accept': 'application/json;charset=UTF-8',
+        },
+      );
+      if (resp.statusCode == 200 && resp.data != null) {
+        final dynamic raw = jsonDecode(resp.data!);
+        final records = (raw is Map && raw['records'] is List) ? (raw['records'] as List) : null;
+        if (records != null && records.isNotEmpty) {
+          final first = records.first;
+          if (first is Map) return first.cast<String, dynamic>();
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// 原生提前签退（使用中主动释放房间）
+  /// 对接 POST /api/studyroom/v1/reservation/signOut?userId=...&roomId=...
+  Future<bool> signOutReservation({required String roomId}) async {
+    await ensureAuthenticated();
+    if (accessToken == null || userId == null) return false;
+
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/reservation/signOut').replace(
+      queryParameters: <String, String>{
+        'userId': userId!,
+        'roomId': roomId,
+      },
+    );
+
+    try {
+      var resp = await casClient.postApi(
+        uri,
+        <String, String>{},
+        extraHeaders: <String, String>{
+          'Authorization': accessToken!,
+          'Accept': 'application/json;charset=UTF-8',
+        },
+      );
+      if (_isUnauthorized(resp)) {
+        if (await login()) {
+          resp = await casClient.postApi(
+            uri,
+            <String, String>{},
+            extraHeaders: <String, String>{
+              'Authorization': accessToken!,
+              'Accept': 'application/json;charset=UTF-8',
+            },
+          );
+        }
+      }
+      if (resp.statusCode == 200 && resp.data != null) {
+        final Map<String, dynamic> json = jsonDecode(resp.data!) as Map<String, dynamic>;
+        return json['code'] == 200 || json['success'] == true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// 原生暂离登记（使用中临时离开）
+  /// 对接 POST /api/studyroom/v1/reservation/afk?userId=...&roomId=...
+  Future<bool> afkReservation({required String roomId}) async {
+    await ensureAuthenticated();
+    if (accessToken == null || userId == null) return false;
+
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/reservation/afk').replace(
+      queryParameters: <String, String>{
+        'userId': userId!,
+        'roomId': roomId,
+      },
+    );
+
+    try {
+      var resp = await casClient.postApi(
+        uri,
+        <String, String>{},
+        extraHeaders: <String, String>{
+          'Authorization': accessToken!,
+          'Accept': 'application/json;charset=UTF-8',
+        },
+      );
+      if (_isUnauthorized(resp)) {
+        if (await login()) {
+          resp = await casClient.postApi(
+            uri,
+            <String, String>{},
+            extraHeaders: <String, String>{
+              'Authorization': accessToken!,
+              'Accept': 'application/json;charset=UTF-8',
+            },
+          );
+        }
+      }
+      if (resp.statusCode == 200 && resp.data != null) {
+        final Map<String, dynamic> json = jsonDecode(resp.data!) as Map<String, dynamic>;
+        return json['code'] == 200 || json['success'] == true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   /// 取消预约（官方接口为 POST /api/studyroom/v1/reservation/cancelReservation?reservationId=...）
   Future<bool> cancelReservation(String reservationId) async {
     await ensureAuthenticated();
@@ -684,8 +1167,22 @@ class SpaceBookingApi {
       }
     }
 
+    final minSignStr = _formatTimestampOrString(m['minSignTime'], timeOnly: true);
+    final maxSignStr = _formatTimestampOrString(m['maxSignTime'], timeOnly: true);
+    final signInStr = _formatTimestampOrString(m['signInTime'], timeOnly: true);
+    final signOutStr = _formatTimestampOrString(m['signOutTime'], timeOnly: true);
+
+    final dictId = _parseInt(m['dictId'], 0);
+    String dictName = (m['dictValue'] ?? m['dictName'] ?? '').toString();
+    if (dictName.isEmpty) {
+      if (dictId == 1) dictName = '研讨交流';
+      if (dictId == 2) dictName = '面试';
+      if (dictId == 3) dictName = '单人研习';
+    }
+
     return SpaceReservation(
       id: (m['id'] ?? m['reservationId'] ?? '').toString(),
+      roomId: (m['roomId'] ?? '').toString(),
       roomName: (m['roomName'] ?? m['name'] ?? '图书馆研讨间').toString(),
       date: dateStr,
       beginTime: beginTimeStr,
@@ -693,7 +1190,16 @@ class SpaceBookingApi {
       status: normalizedStatus,
       statusDesc: statusDesc,
       isLeader: isLeader,
-      qrCode: (m['signCode'] ?? '').toString(),
+      qrCode: (m['signCode'] ?? m['qrSignCheckCode'] ?? '').toString(),
+      minSignTime: minSignStr,
+      maxSignTime: maxSignStr,
+      signInTime: signInStr,
+      signOutTime: signOutStr,
+      remark: (m['remark'] ?? '').toString(),
+      departmentName: (m['departmentName'] ?? '').toString(),
+      mobile: (m['mobile'] ?? '').toString(),
+      dictId: dictId,
+      dictName: dictName,
     );
   }
 

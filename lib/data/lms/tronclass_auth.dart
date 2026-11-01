@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../cache_store.dart';
+
 import '../auth/cas_client.dart';
 import '../auth/jwgl_auth.dart';
 
@@ -15,7 +17,7 @@ class TronclassAuth {
   static const String host = '1906.usst.edu.cn';
   static const String homeUrl = 'https://1906.usst.edu.cn/user/index';
 
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = kDefaultSecureStorage;
 
   List<CasCookie> _cookies = <CasCookie>[];
   DateTime? _validatedAt;

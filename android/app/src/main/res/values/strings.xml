@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">理堂</string>
+    <string name="widget_name">今日课表与天气</string>
+    <string name="widget_description">展示今日课表（可滑动）与降水带伞决策</string>
+</resources>

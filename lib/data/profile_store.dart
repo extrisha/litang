@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'cache_store.dart';
+
 /// 论坛/个人页使用的本地资料（昵称、头像），按教务学号隔离。
 class UserProfile {
   const UserProfile({required this.nickname, required this.avatar});
@@ -27,7 +29,7 @@ class UserProfile {
 /// 个人资料存储（加密），按教务学号隔离。
 class ProfileStore {
   static const String _key = 'usst_user_profile_v1';
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = kDefaultSecureStorage;
 
   static String _keyFor(String username) {
     final user = username.trim();

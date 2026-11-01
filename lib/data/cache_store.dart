@@ -5,6 +5,17 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
+/// 统一的加固型安全存储实例：开启 Android EncryptedSharedPreferences 与重置自愈，配置 iOS 首次解锁可用。
+const FlutterSecureStorage kDefaultSecureStorage = FlutterSecureStorage(
+  aOptions: AndroidOptions(
+    encryptedSharedPreferences: true,
+    resetOnError: true,
+  ),
+  iOptions: IOSOptions(
+    accessibility: KeychainAccessibility.first_unlock,
+  ),
+);
+
 /// 一份缓存记录：数据 + 写入时间。
 class CacheEntry {
   const CacheEntry({required this.data, required this.savedAt});
@@ -33,10 +44,19 @@ class CacheEntry {
 class CacheStore {
   CacheStore._();
 
-  static const FlutterSecureStorage _secure = FlutterSecureStorage();
+  static const FlutterSecureStorage _secure = kDefaultSecureStorage;
 
   /// 进程内一级缓存，避免反复读磁盘 / Keystore。
+  static int maxMemoryEntries = 64;
   static final Map<String, CacheEntry> _memory = <String, CacheEntry>{};
+
+  static void _touchMemory(String mKey, CacheEntry entry) {
+    _memory.remove(mKey);
+    while (_memory.length >= maxMemoryEntries && _memory.isNotEmpty) {
+      _memory.remove(_memory.keys.first);
+    }
+    _memory[mKey] = entry;
+  }
 
   /// 单测里替换目录用。
   @visibleForTesting
@@ -65,14 +85,18 @@ class CacheStore {
 
   /// 读缓存。没有则返回 null。
   static Future<CacheEntry?> read(String key, {bool secure = false}) async {
-    final cached = _memory[_memoryKey(key, secure)];
-    if (cached != null) return cached;
+    final mKey = _memoryKey(key, secure);
+    final cached = _memory[mKey];
+    if (cached != null) {
+      _touchMemory(mKey, cached);
+      return cached;
+    }
     try {
       final raw = secure ? await _secure.read(key: key) : await _readFile(key);
       if (raw == null || raw.isEmpty) return null;
       final entry = decode(raw);
       if (entry != null) {
-        _memory[_memoryKey(key, secure)] = entry;
+        _touchMemory(mKey, entry);
       }
       return entry;
     } catch (_) {
@@ -99,7 +123,7 @@ class CacheStore {
     bool secure = false,
   }) async {
     final now = DateTime.now();
-    _memory[_memoryKey(key, secure)] = CacheEntry(data: data, savedAt: now);
+    _touchMemory(_memoryKey(key, secure), CacheEntry(data: data, savedAt: now));
     try {
       final raw = encode(data, now);
       if (secure) {

@@ -19,3 +19,9 @@
 -keep class dev.steenbakker.** { *; }
 -keep class com.baseflow.** { *; }
 -keep class com.it_nomads.** { *; }
+
+# App Widgets (Android 桌面小组件与适配器，防止 R8 混淆或剔除反射构造)
+-keep class com.example.project_usst.TodayScheduleWidgetProvider { *; }
+-keep class com.example.project_usst.TodayScheduleWidgetService { *; }
+-keep class com.example.project_usst.TodayScheduleRemoteViewsFactory { *; }
+-keep class es.antonborri.home_widget.** { *; }

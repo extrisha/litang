@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.5.8+34
+version: 0.6.0+35
 
 environment:
   sdk: ^3.13.5
@@ -34,8 +34,8 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
 
-  # 网络请求（跨平台，Web 与移动端都可用）
-  http: ^1.2.0
+
+
   # CAS 登录与教务接口（手动控制跳转，便于处理 http→https 链）
   dio: ^5.7.0
   # 登录 cookie 与课表缓存的加密存储（Android Keystore / iOS Keychain）
@@ -59,6 +59,7 @@ dependencies:
   flutter_timezone: ^5.1.1
   flutter_map: ^8.3.2
   latlong2: ^0.10.1
+  home_widget: ^0.10.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -82,8 +83,8 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/map/
-    - assets/tiles/
+    # - assets/map/
+    # - assets/tiles/
     - assets/calendar.config
     - assets/emblem.webp
     - assets/sources/tronclass_tab.png

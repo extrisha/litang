@@ -98,3 +98,11 @@ Project_USST_backups/
 
 # 本地打包产物输出目录
 /dist/
+
+# 本地测试与探测脚本
+/scratch/
+
+# 地图标注离线包与临时工具
+*.zip
+/map_remark/
+tools/map/USST_Campus_Editor/

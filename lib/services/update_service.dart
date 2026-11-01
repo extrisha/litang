@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
@@ -100,16 +100,24 @@ class UpdateService {
     }
   }
 
+  static final Dio _dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+    ),
+  );
+
   static Future<UpdateInfo?> _fetchManifest(String url) async {
     try {
-      final response = await http
-          .get(
-            Uri.parse(url),
-            headers: <String, String>{'User-Agent': 'Litang-Updater'},
-          )
-          .timeout(const Duration(seconds: 10));
-      if (response.statusCode != 200) return null;
-      final map = jsonDecode(response.body) as Map<String, dynamic>;
+      final response = await _dio.get<String>(
+        url,
+        options: Options(
+          headers: <String, String>{'User-Agent': 'Litang-Updater'},
+          responseType: ResponseType.plain,
+        ),
+      );
+      if (response.statusCode != 200 || response.data == null) return null;
+      final map = jsonDecode(response.data!) as Map<String, dynamic>;
       return UpdateInfo.fromJson(map);
     } catch (_) {
       return null;
@@ -186,14 +194,21 @@ class UpdateService {
     void Function(double)? onProgress, {
     bool allowFallback = false,
   }) async {
-    final client = http.Client();
+    final downloadDio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 300),
+      ),
+    );
     try {
-      final request = http.Request('GET', Uri.parse(url));
-      request.headers['User-Agent'] = 'Litang-Updater';
-      final response = await client
-          .send(request)
-          .timeout(const Duration(seconds: 30));
-      if (response.statusCode != 200) {
+      final response = await downloadDio.get<ResponseBody>(
+        url,
+        options: Options(
+          headers: <String, String>{'User-Agent': 'Litang-Updater'},
+          responseType: ResponseType.stream,
+        ),
+      );
+      if ((response.statusCode ?? 0) != 200 || response.data == null) {
         throw Exception('HTTP ${response.statusCode}');
       }
       final dir = await getTemporaryDirectory();
@@ -202,9 +217,9 @@ class UpdateService {
       final file = File('${dir.path}/litang-$safeVersion.apk');
       final sink = file.openWrite();
       var received = 0;
-      final total = response.contentLength ?? 0;
+      final total = response.data!.contentLength;
       final watch = Stopwatch()..start();
-      await for (final chunk in response.stream) {
+      await for (final chunk in response.data!.stream) {
         sink.add(chunk);
         received += chunk.length;
         if (total > 0) {
@@ -235,7 +250,8 @@ class UpdateService {
         throw Exception('安装包校验失败：缺少预期 SHA-256');
       }
 
-      final digest = (await sha256.bind(file.openRead()).first).toString().toLowerCase();
+      final digest =
+          (await sha256.bind(file.openRead()).first).toString().toLowerCase();
       if (digest != cleanExpected) {
         try {
           await file.delete();
@@ -245,7 +261,7 @@ class UpdateService {
 
       return file.path;
     } finally {
-      client.close();
+      downloadDio.close();
     }
   }
 

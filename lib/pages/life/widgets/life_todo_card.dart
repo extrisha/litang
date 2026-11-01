@@ -34,22 +34,65 @@ class LifeTodoCard extends StatelessWidget {
   }
 
   static DateTime? parseTaskDeadline(String raw) {
-    final s = raw
-        .replaceAll('截止时间：', '')
-        .replaceAll('截止：', '')
+    var s = raw
+        .replaceAll(RegExp(r'^(?:提交)?截[止至](?:时间)?[:：]\s*'), '')
+        .replaceAll(RegExp(r'^有效时间[:：]\s*'), '')
         .replaceAll('/', '-')
+        .replaceAll('.', '-')
         .trim();
     if (s.isEmpty) return null;
     final direct = DateTime.tryParse(s);
     if (direct != null) return direct;
 
-    final md = RegExp(r'^(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})').firstMatch(s);
+    // YYYY年MM月DD日 [HH:mm]
+    final ymdCn = RegExp(
+      r'^(\d{4})年(\d{1,2})月(\d{1,2})日(?:\s+(\d{1,2}):(\d{2}))?',
+    ).firstMatch(s);
+    if (ymdCn != null) {
+      final y = int.parse(ymdCn.group(1)!);
+      final m = int.parse(ymdCn.group(2)!);
+      final d = int.parse(ymdCn.group(3)!);
+      final h = ymdCn.group(4) != null ? int.parse(ymdCn.group(4)!) : 23;
+      final min = ymdCn.group(5) != null ? int.parse(ymdCn.group(5)!) : 59;
+      return DateTime(y, m, d, h, min);
+    }
+
+    // MM月DD日 [HH:mm]
+    final mdCn = RegExp(
+      r'^(\d{1,2})月(\d{1,2})日(?:\s+(\d{1,2}):(\d{2}))?',
+    ).firstMatch(s);
+    if (mdCn != null) {
+      final now = DateTime.now();
+      final m = int.parse(mdCn.group(1)!);
+      final d = int.parse(mdCn.group(2)!);
+      final h = mdCn.group(3) != null ? int.parse(mdCn.group(3)!) : 23;
+      final min = mdCn.group(4) != null ? int.parse(mdCn.group(4)!) : 59;
+      return DateTime(now.year, m, d, h, min);
+    }
+
+    // YYYY-MM-DD [HH:mm]
+    final ymd = RegExp(
+      r'^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?',
+    ).firstMatch(s);
+    if (ymd != null) {
+      final y = int.parse(ymd.group(1)!);
+      final m = int.parse(ymd.group(2)!);
+      final d = int.parse(ymd.group(3)!);
+      final h = ymd.group(4) != null ? int.parse(ymd.group(4)!) : 23;
+      final min = ymd.group(5) != null ? int.parse(ymd.group(5)!) : 59;
+      return DateTime(y, m, d, h, min);
+    }
+
+    // MM-DD [HH:mm]
+    final md = RegExp(
+      r'^(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?',
+    ).firstMatch(s);
     if (md != null) {
       final now = DateTime.now();
       final m = int.parse(md.group(1)!);
       final d = int.parse(md.group(2)!);
-      final h = int.parse(md.group(3)!);
-      final min = int.parse(md.group(4)!);
+      final h = md.group(3) != null ? int.parse(md.group(3)!) : 23;
+      final min = md.group(4) != null ? int.parse(md.group(4)!) : 59;
       return DateTime(now.year, m, d, h, min);
     }
 

@@ -1,9 +1,9 @@
 {
-  "version": "0.5.8",
-  "versionCode": 34,
+  "version": "0.6.0",
+  "versionCode": 35,
   "minVersionCode": 0,
-  "notes": "体验升级（0.5.8）：集成军工路校区手绘与离线矢量地图、重构空间预约与教室详情、强化校内认证WebView会话安全与附件缓存机制。",
+  "notes": "升级 0.6.0：新增桌面今日课表与天气小组件支持、优化空间预约与教室详情、轻量化打包（暂时禁用离线地图底图与瓦片）、强化校内认证与缓存机制。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.5.8/app-release.apk",
-  "sha256": "9e1f20bebe0380966558b9144bd8fbaf2ef6f0b52f24012e3204b898c4524202"
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.6.0/app-release.apk",
+  "sha256": "b9f261a8b7226e214dba38aeb063d22aa571fb25b6ab030fc6ca84c97c4fe39e"
 }

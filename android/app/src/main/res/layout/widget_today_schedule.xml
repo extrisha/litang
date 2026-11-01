@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:baselineAligned="false"
+    android:orientation="horizontal"
+    android:padding="10dp">
+
+    <!-- 左侧栏：日期周次 + 降雨/雪天气决策 (约 36% 宽，约 1.5 图标大小) -->
+    <LinearLayout
+        android:id="@+id/widget_left_panel"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="0.36"
+        android:gravity="center_vertical|start"
+        android:orientation="vertical"
+        android:paddingEnd="4dp">
+
+        <!-- 顶部：第几周徽章 + 日期 -->
+        <TextView
+            android:id="@+id/widget_week_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/widget_week_pill"
+            android:paddingStart="6dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="2dp"
+            android:text="第 9 周"
+            android:textColor="#A31C1C"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_date_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="11月01日"
+                android:textColor="#1A202C"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_weekday_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="周日"
+                android:textColor="#718096"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- 中部：雨雪预测与时间段 -->
+        <TextView
+            android:id="@+id/widget_weather_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:text="今日全天无雨"
+            android:textColor="#2D3748"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_weather_probability"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:text="全天干爽"
+            android:textColor="#718096"
+            android:textSize="10sp" />
+
+        <!-- 伞具提示胶囊 -->
+        <TextView
+            android:id="@+id/widget_umbrella_advice"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/widget_umbrella_pill"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingStart="6dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="2dp"
+            android:text="无需带伞 🌤"
+            android:textColor="#2B6CB0"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+
+        <!-- 底部：温差 -->
+        <TextView
+            android:id="@+id/widget_temp_range"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="--° ~ --°C"
+            android:textColor="#A0AEC0"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <!-- 中间细分割线 (RemoteViews 必须使用支持的组件如 ImageView，不能直接用 View) -->
+    <ImageView
+        android:layout_width="1dp"
+        android:layout_height="match_parent"
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="6dp"
+        android:background="#EDF2F7"
+        android:contentDescription="@null" />
+
+    <!-- 右侧栏：标题与切换栏 + 可上下滑动的列表 (约 64% 宽，支持课表与待办双模式) -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="0.64"
+        android:orientation="vertical">
+
+        <!-- 右侧顶部栏：左上角模式/日期状态 + 右上角切换按钮 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingBottom="4dp">
+
+            <TextView
+                android:id="@+id/widget_right_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="今日课表"
+                android:textColor="#2D3748"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <!-- 切换按钮：点击切换 课表 / 待办作业 -->
+            <TextView
+                android:id="@+id/widget_toggle_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/widget_switch_btn_bg"
+                android:paddingStart="6dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="6dp"
+                android:paddingBottom="2dp"
+                android:text="📝 查作业"
+                android:textColor="#4A5568"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- 列表容器 -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <ListView
+                android:id="@+id/widget_course_list"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:divider="@null"
+                android:dividerHeight="5dp"
+                android:scrollbars="none" />
+
+            <!-- 空态占位 -->
+            <LinearLayout
+                android:id="@+id/widget_course_empty"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/widget_empty_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="✨ 今日暂无课程"
+                    android:textColor="#4A5568"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/widget_empty_sub"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="享受轻松大学时光 ☕"
+                    android:textColor="#A0AEC0"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+</LinearLayout>

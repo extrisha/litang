@@ -60,17 +60,11 @@ void main() {
     expect(find.text('换个关键词试试'), findsOneWidget);
   });
 
-  testWidgets('地图页可搜索楼栋并展示信息', (tester) async {
+  testWidgets('地图页在维护状态下展示维护提示', (tester) async {
     await tester.pumpWidget(_wrap(const MapPage()));
 
     expect(find.text('校园地图'), findsOneWidget);
-    await tester.enterText(find.byType(TextField), '第一教学楼');
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ListTile, '第一教学楼'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('第一教学楼'), findsWidgets);
-    expect(find.textContaining('军工路'), findsWidgets);
+    expect(find.text('校园地图功能维护中'), findsOneWidget);
   });
 
   testWidgets('我的页展示学业入口与空间服务', (tester) async {

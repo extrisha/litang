@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
+import '../data/http/api_client.dart';
 
 import '../app_theme.dart';
 import '../data/attachment_cache.dart';
@@ -170,28 +171,22 @@ class _ChaoxingContentPageState extends State<ChaoxingContentPage> {
     if (uri.scheme == 'http') {
       uri = uri.replace(scheme: 'https');
     }
-    final client = http.Client();
-    try {
-      final request = http.Request('GET', uri)
-        ..headers['User-Agent'] = 'Mozilla/5.0';
-      final response =
-          await client.send(request).timeout(const Duration(seconds: 120));
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw Exception('HTTP ${response.statusCode}');
-      }
-      const maxDownloadSize = 50 * 1024 * 1024; // 50MB
-      final contentLength = response.contentLength;
-      if (contentLength != null && contentLength > maxDownloadSize) {
-        throw Exception('附件过大（超过 50MB），建议在网页端下载');
-      }
-      final bytes = await response.stream.toBytes();
-      if (bytes.length > maxDownloadSize) {
-        throw Exception('附件过大（超过 50MB），建议在网页端下载');
-      }
-      return bytes;
-    } finally {
-      client.close();
+    const maxDownloadSize = 50 * 1024 * 1024; // 50MB
+    final resp = await ApiClient.longRunning.get<List<int>>(
+      uri.toString(),
+      options: Options(
+        headers: <String, String>{'User-Agent': 'Mozilla/5.0'},
+        responseType: ResponseType.bytes,
+      ),
+    );
+    if ((resp.statusCode ?? 0) < 200 || (resp.statusCode ?? 0) >= 300) {
+      throw Exception('HTTP ${resp.statusCode}');
     }
+    final bytes = resp.data ?? const <int>[];
+    if (bytes.length > maxDownloadSize) {
+      throw Exception('附件过大（超过 50MB），建议在网页端下载');
+    }
+    return bytes;
   }
 
   @override

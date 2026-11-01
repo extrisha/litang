@@ -17,6 +17,9 @@ import '../data/vector_map/vector_map_style.dart';
 import '../widgets/illustrated_campus_view.dart';
 import 'classroom_query_page.dart';
 
+/// 是否启用地图功能及离线瓦片（如需轻量发版或下线维护可置为 false）
+const bool kMapFeatureEnabled = false;
+
 /// 校园地图：军工路 516 号校区融合 2D 平面与 2.5D 鸟瞰双视角高清手绘矢量底图，
 /// 1100 号南校区、复兴路与营口路融合轻量几何矢量体系，支持全校建筑精准对焦、
 /// 课表双击联动与空教室快捷直达。
@@ -373,6 +376,36 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    if (!kMapFeatureEnabled) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('校园地图'),
+          centerTitle: true,
+        ),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.map_outlined, size: 64, color: AppColors.textSecondary),
+              SizedBox(height: 16),
+              Text(
+                '校园地图功能维护中',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                '离线底图与瓦片正在升级优化，暂未开放',
+                style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final is516Illustrated = _currentCampus.id == 'jungong516' && !_useHdOnline;
 
     final searchResults = _query.isEmpty

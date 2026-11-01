@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../cache_store.dart';
+
 import 'cas_client.dart';
 import 'jwgl_auth.dart';
 
@@ -28,7 +30,7 @@ class XuegongAuth {
   static const String webVpnHost = 'new2017.webvpn.usst.edu.cn';
   static const String webVpnHomeUrl =
       'https://new2017.webvpn.usst.edu.cn/default.aspx';
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = kDefaultSecureStorage;
 
   /// 缓存多久可以直接复用。学工会话本身比这长；超过就重新验一次。
   static const Duration _freshTtl = Duration(minutes: 10);

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../cache_store.dart';
+
 import '../auth/cas_client.dart';
 import '../auth/jwgl_auth.dart';
 import 'chaoxing_client.dart';
@@ -20,7 +22,7 @@ class ChaoxingStoredSession {
 /// 学习通凭据存储（Keystore / Keychain）。
 class ChaoxingSessionStore {
   static const String _key = 'usst_chaoxing_session_v2';
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = kDefaultSecureStorage;
 
   Future<void> save(ChaoxingClient client) async {
     try {
