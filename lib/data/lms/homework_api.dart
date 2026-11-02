@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import '../app_exception.dart';
 import '../auth/cas_client.dart';
 
 class HomeworkAttachment {
@@ -220,15 +221,21 @@ class HomeworkApi {
   /// `GET /api/course/{courseId}/submissions?fields=...`，
   /// 拿到后按 activity_id 过滤即可。
   Future<List<HomeworkSubmission>> fetchSubmissions(int courseId) async {
-    final resp = await client.getApi(
-      Uri.parse(
-        'https://1906.usst.edu.cn/api/course/$courseId/submissions'
-        '?fields=id,activity_id,created_at,score,comment,uploads',
-      ),
-    );
+    final Response<dynamic> resp;
+    try {
+      resp = await client.getApi(
+        Uri.parse(
+          'https://1906.usst.edu.cn/api/course/$courseId/submissions'
+          '?fields=id,activity_id,created_at,score,comment,uploads',
+        ),
+      );
+    } catch (e) {
+      throw AppException(AppFailure.network, '提交记录拉取失败，请检查网络', e);
+    }
     final raw = resp.data ?? '';
     if (!raw.trimLeft().startsWith('{')) {
-      return const <HomeworkSubmission>[];
+      // 拿到 HTML（登录页）而不是 JSON：这说明会话失效，不是「没有提交记录」
+      throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
     }
     final map = jsonDecode(raw) as Map<String, dynamic>;
     final list = map['submissions'] as List<dynamic>? ?? <dynamic>[];

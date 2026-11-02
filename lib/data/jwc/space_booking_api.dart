@@ -970,7 +970,8 @@ class SpaceBookingApi {
     await ensureAuthenticated();
 
     if (userId == null || accessToken == null) {
-      return const <SpaceReservation>[];
+      // 认证没建立起来：不能返回空列表，否则页面会显示「你没有预约」
+      throw SpaceBookingException('空间预约登录已失效，请重新登录后重试', authRelated: true);
     }
 
     final headers = <String, String>{
