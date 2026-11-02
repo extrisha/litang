@@ -32,6 +32,12 @@ class _ChaoxingCourseDetailPageState extends State<ChaoxingCourseDetailPage> {
   List<ChaoxingExam> _exams = const <ChaoxingExam>[];
   String? _error;
 
+  /// 三个请求各自失败时留痕。原来它们被 `catch (_) {}` 吞掉、列表留空，
+  /// 对应 tab 就显示「暂无作业 / 暂无考试」——把"没取到"说成了"没有"。
+  bool _chaptersFailed = false;
+  bool _homeworksFailed = false;
+  bool _examsFailed = false;
+
   @override
   void initState() {
     super.initState();
@@ -39,7 +45,14 @@ class _ChaoxingCourseDetailPageState extends State<ChaoxingCourseDetailPage> {
   }
 
   Future<void> _load() async {
-    setState(() => _error = null);
+    // 重试时必须把 `_units` 清回 null，否则会先显示上一次的空列表而不是转圈
+    setState(() {
+      _error = null;
+      _units = null;
+      _chaptersFailed = false;
+      _homeworksFailed = false;
+      _examsFailed = false;
+    });
     try {
       final auth = ChaoxingAuth.instance;
       if (!auth.isLoggedIn) await auth.restore();
@@ -48,7 +61,10 @@ class _ChaoxingCourseDetailPageState extends State<ChaoxingCourseDetailPage> {
         return;
       }
       final client = auth.client;
-      if (client == null) return;
+      if (client == null) {
+        setState(() => _error = '学习通登录已失效');
+        return;
+      }
       final api = ChaoxingCourseDetailApi(client);
       // 三个请求互不依赖，并发拉，减少白屏时间
       final unitsFuture = api.fetchChapters(widget.course);
@@ -60,25 +76,40 @@ class _ChaoxingCourseDetailPageState extends State<ChaoxingCourseDetailPage> {
       List<ChaoxingChapterUnit> units = const <ChaoxingChapterUnit>[];
       List<ChaoxingWork> homeworks = const <ChaoxingWork>[];
       List<ChaoxingExam> exams = const <ChaoxingExam>[];
+      var chaptersFailed = false;
+      var homeworksFailed = false;
+      var examsFailed = false;
       try {
         units = await unitsFuture;
-      } catch (_) {}
+      } catch (e) {
+        chaptersFailed = true;
+        debugPrint('[chaoxing] 章节拉取失败: $e');
+      }
       try {
         homeworks = await homeworksFuture;
-      } catch (_) {}
+      } catch (e) {
+        homeworksFailed = true;
+        debugPrint('[chaoxing] 作业拉取失败: $e');
+      }
       try {
         exams = await examsFuture;
-      } catch (_) {}
+      } catch (e) {
+        examsFailed = true;
+        debugPrint('[chaoxing] 考试拉取失败: $e');
+      }
       if (mounted) {
         setState(() {
           _units = units;
           _homeworks = homeworks;
           _exams = exams;
-          if (units.isEmpty) _error = '章节拉取失败';
+          _chaptersFailed = chaptersFailed;
+          _homeworksFailed = homeworksFailed;
+          _examsFailed = examsFailed;
         });
       }
-    } catch (_) {
-      if (mounted) setState(() => _error = '章节拉取失败');
+    } catch (e) {
+      debugPrint('[chaoxing] 课程详情加载失败: $e');
+      if (mounted) setState(() => _error = '学习通数据加载失败，请稍后重试');
     }
   }
 
@@ -111,6 +142,35 @@ class _ChaoxingCourseDetailPageState extends State<ChaoxingCourseDetailPage> {
     );
   }
 
+  /// 空状态 vs 拉取失败：两者绝不能长一样。
+  Widget _emptyOrFailed({
+    required bool failed,
+    required String emptyText,
+    required String failedText,
+  }) {
+    if (!failed) {
+      return Center(
+        child: Text(
+          emptyText,
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
+      );
+    }
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(
+            failedText,
+            style: const TextStyle(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 8),
+          TextButton(onPressed: _load, child: const Text('重试')),
+        ],
+      ),
+    );
+  }
+
   Widget _chapterList() {
     if (_error != null) {
       return Center(
@@ -132,8 +192,10 @@ class _ChaoxingCourseDetailPageState extends State<ChaoxingCourseDetailPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (units.isEmpty) {
-      return const Center(
-        child: Text('暂无章节', style: TextStyle(color: AppColors.textSecondary)),
+      return _emptyOrFailed(
+        failed: _chaptersFailed,
+        emptyText: '暂无章节',
+        failedText: '章节拉取失败',
       );
     }
     return ListView.builder(
@@ -231,8 +293,10 @@ class _ChaoxingCourseDetailPageState extends State<ChaoxingCourseDetailPage> {
 
   Widget _homeworkList() {
     if (_homeworks.isEmpty) {
-      return const Center(
-        child: Text('暂无作业', style: TextStyle(color: AppColors.textSecondary)),
+      return _emptyOrFailed(
+        failed: _homeworksFailed,
+        emptyText: '暂无作业',
+        failedText: '作业拉取失败',
       );
     }
     return ListView.separated(
@@ -298,8 +362,10 @@ class _ChaoxingCourseDetailPageState extends State<ChaoxingCourseDetailPage> {
 
   Widget _examList() {
     if (_exams.isEmpty) {
-      return const Center(
-        child: Text('暂无考试', style: TextStyle(color: AppColors.textSecondary)),
+      return _emptyOrFailed(
+        failed: _examsFailed,
+        emptyText: '暂无考试',
+        failedText: '考试拉取失败',
       );
     }
     return ListView.separated(
