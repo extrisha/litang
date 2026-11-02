@@ -8,6 +8,7 @@ import '../data/attachment_cache.dart';
 import '../data/chaoxing/chaoxing_auth.dart';
 import '../data/chaoxing/chaoxing_client.dart';
 import '../data/chaoxing/chaoxing_course_detail.dart';
+import '../widgets/async_state.dart';
 import 'chaoxing_video_page.dart';
 import 'docx_text_page.dart';
 import 'pdf_preview_page.dart';
@@ -199,17 +200,7 @@ class _ChaoxingContentPageState extends State<ChaoxingContentPage> {
       ),
       body: _error != null
           ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    _error!,
-                    style: const TextStyle(color: AppColors.textSecondary),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(onPressed: _load, child: const Text('重试')),
-                ],
-              ),
+              child: AsyncStateView(error: _error, onRetry: _load),
             )
           : items == null
           ? const Center(child: CircularProgressIndicator())

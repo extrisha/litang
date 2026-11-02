@@ -4,6 +4,7 @@ import '../app_theme.dart';
 import '../data/auth/jwgl_auth.dart';
 import '../data/lms/exam_forum_api.dart';
 import '../data/lms/tronclass_auth.dart';
+import '../widgets/async_state.dart';
 import 'tron_forum_post_page.dart';
 
 /// 一网畅学讨论详情：问题 + 发言列表（可排序、可只看自己）+ 右下角发言。
@@ -118,17 +119,7 @@ class _TronForumDetailPageState extends State<TronForumDetailPage> {
       ),
       body: _error != null
           ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    _error!,
-                    style: const TextStyle(color: AppColors.textSecondary),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(onPressed: _load, child: const Text('重试')),
-                ],
-              ),
+              child: AsyncStateView(error: _error, onRetry: _load),
             )
           : topics == null
           ? const Center(child: CircularProgressIndicator())
