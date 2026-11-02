@@ -8,6 +8,7 @@ import '../data/lms/course_detail_api.dart';
 import '../data/lms/homework_api.dart';
 import '../data/lms/todo_api.dart';
 import '../data/lms/tronclass_auth.dart';
+import '../widgets/async_state.dart';
 import 'homework_page.dart';
 import 'tron_content_page.dart';
 import 'tron_exam_detail_page.dart';
@@ -74,18 +75,11 @@ class _TronCourseDetailPageState extends State<TronCourseDetailPage> {
       return Scaffold(
         appBar: AppBar(title: Text(widget.courseName)),
         body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Text(
-                // detail 为 null 但没抛异常时，不能写成「暂无数据」——
-                // 这是「没取到」，用户看到「暂无」会以为这门课没有资料
-                _error ?? '没取到课程详情，请点重试',
-                style: const TextStyle(color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 10),
-              TextButton(onPressed: _load, child: const Text('重试')),
-            ],
+          child: AsyncStateView(
+            // detail 为 null 但没抛异常时，不能写成「暂无数据」——
+            // 这是「没取到」，用户看到「暂无」会以为这门课没有资料
+            error: _error ?? '没取到课程详情，请点重试',
+            onRetry: _load,
           ),
         ),
       );

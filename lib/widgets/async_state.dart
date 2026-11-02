@@ -18,6 +18,8 @@ class AsyncStateView extends StatelessWidget {
     this.emptyText,
     this.onRetry,
     this.retryLabel = '重试',
+    this.secondaryLabel,
+    this.onSecondary,
     this.errorIcon = Icons.cloud_off_rounded,
     this.emptyIcon = Icons.inbox_outlined,
     this.compact = false,
@@ -36,6 +38,12 @@ class AsyncStateView extends StatelessWidget {
   final VoidCallback? onRetry;
 
   final String retryLabel;
+
+  /// 第二动作（如「在网页中打开」）。和 [onSecondary] 都存在时才显示。
+  ///
+  /// 有些页面的失败态除了重试还提供一条兜底路径，硬塞进 [onRetry] 会丢功能。
+  final String? secondaryLabel;
+  final VoidCallback? onSecondary;
   final IconData errorIcon;
   final IconData emptyIcon;
 
@@ -89,12 +97,29 @@ class AsyncStateView extends StatelessWidget {
               height: 1.4,
             ),
           ),
-          if (isError && onRetry != null) ...<Widget>[
+          if (isError && (onRetry != null || onSecondary != null)) ...<Widget>[
             SizedBox(height: compact ? 10 : 16),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh, size: 16),
-              label: Text(retryLabel),
+            // 用 Wrap 而不是 Row：窄屏 + 两个按钮时不会溢出
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                if (onRetry != null)
+                  OutlinedButton.icon(
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: Text(retryLabel),
+                  ),
+                if (onSecondary != null && secondaryLabel != null)
+                  FilledButton(
+                    onPressed: onSecondary,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.usstRed,
+                    ),
+                    child: Text(secondaryLabel!),
+                  ),
+              ],
             ),
           ],
         ],

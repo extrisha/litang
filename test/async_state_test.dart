@@ -56,4 +56,35 @@ void main() {
     expect(find.text('出错了'), findsOneWidget);
     expect(find.text('重试'), findsNothing);
   });
+
+  testWidgets('第二动作：重试和兜底按钮同时显示且各自可点', (tester) async {
+    var retried = 0;
+    var openedWeb = 0;
+    await pump(
+      tester,
+      AsyncStateView(
+        error: '没取到作业详情',
+        onRetry: () => retried++,
+        secondaryLabel: '在网页中打开',
+        onSecondary: () => openedWeb++,
+      ),
+    );
+
+    expect(find.text('重试'), findsOneWidget);
+    expect(find.text('在网页中打开'), findsOneWidget);
+
+    await tester.tap(find.text('重试'));
+    expect(retried, 1);
+    expect(openedWeb, 0);
+
+    await tester.tap(find.text('在网页中打开'));
+    expect(openedWeb, 1);
+  });
+
+  testWidgets('只给 onSecondary 不给 label 时不渲染第二按钮', (tester) async {
+    await pump(tester, AsyncStateView(error: '出错了', onSecondary: () {}));
+    // 没有 label 就没有可点的按钮，不应该出现空白按钮
+    expect(find.byType(OutlinedButton), findsNothing);
+    expect(find.byType(FilledButton), findsNothing);
+  });
 }

@@ -9,6 +9,7 @@ import '../data/lms/homework_api.dart';
 import '../data/lms/todo_api.dart';
 import '../data/lms/tronclass_auth.dart';
 import '../services/reminder_service.dart';
+import '../widgets/async_state.dart';
 import 'homework_submit_page.dart';
 import '../data/lms/exam_forum_api.dart';
 import 'image_preview_page.dart';
@@ -230,33 +231,11 @@ class _HomeworkPageState extends State<HomeworkPage> {
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      _error!,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        TextButton(onPressed: _load, child: const Text('重试')),
-                        const SizedBox(width: 8),
-                        FilledButton.icon(
-                          onPressed: _openWeb,
-                          icon: const Icon(Icons.open_in_new, size: 16),
-                          label: const Text('在网页中打开'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.usstRed,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                child: AsyncStateView(
+                  error: _error,
+                  onRetry: _load,
+                  secondaryLabel: '在网页中打开',
+                  onSecondary: _openWeb,
                 ),
               ),
             )

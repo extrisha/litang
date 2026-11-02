@@ -4,6 +4,7 @@ import '../app_theme.dart';
 import '../data/auth/jwgl_auth.dart';
 import '../data/lms/exam_forum_api.dart';
 import '../data/lms/tronclass_auth.dart';
+import '../widgets/async_state.dart';
 import 'simple_web_page.dart';
 
 /// 一网畅学考试详情：时间、题数、总分、我的得分与提交记录。
@@ -99,32 +100,13 @@ class _TronExamDetailPageState extends State<TronExamDetailPage> {
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      // detail 为 null 但没抛异常时，不能写成「暂无数据」——
-                      // 这是「没取到」，用户看到「暂无」会以为这场考试没有资料
-                      _error ?? '没取到考试详情，请点重试',
-                      style: const TextStyle(color: AppColors.textSecondary),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        TextButton(onPressed: _load, child: const Text('重试')),
-                        const SizedBox(width: 8),
-                        FilledButton.icon(
-                          onPressed: _openWeb,
-                          icon: const Icon(Icons.open_in_new, size: 16),
-                          label: const Text('直接在网页中打开作答'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.usstRed,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                child: AsyncStateView(
+                  // detail 为 null 但没抛异常时，不能写成「暂无数据」——
+                  // 这是「没取到」，用户看到「暂无」会以为这场考试没有资料
+                  error: _error ?? '没取到考试详情，请点重试',
+                  onRetry: _load,
+                  secondaryLabel: '直接在网页中打开作答',
+                  onSecondary: _openWeb,
                 ),
               ),
             )
