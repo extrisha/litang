@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import '../app_exception.dart';
 import '../auth/cas_client.dart';
 import 'device_id.dart';
 
@@ -382,11 +383,25 @@ class RollcallApi {
   static const String _base = 'https://$host';
 
   /// 拉取「正在进行中」的签到（周末/无课时返回空列表）。
+  ///
+  /// 按数据层契约（`AppException`）：返回空列表只表示「确实没有进行中的签到」；
+  /// 登录失效 / 网络失败 / 拿到 HTML 页面都必须抛，不能伪装成空。
   Future<List<Rollcall>> fetchOngoing() async {
-    final resp = await client.getApi(
-      Uri.parse('$_base/api/radar/rollcalls?api_version=1.1.0'),
-    );
-    return parseOngoing(resp.data ?? '');
+    final Response<dynamic> resp;
+    try {
+      resp = await client.getApi(
+        Uri.parse('$_base/api/radar/rollcalls?api_version=1.1.0'),
+      );
+    } catch (e) {
+      throw AppException(AppFailure.network, '签到信息拉取失败，请检查网络', e);
+    }
+    final raw = resp.data ?? '';
+    final text = raw.trimLeft();
+    if (!text.startsWith('{') && !text.startsWith('[')) {
+      // 拿到的是 HTML（登录页 / 错误页），说明会话已经失效
+      throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
+    }
+    return parseOngoing(raw);
   }
 
   /// 数字口令签到。

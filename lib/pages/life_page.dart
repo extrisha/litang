@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../app_theme.dart';
 import '../data/auth/cas_client.dart';
+import '../data/app_exception.dart';
 import '../data/auth/jwgl_auth.dart';
 import '../data/calendar/calendar_service.dart';
 import '../data/chaoxing/chaoxing_auth.dart';
@@ -227,7 +228,10 @@ class _LifePageState extends State<LifePage> {
           // 以前这里用 `catch (_) {}` 静默吞掉，用户点刷新后完全没反馈。
           debugPrint('[rollcall] 刷新失败: $e');
           if (mounted) {
-            setState(() => _error = '签到信息拉取失败，请稍后重试');
+            setState(() {
+              // 接口层已经能区分「登录失效 / 网络失败」，直接用它的人话文案
+              _error = e is AppException ? e.message : '签到信息拉取失败，请稍后重试';
+            });
           }
         }
       }
@@ -742,9 +746,12 @@ class _LifePageState extends State<LifePage> {
       // 会多花一次网络往返。放在后台跑，别拖住 loading 转圈，
       // 失败了也不该把整页标成错误。
       unawaited(_syncHomeworkReminders(client, _todos));
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
-        setState(() => _error = '签到信息拉取失败，请稍后重试');
+        setState(() {
+          // 接口层已区分「登录失效 / 网络失败 / 解析失败」，直接用它的文案
+          _error = e is AppException ? e.message : '签到信息拉取失败，请稍后重试';
+        });
       }
     } finally {
       if (mounted) {
