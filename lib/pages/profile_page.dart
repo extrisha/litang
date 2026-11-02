@@ -44,6 +44,10 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _openingXuegong = false;
   int _week = 1;
 
+  /// 版本信息只取一次（`PackageInfo.fromPlatform()` 走 platform channel，
+  /// 放在 build 里会每次重建都重新查一遍）。
+  final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
+
   @override
   void initState() {
     super.initState();
@@ -362,7 +366,9 @@ class _ProfilePageState extends State<ProfilePage> {
         borderRadius: BorderRadius.circular(16),
       ),
       child: FutureBuilder<PackageInfo>(
-        future: PackageInfo.fromPlatform(),
+        // 必须缓存这个 Future：在 build 里直接 `PackageInfo.fromPlatform()`
+        // 会每次重建都重新走一次 platform channel。
+        future: _packageInfo,
         builder: (context, snap) {
           final version = snap.data == null ? '' : '当前版本 ${snap.data!.version}';
           return ListTile(
@@ -390,11 +396,19 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _checkUpdate() async {
-    final info = await UpdateService.check();
+    // 用 checkWithStatus：check() 把「检查失败」和「已是最新」都返回 null，
+    // 直接用它会把断网显示成「当前已是最新版本」。
+    final result = await UpdateService.checkWithStatus();
     if (!mounted) return;
+    final info = result.info;
     if (info == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('当前已是最新版本')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.failed ? '检查更新失败，请检查网络后重试' : '当前已是最新版本',
+          ),
+        ),
+      );
       return;
     }
     await showUpdateDialog(context, info, mandatory: info.mandatory);

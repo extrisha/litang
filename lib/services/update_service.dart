@@ -71,15 +71,32 @@ class UpdateService {
       'https://gitee.com/extrisha/litang/raw/main/update.json?download=1';
 
   /// 返回新版本；没有更新或检查失败返回 null。
-  static Future<UpdateInfo?> check() async {
+  ///
+  /// 注意：[check] 无法区分「确实没有更新」和「检查失败」，需要区分时用
+  /// [checkWithStatus]——否则界面会把网络故障说成「已是最新版本」。
+  static Future<UpdateInfo?> check() async => (await checkWithStatus()).info;
+
+  /// 带状态的检查：多返回一个 `failed`，表示根本没能判断（两个源都拿不到清单）。
+  static Future<({UpdateInfo? info, bool failed})> checkWithStatus() async {
     final info =
         await _fetchManifest(giteeManifest) ??
         await _fetchManifest(githubManifest);
-    if (info == null) return null;
+    if (info == null) {
+      // 两个镜像都没拿到清单：是网络/解析问题，不是「没有新版本」
+      return (info: null, failed: true);
+    }
     final current = await _currentVersionCode();
-    if (info.versionCode <= current) return null;
-    if (info.githubUrl.isEmpty && info.giteeUrl.isEmpty) return null;
-    return info.withMandatory(isMandatory(current: current, min: info.minVersionCode));
+    if (info.versionCode <= current) return (info: null, failed: false);
+    if (info.githubUrl.isEmpty && info.giteeUrl.isEmpty) {
+      // 清单存在但下载地址都缺，等价于「无法提供更新」
+      return (info: null, failed: true);
+    }
+    return (
+      info: info.withMandatory(
+        isMandatory(current: current, min: info.minVersionCode),
+      ),
+      failed: false,
+    );
   }
 
   /// 是否必须更新：本机版本低于云端要求的最低版本。
