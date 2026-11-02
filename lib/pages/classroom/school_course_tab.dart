@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app_theme.dart';
+import '../../data/app_exception.dart';
 import '../../data/auth/jwgl_auth.dart';
 import '../../data/calendar/calendar_service.dart';
 import '../../data/jwc/classroom_api.dart';
@@ -107,7 +108,7 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
       });
     } catch (e) {
       setState(() {
-        _error = '全校排课查询失败：$e';
+        _error = e is AppException ? e.message : '全校排课查询失败：$e';
         _loading = false;
       });
     }

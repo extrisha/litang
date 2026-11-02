@@ -1,7 +1,9 @@
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 
+import '../app_exception.dart';
 import '../auth/cas_client.dart';
 import 'classroom_data.dart';
 
@@ -426,30 +428,39 @@ class ClassroomApi {
 
     final uri = Uri.parse(_scheduleUrl).replace(queryParameters: queryMap);
 
-    final resp = await client.getApi(
-      uri,
-      headers: const <String, String>{
-        'Referer': _entryUrl,
-        'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-            '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
-    );
+    final Response<dynamic> resp;
+    try {
+      resp = await client.getApi(
+        uri,
+        headers: const <String, String>{
+          'Referer': _entryUrl,
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+      );
+    } catch (e) {
+      throw AppException(AppFailure.network, '排课数据拉取失败，请检查网络', e);
+    }
 
     final raw = resp.data ?? '';
     if (!raw.trim().startsWith('{')) {
-      return const <LappScheduleItem>[];
+      // 拿到 HTML（登录页）：不能当成「这一周没有课」
+      throw const AppException(AppFailure.auth, '教务登录已失效，请在「我的」重新登录后重试');
     }
 
     final Map<String, dynamic> json;
     try {
       json = jsonDecode(raw) as Map<String, dynamic>;
-    } catch (_) {
-      return const <LappScheduleItem>[];
+    } catch (e) {
+      throw AppException(AppFailure.parse, '排课数据解析失败，请稍后重试', e);
     }
 
     if (json['resultCode'] != 0) {
-      return const <LappScheduleItem>[];
+      throw AppException(
+        AppFailure.server,
+        '排课数据拉取失败（resultCode=${json['resultCode']}）',
+      );
     }
 
     final result =

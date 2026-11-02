@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
+
+import '../app_exception.dart';
 import '../auth/cas_client.dart';
 
 /// 培养方案树上的一个节点（大类 / 子类）。
@@ -203,12 +206,30 @@ class AcademicApi {
     String categoryId,
     String xhId,
   ) async {
-    final resp = await client.postApi(
-      Uri.parse('https://jwgl.usst.edu.cn$path'),
-      <String, String>{'fromXh_id': '', 'xfyqjd_id': categoryId, 'xh_id': xhId},
-      referer: 'https://jwgl.usst.edu.cn/jwglxt/xsxy/xsxyqk_cxXsxyqkIndex.html?gnmkdm=N105515&layout=default',
-    );
-    return parseCourses(resp.data ?? '');
+    final Response<dynamic> resp;
+    try {
+      resp = await client.postApi(
+        Uri.parse('https://jwgl.usst.edu.cn$path'),
+        <String, String>{
+          'fromXh_id': '',
+          'xfyqjd_id': categoryId,
+          'xh_id': xhId,
+        },
+        referer: 'https://jwgl.usst.edu.cn/jwglxt/xsxy/xsxyqk_cxXsxyqkIndex.html?gnmkdm=N105515&layout=default',
+      );
+    } catch (e) {
+      throw AppException(AppFailure.network, '课程明细拉取失败，请检查网络', e);
+    }
+    final raw = resp.data ?? '';
+    final trimmed = raw.trim();
+    // 解析器对非 JSON 一律返回空列表，但「拿到登录页」不能被当成「没有课程」：
+    // 两个接口都试完之后会得到空列表，页面就显示「暂无课程」了。
+    if (trimmed.isNotEmpty &&
+        !trimmed.startsWith('[') &&
+        !trimmed.startsWith('{')) {
+      throw const AppException(AppFailure.auth, '教务登录已失效，请在「我的」重新登录后重试');
+    }
+    return parseCourses(raw);
   }
 
   /// 页面把培养方案树内联在 JS 字符串里：

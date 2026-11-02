@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app_theme.dart';
+import '../../data/app_exception.dart';
 import '../../data/auth/jwgl_auth.dart';
 import '../../data/calendar/calendar_service.dart';
 import '../../data/jwc/classroom_api.dart';
@@ -131,7 +132,8 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
       });
     } catch (e) {
       setState(() {
-        _error = '教室数据加载失败：$e';
+        // 数据层已经给出人话（登录失效 / 网络 / 解析），别再套一层前缀
+        _error = e is AppException ? e.message : '教室数据加载失败：$e';
         _loading = false;
       });
     }
