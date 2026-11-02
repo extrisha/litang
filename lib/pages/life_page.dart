@@ -63,6 +63,7 @@ class _LifePageState extends State<LifePage> {
   List<LmsCourseInfo> _courseInfos = const <LmsCourseInfo>[];
 
   // 学习通
+  /// 学习通请求是否在途（纯互斥锁，不参与渲染）
   bool _cxLoading = false;
   String? _cxError;
   List<ChaoxingCourse> _cxCourses = const <ChaoxingCourse>[];
@@ -517,8 +518,9 @@ class _LifePageState extends State<LifePage> {
     if (_cxLoading) {
       return;
     }
+    // 纯互斥锁：没有接到任何 UI 上，不能走 setState（否则每学习通刷新都白重建整页）
+    _cxLoading = true;
     setState(() {
-      _cxLoading = true;
       _cxError = null;
     });
     final cacheUser = JwglAuth.instance.savedUsername;
@@ -619,7 +621,7 @@ class _LifePageState extends State<LifePage> {
       }
     } finally {
       if (mounted) {
-        setState(() => _cxLoading = false);
+        _cxLoading = false;
       }
     }
   }
@@ -655,7 +657,7 @@ class _LifePageState extends State<LifePage> {
     }
   }
 
-  Future<void> _refresh({bool silent = false, bool force = false}) async {
+  Future<void> _refresh({bool force = false}) async {
     if (_loading && !force) {
       return;
     }
@@ -739,7 +741,7 @@ class _LifePageState extends State<LifePage> {
       // 失败了也不该把整页标成错误。
       unawaited(_syncHomeworkReminders(client, _todos));
     } catch (_) {
-      if (mounted && !silent) {
+      if (mounted) {
         setState(() => _error = '签到信息拉取失败，请稍后重试');
       }
     } finally {
@@ -1213,7 +1215,7 @@ class _LifePageState extends State<LifePage> {
     if (raw == null || raw.isEmpty || !mounted) {
       return;
     }
-    setState(() => _cxLoading = true);
+    _cxLoading = true;
     var signed = false;
     try {
       final result = await client.signByQr(raw);
@@ -1227,7 +1229,7 @@ class _LifePageState extends State<LifePage> {
       }
     } finally {
       if (mounted) {
-        setState(() => _cxLoading = false);
+        _cxLoading = false;
       }
     }
     if (signed) {
