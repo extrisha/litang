@@ -115,7 +115,8 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   void _buildIndex(List<Notice> notices, DateTime? fetchedAt) {
-    final index = NoticeSearchIndex.build(notices);
+    // forNotices 会复用上一次的索引：同一份通知列表重复打开搜索页不再重建
+    final index = NoticeSearchIndex.forNotices(notices);
     if (!mounted) {
       return;
     }

@@ -434,6 +434,33 @@ class NoticeSearchIndex {
     return out;
   }
 
+  /// 上一次建好的索引。搜索页每次打开都会重建索引（7631 条实测 111ms，
+  /// 手机端更慢），而同一份通知列表反复打开时索引内容完全一样。
+  /// 只要传进来的还是同一个 List 实例（相同 feed 未刷新），就直接复用。
+  static NoticeSearchIndex? _cached;
+  static List<Notice>? _cachedSource;
+
+  /// 取索引：同一份通知列表只构建一次。
+  ///
+  /// 用 `identical` 判断而不是比较内容——`Notice` 没有实现 `==`，
+  /// 且通知数量上千，逐条比对本身就不便宜；列表换新实例就说明数据变了。
+  static NoticeSearchIndex forNotices(List<Notice> notices) {
+    final cached = _cached;
+    if (cached != null && identical(_cachedSource, notices)) {
+      return cached;
+    }
+    final index = build(notices);
+    _cachedSource = notices;
+    _cached = index;
+    return index;
+  }
+
+  /// 清掉缓存（例如退出登录时）。
+  static void clearCache() {
+    _cached = null;
+    _cachedSource = null;
+  }
+
   static NoticeSearchIndex build(List<Notice> notices) {
     final termFreqs = <Map<String, int>>[];
     final docLengths = <int>[];

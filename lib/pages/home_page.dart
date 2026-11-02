@@ -54,8 +54,8 @@ class _HomePageState extends State<HomePage> {
         _error = null;
         _kinds = NoticeRanker.kindsIn(feed.notices);
         _loading = false;
+        _recompute();
       });
-      _recompute();
 
       // 学院偏好单独读：存储偶尔会慢（甚至没有实现），不该把首屏卡在白屏上
       final depts = <String>{for (final n in feed.notices) n.dept};
@@ -66,17 +66,27 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         _detectedCollege = detected;
         _selectedCollege = selected;
+        _recompute();
       });
-      _recompute();
     } catch (e) {
       if (!mounted) return;
+      debugPrint('[home] 通知加载失败: $e');
       setState(() {
         _error = e;
         _loading = false;
       });
+      // 已经有数据时不要整页换成错误页：保留列表，只用一条提示说明这次刷新没成
+      if (_feed != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('刷新失败，当前显示的是上次加载的数据')),
+        );
+      }
     }
   }
 
+  /// 重新算排序结果。
+  ///
+  /// **必须在 setState 内调用**——它直接改 `_ranked`，在外面调等于改了状态却不重建。
   void _recompute() {
     final feed = _feed;
     if (feed == null) return;
@@ -127,13 +137,13 @@ class _HomePageState extends State<HomePage> {
               label: const Text('重试'),
             ),
             if (_error != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 32),
                 child: Text(
-                  '$_error',
+                  '请检查网络后重试；已经加载过的离线数据也可以下拉重新加载',
                   maxLines: 3,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     color: AppColors.textSecondary,
                   ),
@@ -160,8 +170,8 @@ class _HomePageState extends State<HomePage> {
                 setState(() {
                   _kind = '全部';
                   _selectedCollege = null;
+                  _recompute();
                 });
-                _recompute();
               },
               icon: const Icon(Icons.filter_alt_off_outlined, size: 18),
               label: const Text('清除筛选'),
@@ -264,8 +274,10 @@ class _HomePageState extends State<HomePage> {
                 label: k,
                 selected: _kind == k,
                 onTap: () {
-                  setState(() => _kind = k);
-                  _recompute();
+                  setState(() {
+                    _kind = k;
+                    _recompute();
+                  });
                 },
               ),
             ),
@@ -418,8 +430,10 @@ class _HomePageState extends State<HomePage> {
     final value = picked.isEmpty ? null : picked;
     await NoticePrefs.setSelected(value);
     if (!mounted) return;
-    setState(() => _selectedCollege = value);
-    _recompute();
+    setState(() {
+      _selectedCollege = value;
+      _recompute();
+    });
   }
 
   Widget _collegeTile({
@@ -496,16 +510,17 @@ class _HomePageState extends State<HomePage> {
 
   Widget _noticeRow(Notice n) {
     final color = _kindColors[n.kind] ?? const Color(0xFF9E9E9E);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
+    // 用 Material 承载白底：原来白底画在 Container 上，会把 InkWell 的水波纹
+    // 盖住，点击毫无反馈
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => _openNotice(n),
-        child: Padding(
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => _openNotice(n),
+          child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -587,6 +602,7 @@ class _HomePageState extends State<HomePage> {
               ),
             ],
           ),
+        ),
         ),
       ),
     );
