@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../app_exception.dart';
 import 'chaoxing_client.dart';
 
 /// 学习通课程章节。
@@ -215,6 +216,25 @@ class ChaoxingCourseDetailApi {
   }
 
   /// 学习通考试列表。
+  /// 抓回来的页面如果其实是登录页，说明 cookie 已失效。
+  ///
+  /// 以前这里会正常解析出空列表，页面就显示「暂无考试 / 暂无作业 / 暂无章节」，
+  /// 把「登录失效」伪装成「没有内容」——这就是全项目反复出现的
+  /// 「取不到 ≠ 没有」。按 `AppException` 契约，这种情况必须抛出来。
+  static void _ensureNotLoginPage(String html) {
+    if (html.trim().isEmpty) {
+      throw const AppException(AppFailure.parse, '学习通返回了空内容，请稍后重试');
+    }
+    if (html.contains('passport2.chaoxing.com/login') ||
+        html.contains('请输入密码') ||
+        html.contains('loginForm')) {
+      throw const AppException(
+        AppFailure.auth,
+        '学习通登录已失效，请回到「我的」重新登录',
+      );
+    }
+  }
+
   Future<List<ChaoxingExam>> fetchExams(ChaoxingCourse course) async {
     final response = await client.getPage(
       Uri.parse(
@@ -230,6 +250,7 @@ class ChaoxingCourseDetailApi {
       },
     );
     final html = (response.data as String?) ?? '';
+    _ensureNotLoginPage(html);
     return parseExams(html);
   }
 
@@ -339,6 +360,7 @@ class ChaoxingCourseDetailApi {
       headers: <String, String>{'Referer': referer.toString()},
     );
     final html = (response.data as String?) ?? '';
+    _ensureNotLoginPage(html);
     final units = <ChaoxingChapterUnit>[];
     final parts = html.split('class="chapter_unit"');
     for (final part in parts.skip(1)) {
