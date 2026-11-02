@@ -35,6 +35,16 @@ class _ChaoxingExamDetailPageState extends State<ChaoxingExamDetailPage> {
   String? _html;
   bool _loading = true;
 
+  /// 抓下来的 HTML 看着像登录页：说明 cookie 已经不被服务端认可。
+  bool _loginRequired = false;
+
+  /// 只靠长度判断不够：登录页也有好几千字符，原来会被当成「正常答卷页」
+  /// 直接塞进 WebView，用户看到的是一个登录表单，却不知道是 cookie 失效。
+  static bool _looksLikeLoginPage(String body) =>
+      body.contains('passport2.chaoxing.com/login') ||
+      body.contains('请输入密码') ||
+      body.contains('id="loginForm"');
+
   bool get _finished =>
       widget.exam.status.contains('已完成') || widget.exam.status.contains('已批阅');
 
@@ -56,13 +66,16 @@ class _ChaoxingExamDetailPageState extends State<ChaoxingExamDetailPage> {
       if (client != null) {
         final resp = await client.getPage(Uri.parse(widget.exam.analysisUrl));
         final body = (resp.data as String?) ?? '';
-        // 太长/太短都不太像正常答卷页，宁可回退到直接加载
-        if (body.length > 1000) {
+        if (_looksLikeLoginPage(body)) {
+          _loginRequired = true;
+        } else if (body.length > 1000) {
+          // 太长/太短都不太像正常答卷页，宁可回退到直接加载
           _html = body;
         }
       }
-    } catch (_) {
+    } catch (e) {
       // 抓不到就回退成直接打开网址
+      debugPrint('[chaoxing] 答卷页抓取失败: $e');
     }
     if (mounted) setState(() => _loading = false);
   }
@@ -123,6 +136,24 @@ class _ChaoxingExamDetailPageState extends State<ChaoxingExamDetailPage> {
               ],
             ),
           ),
+          if (_loginRequired)
+            Container(
+              width: double.infinity,
+              color: const Color(0xFFFEF3C7),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: const Row(
+                children: <Widget>[
+                  Icon(Icons.info_outline, size: 15, color: Color(0xFFD97706)),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '学习通登录状态可能已失效。若下方要求登录，请回到「我的」重新登录学习通。',
+                      style: TextStyle(fontSize: 11.5, color: Color(0xFF92400E)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
