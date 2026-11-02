@@ -111,5 +111,18 @@ void main() {
         isFalse,
       );
     });
+
+    test('SSO 网关页不算已登录（否则会提前读 cookie 导致误报登录失败）', () {
+      expect(
+        ChaoxingLoginPage.looksLoggedIn(
+          'https://tyrzfw.chaoxing.com/auth3/usst/cas/init?isLogout=0',
+        ),
+        isFalse,
+      );
+      expect(
+        ChaoxingLoginPage.looksLoggedIn('https://sso.chaoxing.com/anything'),
+        isFalse,
+      );
+    });
   });
 }

@@ -83,9 +83,17 @@ class ChaoxingLoginPage extends StatefulWidget {
         host == 'mooc2-ans.chaoxing.com') {
       return true;
     }
+    // 认证/跳转网关不能当业务页：`tyrzfw.chaoxing.com` 是 SSO 网关，
+    // 它的中转页也会触发 onPageFinished。以前这里只排除了 passport 和 auth，
+    // 于是网关页一加载就被判成"已登录"，提前去读 cookie → 读到不完整的会话
+    // → 提示「登录状态无效，请重新登录」。
+    const gatewayHosts = <String>{'tyrzfw.chaoxing.com', 'sso.chaoxing.com'};
+    if (gatewayHosts.contains(host)) return false;
     return host.endsWith('.chaoxing.com') &&
         !host.contains('passport') &&
-        !host.contains('auth');
+        !host.contains('auth') &&
+        !host.contains('tyrzfw') &&
+        !host.contains('sso');
   }
 
   @override

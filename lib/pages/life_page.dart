@@ -565,6 +565,9 @@ class _LifePageState extends State<LifePage> {
           setState(() {
             _cxActivities = const <ChaoxingActivity>[];
             _cxWorks = const <ChaoxingWork>[];
+            // 别只是清空：清空后待办卡片会显示「暂无待办作业」，
+            // 让"没登录上"看起来像"确实没有作业"。
+            _cxError = '学习通未登录或登录已过期，点上方按钮重新登录';
           });
         }
         return;
