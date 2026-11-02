@@ -476,13 +476,20 @@ class _HomePageState extends State<HomePage> {
     final raw = notice.url;
     if (raw == null || raw.isEmpty) return;
     final uri = Uri.tryParse(raw);
-    final url = (uri != null && uri.hasScheme)
-        ? raw
-        : 'https://jwc.usst.edu.cn${raw.startsWith('/') ? '' : '/'}$raw';
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      // 通知来自全校 63 个二级站点，相对路径没有可靠的基准域名。
+      // 以前统一拼到 jwc.usst.edu.cn，会把图书馆/学院的通知打开成教务处的
+      // 404 页面——宁可明确告诉用户打不开，也不要静默跳到错的站点。
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('该通知链接不完整，无法在应用内打开')),
+      );
+      return;
+    }
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SimpleWebPage(title: notice.title, url: url),
+        builder: (_) => SimpleWebPage(title: notice.title, url: uri.toString()),
       ),
     );
   }

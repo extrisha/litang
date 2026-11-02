@@ -70,13 +70,22 @@ class NoticeRanker {
     }
 
     final out = list.toList();
-    out.sort((a, b) {
-      final d = score(b, college: college, now: at)
-          .compareTo(score(a, college: college, now: at));
+
+    // 先算一次分数再排序。
+    //
+    // 原来是在比较器里现算：7631 条要做约 9 万次比较，每次比较调两次 score()，
+    // 而每条通知的分数其实是固定的。改成一个 record 列表排序，既不重复计算，
+    // 也不像 Map<Notice,double> 那样为每条建哈希表。
+    final scored = <({Notice notice, double score})>[
+      for (final n in out)
+        (notice: n, score: score(n, college: college, now: at)),
+    ];
+    scored.sort((a, b) {
+      final d = b.score.compareTo(a.score);
       if (d != 0) return d;
-      return b.title.compareTo(a.title);
+      return b.notice.title.compareTo(a.notice.title);
     });
-    return out;
+    return <Notice>[for (final e in scored) e.notice];
   }
 
   /// 数据里出现过的分类，按权重排（给筛选栏用）。
