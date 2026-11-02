@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../data/app_exception.dart';
 import '../data/cache_store.dart';
 import '../data/http/api_client.dart';
 
@@ -209,11 +210,12 @@ class DormElectricityCache {
   }
 }
 
-class DormElectricityException implements Exception {
-  final String message;
-  DormElectricityException(this.message);
-  @override
-  String toString() => message;
+/// 宿舍电费查询失败。
+///
+/// 继承 [AppException]，页面统一用 `e.message` 展示。
+class DormElectricityException extends AppException {
+  const DormElectricityException(String message)
+    : super(AppFailure.server, message);
 }
 
 /// 按 URI 取 Cookie 请求头的值（复用 `CasClient.jar` 时用它）。

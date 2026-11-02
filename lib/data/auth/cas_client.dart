@@ -3,14 +3,14 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../app_exception.dart';
+
 /// 登录失败，message 可直接展示给用户。
-class CasLoginException implements Exception {
-  CasLoginException(this.message);
-
-  final String message;
-
-  @override
-  String toString() => message;
+///
+/// 继承 [AppException]：页面只需要 `catch (AppException e) => e.message`
+/// 一套逻辑，不用为每种业务失败各写一个 catch 分支。
+class CasLoginException extends AppException {
+  const CasLoginException(String message) : super(AppFailure.auth, message);
 }
 
 /// 把学校 `*.usst.edu.cn` 的 http 地址升级成 https。

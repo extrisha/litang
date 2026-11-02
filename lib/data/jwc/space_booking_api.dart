@@ -3,25 +3,24 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 
+import '../app_exception.dart';
 import '../auth/cas_client.dart';
 import '../auth/jwgl_auth.dart';
 import '../date_format.dart';
 
 /// 空间预约接口失败。
 ///
-/// 存在的意义是让「取不到」和「没有」区分开：涉及列表的接口以前一律
-/// `catch (_) { return []; }`，页面就会把登录失败/网络失败显示成
-/// 「暂无研讨空间」，用户完全无从判断该重试还是该重新登录。
-class SpaceBookingException implements Exception {
-  SpaceBookingException(this.message, {this.authRelated = false});
+/// 继承 [AppException]：`authRelated` 为 true 时归一成 [AppFailure.auth]，
+/// 页面既可以写 `catch (AppException e) => e.message`，也保留原来的
+/// `authRelated` 判断。
+class SpaceBookingException extends AppException {
+  SpaceBookingException(String message, {bool authRelated = false})
+    : authRelated = authRelated,
+      super(authRelated ? AppFailure.auth : AppFailure.server, message);
 
-  final String message;
-
-  /// 是否属于「登录态失效」这类问题（页面可以据此提示重新登录）。
+  /// 是否属于「登录态失效」这类问题（与 `failure == AppFailure.auth` 等价，
+  /// 保留是为了不改已有调用点）。
   final bool authRelated;
-
-  @override
-  String toString() => message;
 }
 
 /// 图书馆研修间/研讨室模型

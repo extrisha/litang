@@ -1,15 +1,14 @@
 import 'dart:convert';
 
+import '../app_exception.dart';
 import '../auth/cas_client.dart';
 import 'pdf_text_extractor.dart';
 
-class RankException implements Exception {
-  RankException(this.message);
-
-  final String message;
-
-  @override
-  String toString() => message;
+/// 专业排名解析/获取失败。
+///
+/// 继承 [AppException]，页面统一用 `e.message` 展示。
+class RankException extends AppException {
+  const RankException(String message) : super(AppFailure.server, message);
 }
 
 /// 专业排名（从教务「专业排名证明」PDF 里解析出来）。
