@@ -503,12 +503,12 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
     Color badgeText;
     if (room.isAvailable) {
       badgeBg = const Color(0xFFDCFCE7);
-      badgeText = const Color(0xFF15803D);
+      badgeText = AppColors.successText;
     } else if (room.status == 2) {
-      badgeBg = const Color(0xFFF3F4F6);
+      badgeBg = AppColors.surfaceMuted;
       badgeText = const Color(0xFF6B7280);
     } else if (room.status == 1) {
-      badgeBg = const Color(0xFFF3F4F6);
+      badgeBg = AppColors.surfaceMuted;
       badgeText = const Color(0xFF6B7280);
     } else {
       badgeBg = const Color(0xFFFEF3C7);
@@ -666,7 +666,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                   vertical: 4.5,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF3F4F6),
+                  color: AppColors.surfaceMuted,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
@@ -852,17 +852,13 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
               const Spacer(),
               _buildLegend(
                 const Color(0xFFDCFCE7),
-                const Color(0xFF15803D),
+                AppColors.successText,
                 '可预约',
               ),
               const SizedBox(width: 8),
-              _buildLegend(const Color(0xFFFEE2E2), AppColors.usstRed, '已选'),
+              _buildLegend(AppColors.dangerBg, AppColors.usstRed, '已选'),
               const SizedBox(width: 8),
-              _buildLegend(
-                const Color(0xFFF3F4F6),
-                const Color(0xFF9CA3AF),
-                '不可约',
-              ),
+              _buildLegend(AppColors.surfaceMuted, AppColors.textMuted, '不可约'),
             ],
           ),
           const SizedBox(height: 12),
@@ -931,29 +927,29 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 IconData icon;
 
                 if (isSelected) {
-                  bg = const Color(0xFFFEE2E2);
+                  bg = AppColors.dangerBg;
                   border = AppColors.usstRed;
                   textColor = AppColors.usstRed;
                   statusText = '已选中';
                   icon = Icons.check_circle_rounded;
                 } else if (occupied) {
-                  bg = const Color(0xFFF3F4F6);
-                  border = const Color(0xFFE5E7EB);
-                  textColor = const Color(0xFF9CA3AF);
+                  bg = AppColors.surfaceMuted;
+                  border = AppColors.border;
+                  textColor = AppColors.textMuted;
                   statusText = slot.occupantDesc.isNotEmpty
                       ? slot.occupantDesc
                       : '已被约';
                   icon = Icons.lock_outline;
                 } else if (isPast) {
                   bg = const Color(0xFFF9FAFB);
-                  border = const Color(0xFFE5E7EB);
-                  textColor = const Color(0xFF9CA3AF);
+                  border = AppColors.border;
+                  textColor = AppColors.textMuted;
                   statusText = '已过时';
                   icon = Icons.history;
                 } else {
                   bg = const Color(0xFFF0FDF4);
                   border = const Color(0xFFBBF7D0);
-                  textColor = const Color(0xFF15803D);
+                  textColor = AppColors.successText;
                   statusText = '可预约';
                   icon = Icons.radio_button_unchecked;
                 }
@@ -1090,10 +1086,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                     decoration: BoxDecoration(
                       color: const Color(0xFFFAFAFA),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: const Color(0xFFE5E7EB),
-                        width: 0.6,
-                      ),
+                      border: Border.all(color: AppColors.border, width: 0.6),
                     ),
                     child: Row(
                       children: <Widget>[
@@ -1117,7 +1110,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                             vertical: 1.5,
                           ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFEE2E2),
+                            color: AppColors.dangerBg,
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
@@ -1187,7 +1180,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
       ),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8)),
+        border: Border(top: BorderSide(color: AppColors.border, width: 0.8)),
       ),
       child: Row(
         children: <Widget>[
@@ -1213,9 +1206,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                       : room.statusDesc,
                   style: TextStyle(
                     fontSize: 11.5,
-                    color: available
-                        ? const Color(0xFF15803D)
-                        : const Color(0xFFDC2626),
+                    color: available ? AppColors.successText : AppColors.danger,
                   ),
                 ),
               ],
@@ -1600,8 +1591,8 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                       return ChoiceChip(
                         label: Text(p.label),
                         selected: isSelected,
-                        selectedColor: const Color(0xFFFEE2E2),
-                        backgroundColor: const Color(0xFFF3F4F6),
+                        selectedColor: AppColors.dangerBg,
+                        backgroundColor: AppColors.surfaceMuted,
                         labelStyle: TextStyle(
                           fontSize: 12,
                           color: isSelected
@@ -1690,7 +1681,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                  color: const Color(0xFFD1D5DB),
+                                  color: AppColors.borderStrong,
                                 ),
                                 color: const Color(0xFFFAFAFA),
                               ),
@@ -1750,8 +1741,8 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                                 return ChoiceChip(
                                   label: Text('$d小时'),
                                   selected: isSelected,
-                                  selectedColor: const Color(0xFFFEE2E2),
-                                  backgroundColor: const Color(0xFFF3F4F6),
+                                  selectedColor: AppColors.dangerBg,
+                                  backgroundColor: AppColors.surfaceMuted,
                                   labelStyle: TextStyle(
                                     fontSize: 12,
                                     color: isSelected
@@ -1809,7 +1800,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                               : Icons.check_circle_outline,
                           size: 16,
                           color: _hasConflict
-                              ? const Color(0xFFDC2626)
+                              ? AppColors.danger
                               : const Color(0xFF16A34A),
                         ),
                         const SizedBox(width: 8),
@@ -1822,8 +1813,8 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                               fontSize: 12.5,
                               fontWeight: FontWeight.w600,
                               color: _hasConflict
-                                  ? const Color(0xFFDC2626)
-                                  : const Color(0xFF15803D),
+                                  ? AppColors.danger
+                                  : AppColors.successText,
                             ),
                           ),
                         ),
@@ -1871,7 +1862,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                                 hintText: '输入同行同学学号',
                                 hintStyle: const TextStyle(
                                   fontSize: 12,
-                                  color: Color(0xFF9CA3AF),
+                                  color: AppColors.textMuted,
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 10,
@@ -1880,7 +1871,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(6),
                                   borderSide: const BorderSide(
-                                    color: Color(0xFFD1D5DB),
+                                    color: AppColors.borderStrong,
                                   ),
                                 ),
                               ),
@@ -1890,7 +1881,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                         const SizedBox(width: 8),
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFF3F4F6),
+                            backgroundColor: AppColors.surfaceMuted,
                             foregroundColor: AppColors.textPrimary,
                             elevation: 0,
                             padding: const EdgeInsets.symmetric(
@@ -1921,7 +1912,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                             color: AppColors.usstRed,
                           ),
                           label: Text('${widget.api.realName ?? '本人'} (主约人)'),
-                          backgroundColor: const Color(0xFFFEE2E2),
+                          backgroundColor: AppColors.dangerBg,
                           labelStyle: const TextStyle(
                             fontSize: 11.5,
                             color: AppColors.usstRed,
@@ -1932,7 +1923,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                         ..._memberIds.map((mId) {
                           return Chip(
                             label: Text(mId),
-                            backgroundColor: const Color(0xFFF3F4F6),
+                            backgroundColor: AppColors.surfaceMuted,
                             deleteIcon: const Icon(Icons.close, size: 14),
                             onDeleted: () {
                               setState(() => _memberIds.remove(mId));
@@ -1972,7 +1963,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                                   hintText: '用于接收通知',
                                   hintStyle: const TextStyle(
                                     fontSize: 12,
-                                    color: Color(0xFF9CA3AF),
+                                    color: AppColors.textMuted,
                                   ),
                                   contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 10,
@@ -1981,7 +1972,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(6),
                                     borderSide: const BorderSide(
-                                      color: Color(0xFFD1D5DB),
+                                      color: AppColors.borderStrong,
                                     ),
                                   ),
                                 ),
@@ -2013,7 +2004,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                                   hintText: '如 自习、研讨',
                                   hintStyle: const TextStyle(
                                     fontSize: 12,
-                                    color: Color(0xFF9CA3AF),
+                                    color: AppColors.textMuted,
                                   ),
                                   contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 10,
@@ -2022,7 +2013,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(6),
                                     borderSide: const BorderSide(
-                                      color: Color(0xFFD1D5DB),
+                                      color: AppColors.borderStrong,
                                     ),
                                   ),
                                 ),
@@ -2038,7 +2029,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFEE2E2),
+                        color: AppColors.dangerBg,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Row(
@@ -2046,7 +2037,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                           const Icon(
                             Icons.error_outline,
                             size: 15,
-                            color: Color(0xFFDC2626),
+                            color: AppColors.danger,
                           ),
                           const SizedBox(width: 6),
                           Expanded(
@@ -2054,7 +2045,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                               _formError!,
                               style: const TextStyle(
                                 fontSize: 12,
-                                color: Color(0xFFDC2626),
+                                color: AppColors.danger,
                               ),
                             ),
                           ),

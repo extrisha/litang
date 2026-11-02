@@ -10,6 +10,54 @@ class AppColors {
   static const Color border = Color(0xFFE5E7EB);
   static const Color redTint = Color(0x1FA31C1C); // 12% 红，用于标签底 / 选中态
 
+  // ---------------------------------------------------------------------------
+  // 语义色板
+  //
+  // 页面里原本直接写 `Color(0xFFF3F4F6)` 这类 Tailwind 色值，全项目 493 处、
+  // 227 种。这里把**高频且有明确语义**的收成 token；一次性调色板
+  // （`today/models/course_theme.dart` 的 16 套课程色、
+  // `data/vector_map/vector_map_style.dart` 的地图风格）保持原样不动，
+  // 它们是数据不是主题。
+  // ---------------------------------------------------------------------------
+
+  /// 中性面：浅灰底（列表项、未选中 chip）
+  static const Color surfaceMuted = Color(0xFFF3F4F6);
+
+  /// 中性面：更浅的卡片/分组底
+  static const Color surfaceSubtle = Color(0xFFF9FAFB);
+  static const Color surfaceFaint = Color(0xFFFAFAFA);
+
+  /// 分隔线（比 [border] 更淡）
+  static const Color divider = Color(0xFFEDEDED);
+
+  /// 边框：比 [border] 深一档
+  static const Color borderStrong = Color(0xFFD1D5DB);
+
+  /// 三级文字（占位、弱提示）
+  static const Color textMuted = Color(0xFF9CA3AF);
+
+  /// 成功（已完成 / 已提交 / 通过）
+  static const Color success = Color(0xFF2E8B57);
+  static const Color successText = Color(0xFF15803D);
+  static const Color successBg = Color(0xFFDCFCE7);
+  static const Color successBorder = Color(0xFFB7EB8F);
+
+  /// 警告（须审核 / 即将截止 / 暂离）
+  static const Color warning = Color(0xFFD97706);
+  static const Color warningText = Color(0xFF92400E);
+  static const Color warningBg = Color(0xFFFEF3C7);
+
+  /// 危险 / 错误 / 欠费 / 已截止
+  static const Color danger = Color(0xFFDC2626);
+  static const Color dangerBg = Color(0xFFFEE2E2);
+
+  /// 信息 / 中性强调（非上理红的入口色）
+  static const Color info = Color(0xFF3B5BDB);
+  static const Color infoBg = Color(0xFFEFF5FF);
+
+  /// 主色浅底：选中态背景
+  static const Color redTintBg = Color(0xFFFEF2F2);
+
   /// 绩点颜色分级（0.5 一档细分，莫兰迪护眼低焦虑配色）：
   /// - ≥4.0: 麦芽流金（Gold 4.0~4.5）
   /// - ≥3.5: 暖金杏橙（Amber 3.5~3.99）
