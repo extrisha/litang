@@ -46,6 +46,26 @@ class JwglAuth extends ChangeNotifier {
   /// 本地是否保存了可自动登录的密码。
   bool get hasSavedPassword => _savedPassword?.isNotEmpty ?? false;
 
+  /// 把登录态落盘。
+  ///
+  /// **失败不算登录失败**：Android Keystore / iOS Keychain 在个别设备上会抛
+  /// （密钥被系统重置、锁屏策略、存储损坏…）。这种情况下本次会话已经可用，
+  /// 只是下次要重新登录。原来的写法让 `_store.save` 的异常一路冒到登录页，
+  /// 用户看到的是「网络异常」——明明是登录成功了的。
+  Future<void> _persist() async {
+    final client = _client;
+    if (client == null) return;
+    try {
+      await _store.save(
+        client,
+        username: _savedUsername,
+        password: _savedPassword,
+      );
+    } catch (e) {
+      debugPrint('[auth] 保存登录态失败（本次会话仍可用）: $e');
+    }
+  }
+
   Future<void> login(
     String username,
     String password, {
@@ -57,11 +77,7 @@ class JwglAuth extends ChangeNotifier {
     final client = CasClient();
     await client.login(username, password);
     _applyLogin(client, username.trim(), remember ? password : null);
-    await _store.save(
-      client,
-      username: _savedUsername,
-      password: _savedPassword,
-    );
+    await _persist();
     notifyListeners();
   }
 
@@ -77,11 +93,7 @@ class JwglAuth extends ChangeNotifier {
   }) async {
     final name = username.trim();
     _applyLogin(client, name, remember ? password : null);
-    await _store.save(
-      client,
-      username: _savedUsername,
-      password: _savedPassword,
-    );
+    await _persist();
     notifyListeners();
   }
 
@@ -116,11 +128,7 @@ class JwglAuth extends ChangeNotifier {
       if (await client.silentLogin()) {
         _client = client;
         _sessionCheckedAt = DateTime.now();
-        await _store.save(
-          client,
-          username: _savedUsername,
-          password: _savedPassword,
-        );
+        await _persist();
         notifyListeners();
         return;
       }
@@ -141,11 +149,7 @@ class JwglAuth extends ChangeNotifier {
       try {
         if (await current.silentLogin()) {
           _sessionCheckedAt = DateTime.now();
-          await _store.save(
-            current,
-            username: _savedUsername,
-            password: _savedPassword,
-          );
+          await _persist();
           notifyListeners();
           return true;
         }
@@ -162,7 +166,7 @@ class JwglAuth extends ChangeNotifier {
       final client = CasClient();
       await client.login(username, password);
       _applyLogin(client, username, password);
-      await _store.save(client, username: username, password: password);
+      await _persist();
       notifyListeners();
       return true;
     } catch (_) {
@@ -198,11 +202,7 @@ class JwglAuth extends ChangeNotifier {
     _sessionCheckedAt = null;
     if (await client.silentLogin()) {
       _sessionCheckedAt = DateTime.now();
-      await _store.save(
-        client,
-        username: _savedUsername,
-        password: _savedPassword,
-      );
+      await _persist();
       return true;
     }
     return _tryAutoLogin();
@@ -227,7 +227,7 @@ class JwglAuth extends ChangeNotifier {
       final client = CasClient();
       await client.login(username, password);
       _applyLogin(client, username, password);
-      await _store.save(client, username: username, password: password);
+      await _persist();
       notifyListeners();
       return true;
     } on CasCaptchaRequired {
@@ -262,6 +262,12 @@ class JwglAuth extends ChangeNotifier {
     _savedUsername = '';
     _savedPassword = null;
     _sessionCheckedAt = null;
-    await _store.clear();
+    try {
+      await _store.clear();
+    } catch (e) {
+      // 清不掉也不能让「退出登录」失败：内存里的登录态已经清了，
+      // 下次启动最多是恢复出一个无效会话，会在 checkSession 处被拒。
+      debugPrint('[auth] 清除本地登录态失败: $e');
+    }
   }
 }
