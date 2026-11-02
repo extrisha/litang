@@ -69,19 +69,43 @@ class _QrScanPageState extends State<QrScanPage> {
         actions: <Widget>[
           IconButton(
             tooltip: '手电筒',
-            onPressed: () => _controller.toggleTorch(),
+            onPressed: () => unawaited(
+              _controller.toggleTorch().catchError((Object e) {
+                debugPrint('[scan] 手电筒不可用: $e');
+              }),
+            ),
             icon: const Icon(Icons.flashlight_on_outlined),
           ),
           IconButton(
             tooltip: '切换摄像头',
-            onPressed: () => _controller.switchCamera(),
+            onPressed: () => unawaited(
+              _controller.switchCamera().catchError((Object e) {
+                debugPrint('[scan] 切换摄像头失败: $e');
+              }),
+            ),
             icon: const Icon(Icons.cameraswitch_outlined),
           ),
         ],
       ),
       body: Stack(
         children: <Widget>[
-          MobileScanner(controller: _controller, onDetect: _onDetect),
+          MobileScanner(
+            controller: _controller,
+            onDetect: _onDetect,
+            // 相机权限被拒 / 设备没有可用相机时，默认是一个黑屏，
+            // 用户完全不知道发生了什么、也不知道该怎么办。
+            errorBuilder: (context, error) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  '无法使用相机：${error.errorCode.name}\n'
+                  '请到系统设置里允许「理堂」使用相机后重试。',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ),
+            ),
+          ),
           // 双指捏合缩放，覆盖在预览上，不影响识别。
           Positioned.fill(
             child: GestureDetector(

@@ -62,7 +62,8 @@ class _DocxTextPageState extends State<DocxTextPage> {
       final xml = utf8.decode(entryBytes, allowMalformed: true);
       final text = _extract(xml);
       if (mounted) setState(() => _text = text);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[docx] 解析失败: $e');
       if (mounted) setState(() => _error = 'DOCX 解析失败');
     }
   }

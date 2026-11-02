@@ -172,6 +172,12 @@ class _TronForumPostPageState extends State<TronForumPostPage> {
         controller: controller,
         maxLines: maxLines,
         autofocus: autofocus,
+        // `_canSubmit` 是在 build 里算的，而 TextField 改内容只会重建它自己，
+        // 不会重建页面。没有这个回调的话，「发布」按钮永远停在禁用状态——
+        // 内容都填满了也点不动。
+        onChanged: (_) {
+          if (mounted) setState(() {});
+        },
         textInputAction: maxLines == 1
             ? TextInputAction.next
             : TextInputAction.newline,

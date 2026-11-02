@@ -26,22 +26,31 @@ class _ChaoxingVideoPageState extends State<ChaoxingVideoPage> {
   }
 
   Future<void> _init() async {
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(widget.url),
+      // 学习通 CDN（*.cldisk.com）会校验请求头：裸请求返回 403，
+      // 带上 Referer/UA 才返回 206 video/mp4。video_player 默认什么都不带。
+      httpHeaders: const <String, String>{
+        'User-Agent':
+            'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        'Referer': 'https://mooc1.chaoxing.com/',
+      },
+    );
     try {
-      final controller = VideoPlayerController.networkUrl(
-        Uri.parse(widget.url),
-        // 学习通 CDN（*.cldisk.com）会校验请求头：裸请求返回 403，
-        // 带上 Referer/UA 才返回 206 video/mp4。video_player 默认什么都不带。
-        httpHeaders: const <String, String>{
-          'User-Agent':
-              'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
-              '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-          'Referer': 'https://mooc1.chaoxing.com/',
-        },
-      );
       await controller.initialize();
       await controller.play();
-      if (mounted) setState(() => _controller = controller);
-    } catch (_) {
+      if (!mounted) {
+        // 初始化期间页面已经关了：dispose() 拿到的是 null，这里必须自己释放，
+        // 否则视频解码器会一直挂着。
+        await controller.dispose();
+        return;
+      }
+      setState(() => _controller = controller);
+    } catch (e) {
+      // 403 / 编码不支持都会走到这里，打出原因才好排查
+      debugPrint('[video] 初始化失败: $e');
+      await controller.dispose();
       if (mounted) setState(() => _error = '视频加载失败');
     }
   }
