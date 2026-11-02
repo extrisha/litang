@@ -52,11 +52,37 @@ class HomeworkSubmitPage extends StatefulWidget {
 class _HomeworkSubmitPageState extends State<HomeworkSubmitPage> {
   static const int maxSingleAttachmentBytes = 50 * 1024 * 1024; // 50MB
 
+  /// 附件总大小上限。
+  ///
+  /// 附件是整份读进内存再提交的（`List<int> bytes`），只卡单文件 50MB 的话，
+  /// 5 个 40MB 的视频就能把内存吃掉 200MB，中端机直接 OOM。
+  static const int maxTotalAttachmentBytes = 100 * 1024 * 1024; // 100MB
+
   late final TextEditingController _controller = TextEditingController(
     text: widget.initialText,
   );
   final List<SubmitAttachment> _attachments = <SubmitAttachment>[];
   bool _submitting = false;
+
+  int get _totalBytes =>
+      _attachments.fold<int>(0, (sum, a) => sum + a.bytes.length);
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// 统一包一层：选文件/读文件都会抛（权限被拒、SAF 异常、文件已删除…），
+  /// 不兜住的话用户点「添加图片」就是毫无反应。
+  Future<void> _guardPick(String action, Future<void> Function() body) async {
+    try {
+      await body();
+    } catch (e) {
+      debugPrint('[submit] $action 失败: $e');
+      _toast('$action失败，请检查存储/相册权限后重试');
+    }
+  }
 
   @override
   void dispose() {
@@ -79,6 +105,10 @@ class _HomeworkSubmitPageState extends State<HomeworkSubmitPage> {
         continue;
       }
       final bytes = await file.readAsBytes();
+      if (_totalBytes + bytes.length > maxTotalAttachmentBytes) {
+        if (mounted) _toast('附件总大小超过 100MB，请分批提交');
+        break;
+      }
       _attachments.add(
         SubmitAttachment(
           name: file.name.isEmpty
@@ -105,6 +135,10 @@ class _HomeworkSubmitPageState extends State<HomeworkSubmitPage> {
       return;
     }
     final bytes = await file.readAsBytes();
+    if (_totalBytes + bytes.length > maxTotalAttachmentBytes) {
+      if (mounted) _toast('附件总大小超过 100MB，请分批提交');
+      return;
+    }
     _attachments.add(
       SubmitAttachment(
         name: file.name.isEmpty
@@ -133,7 +167,14 @@ class _HomeworkSubmitPageState extends State<HomeworkSubmitPage> {
         continue;
       }
       final bytes = await file.readAsBytes();
-      if (bytes.isEmpty) continue;
+      if (bytes.isEmpty) {
+        debugPrint('[submit] 跳过空文件: ${file.name}');
+        continue;
+      }
+      if (_totalBytes + bytes.length > maxTotalAttachmentBytes) {
+        if (mounted) _toast('附件总大小超过 100MB，请分批提交');
+        break;
+      }
       _attachments.add(
         SubmitAttachment(name: file.name, bytes: bytes, kind: SubmitKind.file),
       );
@@ -231,7 +272,9 @@ class _HomeworkSubmitPageState extends State<HomeworkSubmitPage> {
             children: <Widget>[
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _submitting ? null : _pickImages,
+                  onPressed: _submitting
+                      ? null
+                      : () => _guardPick('添加图片', _pickImages),
                   icon: const Icon(Icons.image_outlined, size: 15),
                   label: const Text('添加图片', style: TextStyle(fontSize: 11)),
                   style: OutlinedButton.styleFrom(
@@ -242,7 +285,9 @@ class _HomeworkSubmitPageState extends State<HomeworkSubmitPage> {
               const SizedBox(width: 5),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _submitting ? null : _pickVideo,
+                  onPressed: _submitting
+                      ? null
+                      : () => _guardPick('添加视频', _pickVideo),
                   icon: const Icon(Icons.videocam_outlined, size: 15),
                   label: const Text('添加视频', style: TextStyle(fontSize: 11)),
                   style: OutlinedButton.styleFrom(
@@ -253,7 +298,9 @@ class _HomeworkSubmitPageState extends State<HomeworkSubmitPage> {
               const SizedBox(width: 5),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _submitting ? null : _pickFiles,
+                  onPressed: _submitting
+                      ? null
+                      : () => _guardPick('添加文件', _pickFiles),
                   icon: const Icon(Icons.attach_file, size: 15),
                   label: const Text('添加文件', style: TextStyle(fontSize: 11)),
                   style: OutlinedButton.styleFrom(
