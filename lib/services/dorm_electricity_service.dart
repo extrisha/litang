@@ -405,7 +405,8 @@ class DormElectricityService {
         current = current.resolve(location);
         // 强制将学校域名的 http 升级为 https，防局域网会话被嗅探
         if (current.scheme == 'http' &&
-            (current.host == 'usst.edu.cn' || current.host.endsWith('.usst.edu.cn'))) {
+            (current.host == 'usst.edu.cn' ||
+                current.host.endsWith('.usst.edu.cn'))) {
           current = current.replace(scheme: 'https');
         }
         if (status == 303) {

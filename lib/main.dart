@@ -16,7 +16,9 @@ import 'pages/update_page.dart';
 import 'services/reminder_service.dart';
 import 'services/update_service.dart';
 import 'services/widget_sync_service.dart';
+
 import 'package:home_widget/home_widget.dart';
+
 import 'pages/life_page.dart';
 import 'pages/map_page.dart';
 import 'pages/forum_page.dart';
@@ -69,7 +71,8 @@ class RootScaffold extends StatefulWidget {
   State<RootScaffold> createState() => _RootScaffoldState();
 }
 
-class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver {
+class _RootScaffoldState extends State<RootScaffold>
+    with WidgetsBindingObserver {
   int _index = 2;
   StreamSubscription<Uri?>? _widgetSubscription;
 
@@ -127,9 +130,8 @@ class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver
     }
     final target = MapFocus.target.value;
     if (target != null && mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const MapPage()),
-      );
+      Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => const MapPage()));
     }
   }
 
@@ -145,7 +147,6 @@ class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver
       Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
     });
   }
-
 
   /// 点击桌面小组件深层链接：跳转到对应作业或课表
   void _handleWidgetUri(Uri? uri) {
@@ -168,9 +169,8 @@ class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver
           if (!mounted) return;
           final page = _pageForReminder(target);
           if (page != null) {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => page),
-            );
+            Navigator.of(context)
+                .push(MaterialPageRoute<void>(builder: (_) => page));
           }
         });
       } else if (uri.host == 'schedule') {
@@ -178,7 +178,9 @@ class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver
           setState(() => _index = 2);
         }
       } else if (uri.host == 'refresh') {
-        unawaited(WidgetSyncService.instance.syncTodayWidget(forceWeather: true));
+        unawaited(
+          WidgetSyncService.instance.syncTodayWidget(forceWeather: true),
+        );
       }
     }
   }

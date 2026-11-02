@@ -229,7 +229,9 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
   List<SpaceReservation> get _filteredReservations {
     if (_reservationFilterIndex == 1) {
       // 进行中（待使用或使用中）
-      return _reservations.where((r) => r.isUpcoming || r.isInProgress).toList();
+      return _reservations
+          .where((r) => r.isUpcoming || r.isInProgress)
+          .toList();
     } else if (_reservationFilterIndex == 2) {
       // 已结束（已完成或已取消）
       return _reservations.where((r) => r.isFinished || r.isCancelled).toList();
@@ -242,7 +244,9 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('确认取消预约'),
-        content: Text('您确定要取消【${res.roomName}】(${res.date} ${res.timeRange}) 的预约吗？'),
+        content: Text(
+          '您确定要取消【${res.roomName}】(${res.date} ${res.timeRange}) 的预约吗？',
+        ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -267,14 +271,12 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     if (!mounted) return;
 
     if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('预约已成功取消')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('预约已成功取消')));
       _initAndLoad();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('取消预约失败，请稍后重试或在网页端操作')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('取消预约失败，请稍后重试或在网页端操作')));
     }
   }
 
@@ -309,14 +311,12 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     if (!mounted) return;
 
     if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('签退成功，房间已释放')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('签退成功，房间已释放')));
       _initAndLoad();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('签退失败，请重试或在门口设备刷卡')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('签退失败，请重试或在门口设备刷卡')));
     }
   }
 
@@ -351,14 +351,12 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     if (!mounted) return;
 
     if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已登记暂离，请在30分钟内返回')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('已登记暂离，请在30分钟内返回')));
       _initAndLoad();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('登记暂离失败，请稍后重试')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('登记暂离失败，请稍后重试')));
     }
   }
 
@@ -371,15 +369,27 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
           children: <Widget>[
             Icon(Icons.qr_code_2_rounded, color: AppColors.usstRed, size: 24),
             SizedBox(width: 8),
-            Text('签到凭证与核验码', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(
+              '签到凭证与核验码',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Text(res.roomName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+            Text(
+              res.roomName,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 4),
-            Text('${res.date} ${res.timeRange}', style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+            Text(
+              '${res.date} ${res.timeRange}',
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: AppColors.textSecondary,
+              ),
+            ),
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -390,7 +400,13 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
               ),
               child: Column(
                 children: <Widget>[
-                  const Text('签到核销码', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  const Text(
+                    '签到核销码',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
                   const SizedBox(height: 6),
                   SelectableText(
                     res.qrCode.isNotEmpty ? res.qrCode : '可在研讨室门口刷校园卡直接签到',
@@ -412,16 +428,19 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                 label: const Text('复制核销码', style: TextStyle(fontSize: 12)),
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: res.qrCode));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已复制签到核销码')),
-                  );
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(const SnackBar(content: Text('已复制签到核销码')));
                 },
               ),
             ],
             const SizedBox(height: 8),
             const Text(
               '提示：到达研修室门口平板时，输入此核验码或直接刷实体校园卡即可完成快速签到。',
-              style: TextStyle(fontSize: 11, color: AppColors.textSecondary, height: 1.3),
+              style: TextStyle(
+                fontSize: 11,
+                color: AppColors.textSecondary,
+                height: 1.3,
+              ),
             ),
           ],
         ),
@@ -469,7 +488,9 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
               context,
               '正在同步免密凭据...',
               () => api.acquireFreshAuthCode(
-                redirectPath: room != null ? '/mStudent/room' : '/mStudent/index',
+                redirectPath: room != null
+                    ? '/mStudent/room'
+                    : '/mStudent/index',
               ),
             );
 
@@ -527,8 +548,10 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
             indicatorColor: AppColors.usstRed,
             indicatorWeight: 3,
             labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-            unselectedLabelStyle:
-                TextStyle(fontWeight: FontWeight.normal, fontSize: 14),
+            unselectedLabelStyle: TextStyle(
+              fontWeight: FontWeight.normal,
+              fontSize: 14,
+            ),
             tabs: <Widget>[
               Tab(
                 icon: Icon(Icons.meeting_room_outlined, size: 20),
@@ -542,10 +565,7 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
           ),
         ),
         body: TabBarView(
-          children: <Widget>[
-            _buildRoomsTab(),
-            _buildReservationsTab(),
-          ],
+          children: <Widget>[_buildRoomsTab(), _buildReservationsTab()],
         ),
       ),
     );
@@ -569,14 +589,19 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              const Icon(Icons.error_outline,
-                  color: AppColors.textSecondary, size: 48),
+              const Icon(
+                Icons.error_outline,
+                color: AppColors.textSecondary,
+                size: 48,
+              ),
               const SizedBox(height: 12),
               Text(
                 _error!,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    color: AppColors.textSecondary, fontSize: 13.5),
+                  color: AppColors.textSecondary,
+                  fontSize: 13.5,
+                ),
               ),
               const SizedBox(height: 16),
               ElevatedButton(
@@ -603,9 +628,7 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: <Widget>[
           // 两行选项栏（第1行选择日期与场馆，点开原地拉出抽屉；第2行筛选 单人间 / 1~4人 / 3~6人）
-          SliverToBoxAdapter(
-            child: _buildControlsBar(),
-          ),
+          SliverToBoxAdapter(child: _buildControlsBar()),
           if (filtered.isEmpty)
             SliverFillRemaining(
               hasScrollBody: false,
@@ -613,17 +636,23 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: <Widget>[
-                    const Icon(Icons.weekend_outlined,
-                        color: AppColors.textSecondary, size: 48),
+                    const Icon(
+                      Icons.weekend_outlined,
+                      color: AppColors.textSecondary,
+                      size: 48,
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       _selectedBuilding == '全部场馆'
                           ? '当前筛选条件下暂无研讨空间'
                           : '【$_selectedBuilding】暂无匹配研讨空间',
                       style: const TextStyle(
-                          color: AppColors.textSecondary, fontSize: 14),
+                        color: AppColors.textSecondary,
+                        fontSize: 14,
+                      ),
                     ),
-                    if (_selectedBuilding != '全部场馆' || _selectedCapacityFilter != '全部') ...<Widget>[
+                    if (_selectedBuilding != '全部场馆' ||
+                        _selectedCapacityFilter != '全部') ...<Widget>[
                       const SizedBox(height: 12),
                       OutlinedButton(
                         onPressed: () {
@@ -761,7 +790,9 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
               ),
             ),
             Icon(
-              isExpanded ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded,
+              isExpanded
+                  ? Icons.arrow_drop_up_rounded
+                  : Icons.arrow_drop_down_rounded,
               size: 22,
               color: isExpanded ? AppColors.usstRed : AppColors.textSecondary,
             ),
@@ -807,7 +838,8 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
               Expanded(
                 child: _buildDrawerOptionChip(
                   label: '${labels[i]} ${DateFmt.md(dates[i])}',
-                  isSelected: _selectedDate.year == dates[i].year &&
+                  isSelected:
+                      _selectedDate.year == dates[i].year &&
                       _selectedDate.month == dates[i].month &&
                       _selectedDate.day == dates[i].day,
                   onTap: () {
@@ -862,7 +894,11 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
             child: const Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
-                Icon(Icons.edit_calendar_rounded, size: 14, color: AppColors.usstRed),
+                Icon(
+                  Icons.edit_calendar_rounded,
+                  size: 14,
+                  color: AppColors.usstRed,
+                ),
                 SizedBox(width: 6),
                 Text(
                   '在日历中挑选其他日期',
@@ -970,7 +1006,9 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                 height: 34,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: isSelected ? const Color(0xFFFEE2E2) : const Color(0xFFF1F5F9),
+                  color: isSelected
+                      ? const Color(0xFFFEE2E2)
+                      : const Color(0xFFF1F5F9),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: isSelected ? AppColors.usstRed : Colors.transparent,
@@ -982,7 +1020,9 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                   style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                    color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
+                    color: isSelected
+                        ? AppColors.usstRed
+                        : AppColors.textPrimary,
                   ),
                 ),
               ),
@@ -1070,7 +1110,10 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                           ),
                           const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: badgeBg,
                               borderRadius: BorderRadius.circular(5),
@@ -1091,29 +1134,41 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                       Row(
                         children: <Widget>[
                           if (room.locationDesc.isNotEmpty) ...<Widget>[
-                            const Icon(Icons.place_outlined,
-                                size: 13.5, color: AppColors.textSecondary),
+                            const Icon(
+                              Icons.place_outlined,
+                              size: 13.5,
+                              color: AppColors.textSecondary,
+                            ),
                             const SizedBox(width: 2.5),
                             Text(
                               room.locationDesc,
                               style: const TextStyle(
-                                  fontSize: 12, color: AppColors.textSecondary),
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
                             ),
                             const SizedBox(width: 10),
                           ],
-                          const Icon(Icons.people_outline,
-                              size: 13.5, color: AppColors.textSecondary),
+                          const Icon(
+                            Icons.people_outline,
+                            size: 13.5,
+                            color: AppColors.textSecondary,
+                          ),
                           const SizedBox(width: 2.5),
                           Text(
                             room.capacityDesc,
                             style: const TextStyle(
-                                fontSize: 12, color: AppColors.textSecondary),
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
                           ),
                           if (room.roomType.isNotEmpty) ...<Widget>[
                             const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 5, vertical: 1),
+                                horizontal: 5,
+                                vertical: 1,
+                              ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF1F5F9),
                                 borderRadius: BorderRadius.circular(3),
@@ -1121,7 +1176,9 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                               child: Text(
                                 room.roomType,
                                 style: const TextStyle(
-                                    fontSize: 10.5, color: Color(0xFF64748B)),
+                                  fontSize: 10.5,
+                                  color: Color(0xFF64748B),
+                                ),
                               ),
                             ),
                           ],
@@ -1131,31 +1188,42 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                       // 第三行：开放时段与空闲时长
                       Row(
                         children: <Widget>[
-                          const Icon(Icons.access_time_outlined,
-                              size: 13.5, color: AppColors.textSecondary),
+                          const Icon(
+                            Icons.access_time_outlined,
+                            size: 13.5,
+                            color: AppColors.textSecondary,
+                          ),
                           const SizedBox(width: 3),
                           Text(
                             '${room.openStartTime} - ${room.openEndTime}',
                             style: const TextStyle(
-                                fontSize: 11.5, color: Color(0xFF64748B)),
+                              fontSize: 11.5,
+                              color: Color(0xFF64748B),
+                            ),
                           ),
-                          if (room.isAvailable && room.spaceTime > 0) ...<Widget>[
+                          if (room.isAvailable &&
+                              room.spaceTime > 0) ...<Widget>[
                             const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 5, vertical: 1),
+                                horizontal: 5,
+                                vertical: 1,
+                              ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF0FDF4),
                                 borderRadius: BorderRadius.circular(3),
                                 border: Border.all(
-                                    color: const Color(0xFFBBF7D0), width: 0.6),
+                                  color: const Color(0xFFBBF7D0),
+                                  width: 0.6,
+                                ),
                               ),
                               child: Text(
                                 room.freeTimeDesc,
                                 style: const TextStyle(
-                                    fontSize: 10.5,
-                                    color: Color(0xFF15803D),
-                                    fontWeight: FontWeight.w500),
+                                  fontSize: 10.5,
+                                  color: Color(0xFF15803D),
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ),
                           ],
@@ -1163,7 +1231,9 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                             const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 4, vertical: 1),
+                                horizontal: 4,
+                                vertical: 1,
+                              ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFFEF3C7),
                                 borderRadius: BorderRadius.circular(3),
@@ -1171,7 +1241,9 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                               child: const Text(
                                 '须审核',
                                 style: TextStyle(
-                                    fontSize: 10, color: Color(0xFF92400E)),
+                                  fontSize: 10,
+                                  color: Color(0xFF92400E),
+                                ),
                               ),
                             ),
                           ],
@@ -1185,17 +1257,23 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                           children: devList.take(3).map((d) {
                             return Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 5, vertical: 1),
+                                horizontal: 5,
+                                vertical: 1,
+                              ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF8FAFC),
                                 borderRadius: BorderRadius.circular(3),
                                 border: Border.all(
-                                    color: const Color(0xFFE2E8F0), width: 0.5),
+                                  color: const Color(0xFFE2E8F0),
+                                  width: 0.5,
+                                ),
                               ),
                               child: Text(
                                 d,
                                 style: const TextStyle(
-                                    fontSize: 10, color: Color(0xFF64748B)),
+                                  fontSize: 10,
+                                  color: Color(0xFF64748B),
+                                ),
                               ),
                             );
                           }).toList(),
@@ -1239,14 +1317,19 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              const Icon(Icons.error_outline,
-                  color: AppColors.textSecondary, size: 48),
+              const Icon(
+                Icons.error_outline,
+                color: AppColors.textSecondary,
+                size: 48,
+              ),
               const SizedBox(height: 12),
               Text(
                 _error!,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    color: AppColors.textSecondary, fontSize: 13.5),
+                  color: AppColors.textSecondary,
+                  fontSize: 13.5,
+                ),
               ),
               const SizedBox(height: 16),
               ElevatedButton(
@@ -1264,8 +1347,12 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     }
 
     final filtered = _filteredReservations;
-    final activeCount = _reservations.where((r) => r.isUpcoming || r.isInProgress).length;
-    final pastCount = _reservations.where((r) => r.isFinished || r.isCancelled).length;
+    final activeCount = _reservations
+        .where((r) => r.isUpcoming || r.isInProgress)
+        .length;
+    final pastCount = _reservations
+        .where((r) => r.isFinished || r.isCancelled)
+        .length;
 
     return RefreshIndicator(
       color: AppColors.usstRed,
@@ -1301,18 +1388,22 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: <Widget>[
-                              const Icon(Icons.event_busy_outlined,
-                                  color: AppColors.textSecondary, size: 52),
+                              const Icon(
+                                Icons.event_busy_outlined,
+                                color: AppColors.textSecondary,
+                                size: 52,
+                              ),
                               const SizedBox(height: 12),
                               Text(
                                 _reservationFilterIndex == 1
                                     ? '当前没有进行中或待使用的预约'
                                     : _reservationFilterIndex == 2
-                                        ? '当前没有历史预约记录'
-                                        : '当前没有进行中或近期的预约记录',
+                                    ? '当前没有历史预约记录'
+                                    : '当前没有进行中或近期的预约记录',
                                 style: const TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontSize: 14),
+                                  color: AppColors.textSecondary,
+                                  fontSize: 14,
+                                ),
                               ),
                               const SizedBox(height: 16),
                               ElevatedButton.icon(
@@ -1416,8 +1507,10 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 2.5,
+                ),
                 decoration: BoxDecoration(
                   color: badgeBg,
                   borderRadius: BorderRadius.circular(6),
@@ -1437,34 +1530,52 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
           // 日期与时段
           Row(
             children: <Widget>[
-              const Icon(Icons.date_range_outlined,
-                  size: 14, color: AppColors.textSecondary),
+              const Icon(
+                Icons.date_range_outlined,
+                size: 14,
+                color: AppColors.textSecondary,
+              ),
               const SizedBox(width: 4),
               Text(
                 res.date,
                 style: const TextStyle(
-                    fontSize: 12.5, color: AppColors.textPrimary),
+                  fontSize: 12.5,
+                  color: AppColors.textPrimary,
+                ),
               ),
               const SizedBox(width: 12),
-              const Icon(Icons.access_time_outlined,
-                  size: 14, color: AppColors.textSecondary),
+              const Icon(
+                Icons.access_time_outlined,
+                size: 14,
+                color: AppColors.textSecondary,
+              ),
               const SizedBox(width: 4),
               Text(
                 res.timeRange,
                 style: const TextStyle(
-                    fontSize: 12.5, color: AppColors.textPrimary),
+                  fontSize: 12.5,
+                  color: AppColors.textPrimary,
+                ),
               ),
             ],
           ),
-          if (res.minSignTime.isNotEmpty && res.maxSignTime.isNotEmpty) ...<Widget>[
+          if (res.minSignTime.isNotEmpty &&
+              res.maxSignTime.isNotEmpty) ...<Widget>[
             const SizedBox(height: 6),
             Row(
               children: <Widget>[
-                const Icon(Icons.pin_outlined, size: 14, color: Color(0xFFD97706)),
+                const Icon(
+                  Icons.pin_outlined,
+                  size: 14,
+                  color: Color(0xFFD97706),
+                ),
                 const SizedBox(width: 4),
                 Text(
                   '签到窗口：${res.minSignTime} - ${res.maxSignTime}',
-                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF92400E)),
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: Color(0xFF92400E),
+                  ),
                 ),
               ],
             ),
@@ -1473,7 +1584,10 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
             const SizedBox(height: 6),
             Text(
               '用途：${res.dictName.isNotEmpty ? res.dictName : '自习研习'}${res.remark.isNotEmpty ? ' (${res.remark})' : ''}',
-              style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+              style: const TextStyle(
+                fontSize: 11.5,
+                color: AppColors.textSecondary,
+              ),
             ),
           ],
           const SizedBox(height: 12),
@@ -1488,8 +1602,13 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.textPrimary,
                   side: const BorderSide(color: Color(0xFFCBD5E1)),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                 ),
                 icon: const Icon(Icons.qr_code, size: 14),
                 label: const Text('签到凭证', style: TextStyle(fontSize: 12)),
@@ -1502,8 +1621,13 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFFD97706),
                     side: const BorderSide(color: Color(0xFFF59E0B)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                   ),
                   icon: const Icon(Icons.pause_circle_outline, size: 14),
                   label: const Text('暂离', style: TextStyle(fontSize: 12)),
@@ -1517,8 +1641,13 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF16A34A),
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     elevation: 0,
                   ),
                   icon: const Icon(Icons.logout, size: 14),
@@ -1536,7 +1665,10 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                   ),
                   onPressed: () => _handleCancel(res),
                   child: const Text('取消预约', style: TextStyle(fontSize: 12)),

@@ -90,7 +90,8 @@ class CookieWebViewState extends State<CookieWebView> {
       return;
     }
     final target = Uri.tryParse(widget.url);
-    if (target == null || (target.scheme != 'http' && target.scheme != 'https')) {
+    if (target == null ||
+        (target.scheme != 'http' && target.scheme != 'https')) {
       if (mounted) {
         setState(() {
           _loading = false;
@@ -105,8 +106,9 @@ class CookieWebViewState extends State<CookieWebView> {
         final host = target.host.toLowerCase();
         for (final cookie in widget.cookies) {
           // 只向属于目标主机或其父域的主机注入 cookie，防止向无关第三方站点泄露凭据
-          final cookieDomain =
-              cookie.domain.replaceFirst(RegExp(r'^\.'), '').toLowerCase();
+          final cookieDomain = cookie.domain
+              .replaceFirst(RegExp(r'^\.'), '')
+              .toLowerCase();
           if (cookieDomain.isEmpty || host.isEmpty) continue;
           final matchesTarget =
               host == cookieDomain || host.endsWith('.$cookieDomain');

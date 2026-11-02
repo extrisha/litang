@@ -119,7 +119,9 @@ class LappScheduleItem {
   /// 判断课程是否与指定查询节次发生重叠冲突
   bool matchesSection(int start, int end) {
     final cStart = startPeriod;
-    final cEnd = periodLength > 0 ? startPeriod + periodLength - 1 : startPeriod;
+    final cEnd = periodLength > 0
+        ? startPeriod + periodLength - 1
+        : startPeriod;
     return (start <= cEnd) && (cStart <= end);
   }
 }
@@ -280,7 +282,11 @@ const List<SectionOption> defaultSectionOptions = <SectionOption>[
   SectionOption(label: '3-5节 (09:45-11:55)', queryJc: '3-5', range: (3, 5)),
   SectionOption(label: '6-7节 (13:00-14:25)', queryJc: '6-7', range: (6, 7)),
   SectionOption(label: '8-10节 (14:45-16:55)', queryJc: '8-9', range: (8, 10)),
-  SectionOption(label: '11-13节 (18:00-20:15)', queryJc: '10-12', range: (11, 13)),
+  SectionOption(
+    label: '11-13节 (18:00-20:15)',
+    queryJc: '10-12',
+    range: (11, 13),
+  ),
   SectionOption(label: '全部节次', queryJc: '-1', range: null),
 ];
 
@@ -364,7 +370,8 @@ class ClassroomApi {
         if (data != null && data.isNotEmpty) {
           final list = <String>[];
           for (final item in data) {
-            final xy = (item as Map<String, dynamic>)['xy']?.toString().trim() ?? '';
+            final xy =
+                (item as Map<String, dynamic>)['xy']?.toString().trim() ?? '';
             if (xy.isNotEmpty && !list.contains(xy)) {
               list.add(xy);
             }
@@ -445,7 +452,8 @@ class ClassroomApi {
       return const <LappScheduleItem>[];
     }
 
-    final result = json['result'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final result =
+        json['result'] as Map<String, dynamic>? ?? <String, dynamic>{};
     final data = result['data'] as List<dynamic>? ?? <dynamic>[];
 
     final list = <LappScheduleItem>[];
@@ -570,7 +578,9 @@ class ClassroomApi {
   }
 
   /// 将扁平的排课记录按教学班聚合为 SchoolCourse
-  static List<SchoolCourse> groupIntoSchoolCourses(List<LappScheduleItem> items) {
+  static List<SchoolCourse> groupIntoSchoolCourses(
+    List<LappScheduleItem> items,
+  ) {
     final map = <String, List<LappScheduleItem>>{};
     for (final item in items) {
       final key = item.classCode.isNotEmpty
@@ -694,8 +704,8 @@ class ClassroomApi {
         final occupied =
             occupiedMap[room] ?? occupiedMap[normalizeClassroomName(room)];
         if (occupied != null) {
-          final timeStr = occupied.startTime.isNotEmpty &&
-                  occupied.endTime.isNotEmpty
+          final timeStr =
+              occupied.startTime.isNotEmpty && occupied.endTime.isNotEmpty
               ? '${occupied.startTime}-${occupied.endTime}'
               : '第 ${occupied.startPeriod}-${occupied.startPeriod + occupied.periodLength - 1} 节';
           out.add(
@@ -709,13 +719,7 @@ class ClassroomApi {
             ),
           );
         } else {
-          out.add(
-            ClassroomInfo(
-              name: room,
-              building: b,
-              isFree: true,
-            ),
-          );
+          out.add(ClassroomInfo(name: room, building: b, isFree: true));
         }
       }
     }

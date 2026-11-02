@@ -267,8 +267,9 @@ class UpdateService {
         throw Exception('安装包校验失败：缺少预期 SHA-256');
       }
 
-      final digest =
-          (await sha256.bind(file.openRead()).first).toString().toLowerCase();
+      final digest = (await sha256.bind(file.openRead()).first)
+          .toString()
+          .toLowerCase();
       if (digest != cleanExpected) {
         try {
           await file.delete();

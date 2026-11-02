@@ -6,7 +6,9 @@ import 'package:project_usst/widgets/async_state.dart';
 void main() {
   Future<void> pump(WidgetTester tester, AsyncStateView view) {
     return tester.pumpWidget(
-      MaterialApp(home: Scaffold(body: Center(child: view))),
+      MaterialApp(
+        home: Scaffold(body: Center(child: view)),
+      ),
     );
   }
 

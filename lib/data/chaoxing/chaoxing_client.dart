@@ -566,7 +566,8 @@ class ChaoxingClient {
     final scheme = uri.scheme.toLowerCase();
     if (scheme != 'https' && scheme != 'http') return false;
     final host = uri.host.toLowerCase();
-    final isChaoxingHost = host == 'chaoxing.com' || host.endsWith('.chaoxing.com');
+    final isChaoxingHost =
+        host == 'chaoxing.com' || host.endsWith('.chaoxing.com');
     if (!isChaoxingHost) return false;
     if (!uri.path.contains('/widget/sign/')) return false;
     return uri.queryParameters.containsKey('enc');
@@ -578,7 +579,8 @@ class ChaoxingClient {
       return const ChaoxingSignResult(ChaoxingSignStatus.invalid, '不是有效的二维码');
     }
     final host = uri.host.toLowerCase();
-    final isChaoxingHost = host == 'chaoxing.com' || host.endsWith('.chaoxing.com');
+    final isChaoxingHost =
+        host == 'chaoxing.com' || host.endsWith('.chaoxing.com');
     if (!isChaoxingHost || !uri.path.contains('/widget/sign/')) {
       return const ChaoxingSignResult(
         ChaoxingSignStatus.invalid,
@@ -586,7 +588,10 @@ class ChaoxingClient {
       );
     }
     if (!uri.queryParameters.containsKey('enc')) {
-      return const ChaoxingSignResult(ChaoxingSignStatus.invalid, '二维码缺少 enc 参数');
+      return const ChaoxingSignResult(
+        ChaoxingSignStatus.invalid,
+        '二维码缺少 enc 参数',
+      );
     }
 
     final response = await _send(
@@ -622,7 +627,10 @@ class ChaoxingClient {
       return ChaoxingSignResult(ChaoxingSignStatus.success, '签到成功');
     }
     if (text.contains('已签到') || text.contains('已经签到')) {
-      return const ChaoxingSignResult(ChaoxingSignStatus.alreadySigned, '已经签过到了');
+      return const ChaoxingSignResult(
+        ChaoxingSignStatus.alreadySigned,
+        '已经签过到了',
+      );
     }
     if (text.contains('结束') || text.contains('过期') || text.contains('超时')) {
       return const ChaoxingSignResult(ChaoxingSignStatus.ended, '签到已结束');

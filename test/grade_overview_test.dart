@@ -126,12 +126,30 @@ void main() {
   group('AppColors.gradeColor', () {
     test('按绩点区间给颜色（0.5 细分档，莫兰迪低焦虑配色）', () {
       expect(AppColors.gradeColor(4.3), const Color(0xFFC6903D)); // >=4.0 麦芽金
-      expect(AppColors.gradeColor(3.7), const Color(0xFFD48235)); // 3.5~3.99 暖金橙
-      expect(AppColors.gradeColor(3.2), const Color(0xFF389E0D)); // 3.0~3.49 青竹翠绿
-      expect(AppColors.gradeColor(2.6), const Color(0xFF0D828A)); // 2.5~2.99 湖水青碧
-      expect(AppColors.gradeColor(2.1), const Color(0xFF2B6CB0)); // 2.0~2.49 静谧雾蓝
-      expect(AppColors.gradeColor(1.6), const Color(0xFF7551A6)); // 1.5~1.99 幽兰灰紫
-      expect(AppColors.gradeColor(1.2), const Color(0xFFCF1322)); // 1.0~1.49 珊瑚赤红
+      expect(
+        AppColors.gradeColor(3.7),
+        const Color(0xFFD48235),
+      ); // 3.5~3.99 暖金橙
+      expect(
+        AppColors.gradeColor(3.2),
+        const Color(0xFF389E0D),
+      ); // 3.0~3.49 青竹翠绿
+      expect(
+        AppColors.gradeColor(2.6),
+        const Color(0xFF0D828A),
+      ); // 2.5~2.99 湖水青碧
+      expect(
+        AppColors.gradeColor(2.1),
+        const Color(0xFF2B6CB0),
+      ); // 2.0~2.49 静谧雾蓝
+      expect(
+        AppColors.gradeColor(1.6),
+        const Color(0xFF7551A6),
+      ); // 1.5~1.99 幽兰灰紫
+      expect(
+        AppColors.gradeColor(1.2),
+        const Color(0xFFCF1322),
+      ); // 1.0~1.49 珊瑚赤红
       expect(AppColors.gradeColor(0.8), const Color(0xFF8C1D24)); // <1.0 赭褐暗红
       expect(AppColors.gradeColor(null), const Color(0xFF8A8A8E));
     });

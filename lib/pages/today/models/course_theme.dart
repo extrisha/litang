@@ -163,7 +163,8 @@ Map<String, CourseTheme> buildCourseThemeMap(List<Course> courses) {
     var chosenSlot = idealSlot;
 
     // 若理想色槽已被当周其他课程占用，则线性探测下一个空闲色槽，实现同屏零重复
-    if (usedPaletteIndices.contains(chosenSlot) && usedPaletteIndices.length < coursePalettes.length) {
+    if (usedPaletteIndices.contains(chosenSlot) &&
+        usedPaletteIndices.length < coursePalettes.length) {
       for (var offset = 1; offset < coursePalettes.length; offset++) {
         final candidate = (idealSlot + offset) % coursePalettes.length;
         if (!usedPaletteIndices.contains(candidate)) {

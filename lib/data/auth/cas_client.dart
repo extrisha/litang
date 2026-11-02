@@ -149,9 +149,21 @@ class CasCookieJar {
     }
 
     const publicSuffixes = <String>{
-      'cn', 'com', 'net', 'org', 'edu', 'gov',
-      'edu.cn', 'com.cn', 'net.cn', 'org.cn', 'gov.cn', 'ac.cn', 'mil.cn',
-      'sh.cn', 'bj.cn',
+      'cn',
+      'com',
+      'net',
+      'org',
+      'edu',
+      'gov',
+      'edu.cn',
+      'com.cn',
+      'net.cn',
+      'org.cn',
+      'gov.cn',
+      'ac.cn',
+      'mil.cn',
+      'sh.cn',
+      'bj.cn',
     };
     if (publicSuffixes.contains(domain)) {
       return false;
@@ -272,9 +284,8 @@ class CasCaptchaRequired implements Exception {
   /// 服务端给的提示（比如「验证码错误」）
   final String? message;
 
-  String get displayMessage => (message == null || message!.isEmpty)
-      ? '密码错误次数过多，请输入验证码'
-      : message!;
+  String get displayMessage =>
+      (message == null || message!.isEmpty) ? '密码错误次数过多，请输入验证码' : message!;
 }
 
 /// 一次 CAS 登录的最终结果（webvpn 等入口用）。

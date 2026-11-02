@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
@@ -137,7 +138,8 @@ class IllustratedCampusViewState extends State<IllustratedCampusView>
       final t = curved.value;
       final m = Matrix4.zero();
       for (var i = 0; i < 16; i++) {
-        m.storage[i] = startMatrix.storage[i] * (1 - t) + targetMatrix.storage[i] * t;
+        m.storage[i] =
+            startMatrix.storage[i] * (1 - t) + targetMatrix.storage[i] * t;
       }
       _controller.value = m;
     });
@@ -170,7 +172,9 @@ class IllustratedCampusViewState extends State<IllustratedCampusView>
       final label = b.labelFor(widget.mode);
       final px = label.dx * _mapSize.width;
       final py = label.dy * _mapSize.height;
-      final dist = math.sqrt(math.pow(scenePoint.dx - px, 2) + math.pow(scenePoint.dy - py, 2));
+      final dist = math.sqrt(
+        math.pow(scenePoint.dx - px, 2) + math.pow(scenePoint.dy - py, 2),
+      );
       if (dist < closestDist) {
         closestDist = dist;
         closest = b;
@@ -188,7 +192,9 @@ class IllustratedCampusViewState extends State<IllustratedCampusView>
         if (_viewportSize != newSize) {
           _viewportSize = newSize;
           if (!_initialized) {
-            WidgetsBinding.instance.addPostFrameCallback((_) => _fitToViewport());
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => _fitToViewport(),
+            );
           }
         }
 
@@ -322,11 +328,7 @@ class _IllustratedMapPainter extends CustomPainter {
       canvas.drawCircle(center, pulseRadius, ringPaint);
 
       // 中心实心红点与白环
-      canvas.drawCircle(
-        center,
-        7.0,
-        Paint()..color = AppColors.usstRed,
-      );
+      canvas.drawCircle(center, 7.0, Paint()..color = AppColors.usstRed);
       canvas.drawCircle(
         center,
         7.0,

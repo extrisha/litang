@@ -529,38 +529,24 @@ class RollcallApi {
       return SignResult(success: false, message: radarErrors[errorCode]);
     }
     final rawMsg =
-        (map?['message'] ?? map?['error'] ?? map?['msg'])
-            ?.toString()
-            .trim() ??
+        (map?['message'] ?? map?['error'] ?? map?['msg'])?.toString().trim() ??
         '';
     final lowerMsg = rawMsg.toLowerCase();
     if (lowerMsg.contains('out of roll scope') ||
         lowerMsg.contains('out of scope') ||
         lowerMsg.contains('out of rollcall scope')) {
-      return const SignResult(
-        success: false,
-        message: '定位超出签到范围，请靠近上课教室后重试',
-      );
+      return const SignResult(success: false, message: '定位超出签到范围，请靠近上课教室后重试');
     }
     if (lowerMsg.contains('position invalid') ||
         lowerMsg.contains('invalid position')) {
-      return const SignResult(
-        success: false,
-        message: '定位坐标无效，请重新定位后重试',
-      );
+      return const SignResult(success: false, message: '定位坐标无效，请重新定位后重试');
     }
     if (lowerMsg.contains('device already in use') ||
         lowerMsg.contains('device_already_in_use')) {
-      return const SignResult(
-        success: false,
-        message: '这台设备已经给其他账号签过到了',
-      );
+      return const SignResult(success: false, message: '这台设备已经给其他账号签过到了');
     }
     if (lowerMsg.contains('no signal') || lowerMsg.contains('radar signal')) {
-      return const SignResult(
-        success: false,
-        message: '本堂课需要教室蓝牙信标，请在教室内重试',
-      );
+      return const SignResult(success: false, message: '本堂课需要教室蓝牙信标，请在教室内重试');
     }
     if (rawMsg.isNotEmpty) {
       message = rawMsg;

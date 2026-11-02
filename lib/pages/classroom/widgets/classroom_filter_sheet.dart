@@ -59,16 +59,27 @@ void showBuildingPickerModal({
                   children: <Widget>[
                     const Text(
                       '选择教学楼',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, size: 20, color: AppColors.textSecondary),
+                      icon: const Icon(
+                        Icons.close,
+                        size: 20,
+                        color: AppColors.textSecondary,
+                      ),
                       onPressed: () => Navigator.of(ctx).pop(),
                     ),
                   ],
                 ),
               ),
-              const Divider(height: 1, thickness: 0.6, color: Color(0xFFF3F4F6)),
+              const Divider(
+                height: 1,
+                thickness: 0.6,
+                color: Color(0xFFF3F4F6),
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                 child: Wrap(
@@ -79,9 +90,9 @@ void showBuildingPickerModal({
                     final displayName = b == '全部教学楼'
                         ? '全部教学楼'
                         : b
-                            .replaceAll('第一教学楼', '一教')
-                            .replaceAll('第三教学楼', '三教')
-                            .replaceAll('第四教学楼', '四教');
+                              .replaceAll('第一教学楼', '一教')
+                              .replaceAll('第三教学楼', '三教')
+                              .replaceAll('第四教学楼', '四教');
                     return InkWell(
                       borderRadius: BorderRadius.circular(10),
                       onTap: () {
@@ -91,12 +102,19 @@ void showBuildingPickerModal({
                         Navigator.of(ctx).pop();
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
                         decoration: BoxDecoration(
-                          color: isSelected ? const Color(0xFFFEF2F2) : const Color(0xFFF9FAFB),
+                          color: isSelected
+                              ? const Color(0xFFFEF2F2)
+                              : const Color(0xFFF9FAFB),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: isSelected ? AppColors.usstRed : const Color(0xFFE5E7EB),
+                            color: isSelected
+                                ? AppColors.usstRed
+                                : const Color(0xFFE5E7EB),
                             width: isSelected ? 1.4 : 0.8,
                           ),
                         ),
@@ -104,8 +122,12 @@ void showBuildingPickerModal({
                           displayName,
                           style: TextStyle(
                             fontSize: 13,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            color: isSelected
+                                ? AppColors.usstRed
+                                : AppColors.textPrimary,
                           ),
                         ),
                       ),
@@ -158,16 +180,27 @@ void showSectionPickerModal({
                   children: <Widget>[
                     const Text(
                       '选择时段节次',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, size: 20, color: AppColors.textSecondary),
+                      icon: const Icon(
+                        Icons.close,
+                        size: 20,
+                        color: AppColors.textSecondary,
+                      ),
                       onPressed: () => Navigator.of(ctx).pop(),
                     ),
                   ],
                 ),
               ),
-              const Divider(height: 1, thickness: 0.6, color: Color(0xFFF3F4F6)),
+              const Divider(
+                height: 1,
+                thickness: 0.6,
+                color: Color(0xFFF3F4F6),
+              ),
               ...List<Widget>.generate(defaultSectionOptions.length, (i) {
                 final opt = defaultSectionOptions[i];
                 final isSelected = selectedIndex == i;
@@ -179,19 +212,31 @@ void showSectionPickerModal({
                     Navigator.of(ctx).pop();
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 14,
+                    ),
                     decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFFFEF2F2) : Colors.transparent,
+                      color: isSelected
+                          ? const Color(0xFFFEF2F2)
+                          : Colors.transparent,
                       border: const Border(
-                        bottom: BorderSide(color: Color(0xFFF3F4F6), width: 0.6),
+                        bottom: BorderSide(
+                          color: Color(0xFFF3F4F6),
+                          width: 0.6,
+                        ),
                       ),
                     ),
                     child: Row(
                       children: <Widget>[
                         Icon(
-                          isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                          isSelected
+                              ? Icons.check_circle
+                              : Icons.radio_button_unchecked,
                           size: 18,
-                          color: isSelected ? AppColors.usstRed : const Color(0xFFD1D5DB),
+                          color: isSelected
+                              ? AppColors.usstRed
+                              : const Color(0xFFD1D5DB),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -202,8 +247,12 @@ void showSectionPickerModal({
                                 opt.label,
                                 style: TextStyle(
                                   fontSize: 14,
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                                  color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.w500,
+                                  color: isSelected
+                                      ? AppColors.usstRed
+                                      : AppColors.textPrimary,
                                 ),
                               ),
                               if (opt.range != null) ...<Widget>[
@@ -213,7 +262,9 @@ void showSectionPickerModal({
                                   style: TextStyle(
                                     fontSize: 11.5,
                                     color: isSelected
-                                        ? AppColors.usstRed.withValues(alpha: 0.8)
+                                        ? AppColors.usstRed.withValues(
+                                            alpha: 0.8,
+                                          )
                                         : AppColors.textSecondary,
                                   ),
                                 ),
@@ -294,7 +345,10 @@ void showDatePickerModal({
                       children: <Widget>[
                         const Text(
                           '选择周次与星期',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         TextButton.icon(
                           style: TextButton.styleFrom(
@@ -302,7 +356,10 @@ void showDatePickerModal({
                             padding: const EdgeInsets.symmetric(horizontal: 8),
                           ),
                           icon: const Icon(Icons.restore, size: 16),
-                          label: const Text('今天与当前周', style: TextStyle(fontSize: 12)),
+                          label: const Text(
+                            '今天与当前周',
+                            style: TextStyle(fontSize: 12),
+                          ),
                           onPressed: () {
                             setModalState(() {
                               tempWeek = currentWeek.clamp(1, 20);
@@ -316,7 +373,10 @@ void showDatePickerModal({
                     const Text(
                       '教学周',
                       style: TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     SizedBox(
@@ -335,19 +395,28 @@ void showDatePickerModal({
                                 isCur ? '第$w周(本周)' : '第$w周',
                                 style: TextStyle(
                                   fontSize: 11.5,
-                                  fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
-                                  color: isSel ? Colors.white : AppColors.textPrimary,
+                                  fontWeight: isSel
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: isSel
+                                      ? Colors.white
+                                      : AppColors.textPrimary,
                                 ),
                               ),
                               selected: isSel,
                               selectedColor: AppColors.usstRed,
                               backgroundColor: const Color(0xFFF3F4F6),
                               showCheckmark: false,
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                                 side: BorderSide(
-                                  color: isSel ? AppColors.usstRed : Colors.transparent,
+                                  color: isSel
+                                      ? AppColors.usstRed
+                                      : Colors.transparent,
                                 ),
                               ),
                               onSelected: (_) {
@@ -362,7 +431,10 @@ void showDatePickerModal({
                     const Text(
                       '星期',
                       style: TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -376,16 +448,22 @@ void showDatePickerModal({
                               borderRadius: BorderRadius.circular(8),
                               onTap: () => setModalState(() => tempDay = d.day),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                ),
                                 decoration: BoxDecoration(
                                   color: isSel
                                       ? AppColors.usstRed
-                                      : (isToday ? const Color(0xFFFEF2F2) : const Color(0xFFF7F8FA)),
+                                      : (isToday
+                                            ? const Color(0xFFFEF2F2)
+                                            : const Color(0xFFF7F8FA)),
                                   borderRadius: BorderRadius.circular(8),
                                   border: Border.all(
                                     color: isSel
                                         ? AppColors.usstRed
-                                        : (isToday ? const Color(0xFFFECACA) : const Color(0xFFE5E7EB)),
+                                        : (isToday
+                                              ? const Color(0xFFFECACA)
+                                              : const Color(0xFFE5E7EB)),
                                     width: isSel ? 1.2 : 0.8,
                                   ),
                                 ),
@@ -395,11 +473,14 @@ void showDatePickerModal({
                                       d.name,
                                       style: TextStyle(
                                         fontSize: 12,
-                                        fontWeight:
-                                            (isSel || isToday) ? FontWeight.bold : FontWeight.normal,
+                                        fontWeight: (isSel || isToday)
+                                            ? FontWeight.bold
+                                            : FontWeight.normal,
                                         color: isSel
                                             ? Colors.white
-                                            : (isToday ? AppColors.usstRed : AppColors.textPrimary),
+                                            : (isToday
+                                                  ? AppColors.usstRed
+                                                  : AppColors.textPrimary),
                                       ),
                                     ),
                                     if (isToday)
@@ -407,7 +488,9 @@ void showDatePickerModal({
                                         '今天',
                                         style: TextStyle(
                                           fontSize: 9.5,
-                                          color: isSel ? Colors.white70 : AppColors.usstRed,
+                                          color: isSel
+                                              ? Colors.white70
+                                              : AppColors.usstRed,
                                         ),
                                       ),
                                   ],
@@ -426,14 +509,21 @@ void showDatePickerModal({
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.usstRed,
                           foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
                         onPressed: () {
                           onConfirmed(tempWeek, tempDay);
                           Navigator.of(ctx).pop();
                         },
-                        child: const Text('确定',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                        child: const Text(
+                          '确定',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
                   ],

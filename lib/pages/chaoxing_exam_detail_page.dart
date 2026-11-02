@@ -148,7 +148,10 @@ class _ChaoxingExamDetailPageState extends State<ChaoxingExamDetailPage> {
                   Expanded(
                     child: Text(
                       '学习通登录状态可能已失效。若下方要求登录，请回到「我的」重新登录学习通。',
-                      style: TextStyle(fontSize: 11.5, color: Color(0xFF92400E)),
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF92400E),
+                      ),
                     ),
                   ),
                 ],

@@ -117,7 +117,8 @@ class CampusBuilding {
       final xi = points[i].dx, yi = points[i].dy;
       final xj = points[j].dx, yj = points[j].dy;
 
-      final intersect = ((yi > ny) != (yj > ny)) &&
+      final intersect =
+          ((yi > ny) != (yj > ny)) &&
           (nx < (xj - xi) * (ny - yi) / (yj - yi) + xi);
       if (intersect) inside = !inside;
     }

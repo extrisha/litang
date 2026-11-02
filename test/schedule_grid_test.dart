@@ -45,8 +45,22 @@ void main() {
       tester,
       selectedWeek: 4,
       courses: const <Course>[
-        Course(name: '本周课', day: 0, start: 0, span: 2, room: '1', weeks: <int>[3, 4]),
-        Course(name: '下周课', day: 1, start: 2, span: 2, room: '2', weeks: <int>[5, 6]),
+        Course(
+          name: '本周课',
+          day: 0,
+          start: 0,
+          span: 2,
+          room: '1',
+          weeks: <int>[3, 4],
+        ),
+        Course(
+          name: '下周课',
+          day: 1,
+          start: 2,
+          span: 2,
+          room: '2',
+          weeks: <int>[5, 6],
+        ),
         Course(name: '全学期课', day: 2, start: 4, span: 2, room: '3'),
       ],
     );
@@ -71,7 +85,14 @@ void main() {
     await pumpGrid(
       tester,
       courses: const <Course>[
-        Course(name: '高等数学', day: 0, start: 0, span: 2, room: '三教305', teacher: '王老师'),
+        Course(
+          name: '高等数学',
+          day: 0,
+          start: 0,
+          span: 2,
+          room: '三教305',
+          teacher: '王老师',
+        ),
       ],
       onDoubleTap: (c) => tapped = c,
     );

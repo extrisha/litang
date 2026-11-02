@@ -128,9 +128,9 @@ class _HomeworkSubmitPageState extends State<HomeworkSubmitPage> {
     final length = await file.length();
     if (length > maxSingleAttachmentBytes) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('视频文件过大（超过 50MB），请压缩后添加')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('视频文件过大（超过 50MB），请压缩后添加')));
       }
       return;
     }

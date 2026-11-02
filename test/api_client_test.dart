@@ -72,6 +72,10 @@ void main() {
         }
       }
     }
-    expect(offenders, isEmpty, reason: '发现明文 HTTP 地址：\n${offenders.join('\n')}');
+    expect(
+      offenders,
+      isEmpty,
+      reason: '发现明文 HTTP 地址：\n${offenders.join('\n')}',
+    );
   });
 }

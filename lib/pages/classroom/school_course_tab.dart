@@ -137,7 +137,9 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
         final hasWeek = c.slots.any((s) => s.isActiveInWeek(currentWeek));
         if (!hasWeek) return false;
       } else if (_selectedCourseWeek > 0) {
-        final hasWeek = c.slots.any((s) => s.isActiveInWeek(_selectedCourseWeek));
+        final hasWeek = c.slots.any(
+          (s) => s.isActiveInWeek(_selectedCourseWeek),
+        );
         if (!hasWeek) return false;
       }
 
@@ -208,7 +210,10 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
                   SizedBox(height: 16),
                   Text(
                     '正在查询全校排课库...',
-                    style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                    ),
                   ),
                 ],
               ),
@@ -223,14 +228,19 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: <Widget>[
-                    const Icon(Icons.error_outline,
-                        color: AppColors.textSecondary, size: 48),
+                    const Icon(
+                      Icons.error_outline,
+                      color: AppColors.textSecondary,
+                      size: 48,
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       _error!,
                       textAlign: TextAlign.center,
                       style: const TextStyle(
-                          color: AppColors.textSecondary, fontSize: 14),
+                        color: AppColors.textSecondary,
+                        fontSize: 14,
+                      ),
                     ),
                     const SizedBox(height: 16),
                     ElevatedButton(
@@ -247,9 +257,7 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
             ),
           )
         else if (!_searched)
-          SliverToBoxAdapter(
-            child: _buildInitialGuide(),
-          )
+          SliverToBoxAdapter(child: _buildInitialGuide())
         else if (filtered.isEmpty)
           const SliverFillRemaining(
             hasScrollBody: false,
@@ -257,13 +265,18 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
-                  Icon(Icons.search_off_outlined,
-                      color: AppColors.textSecondary, size: 48),
+                  Icon(
+                    Icons.search_off_outlined,
+                    color: AppColors.textSecondary,
+                    size: 48,
+                  ),
                   SizedBox(height: 12),
                   Text(
                     '未找到符合条件的课程排课',
                     style: TextStyle(
-                        color: AppColors.textSecondary, fontSize: 14),
+                      color: AppColors.textSecondary,
+                      fontSize: 14,
+                    ),
                   ),
                   SizedBox(height: 6),
                   Text(
@@ -309,12 +322,19 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 children: <Widget>[
-                  const Icon(Icons.search, size: 18, color: AppColors.textSecondary),
+                  const Icon(
+                    Icons.search,
+                    size: 18,
+                    color: AppColors.textSecondary,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       controller: _searchController,
-                      style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textPrimary,
+                      ),
                       decoration: const InputDecoration(
                         hintText: '搜索课程名、教师或8位课程代码',
                         hintStyle: TextStyle(
@@ -335,8 +355,11 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
                         _searchController.clear();
                         setState(() {});
                       },
-                      child: const Icon(Icons.cancel,
-                          size: 16, color: Color(0xFF9CA3AF)),
+                      child: const Icon(
+                        Icons.cancel,
+                        size: 16,
+                        color: Color(0xFF9CA3AF),
+                      ),
                     ),
                 ],
               ),
@@ -356,8 +379,10 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
                 ),
               ),
               onPressed: () => _searchSchoolCourses(),
-              child: const Text('查询',
-                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold)),
+              child: const Text(
+                '查询',
+                style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+              ),
             ),
           ),
         ],
@@ -447,16 +472,20 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
                           if (_searched) _searchSchoolCourses();
                         }),
                       if (_selectedLevel != 'ALL')
-                        _buildActiveFilterChip(_displayLevel,
-                            () => setState(() => _selectedLevel = 'ALL')),
+                        _buildActiveFilterChip(
+                          _displayLevel,
+                          () => setState(() => _selectedLevel = 'ALL'),
+                        ),
                       if (_selectedCourseDay != -1)
                         _buildActiveFilterChip(
-                            kCourseDays[_selectedCourseDay - 1].name,
-                            () => setState(() => _selectedCourseDay = -1)),
+                          kCourseDays[_selectedCourseDay - 1].name,
+                          () => setState(() => _selectedCourseDay = -1),
+                        ),
                       if (_selectedCourseWeek != -1)
                         _buildActiveFilterChip(
-                            _displayCourseWeek(currentWeek),
-                            () => setState(() => _selectedCourseWeek = -1)),
+                          _displayCourseWeek(currentWeek),
+                          () => setState(() => _selectedCourseWeek = -1),
+                        ),
                     ],
                   ),
                 ),
@@ -493,10 +522,14 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
             height: 38,
             padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
-              color: isFiltered ? const Color(0xFFFEF2F2) : const Color(0xFFF7F8FA),
+              color: isFiltered
+                  ? const Color(0xFFFEF2F2)
+                  : const Color(0xFFF7F8FA),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: isFiltered ? const Color(0xFFFECACA) : const Color(0xFFE5E7EB),
+                color: isFiltered
+                    ? const Color(0xFFFECACA)
+                    : const Color(0xFFE5E7EB),
                 width: isFiltered ? 1 : 0.8,
               ),
             ),
@@ -506,7 +539,9 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
                 Icon(
                   icon,
                   size: 14,
-                  color: isFiltered ? AppColors.usstRed : AppColors.textSecondary,
+                  color: isFiltered
+                      ? AppColors.usstRed
+                      : AppColors.textSecondary,
                 ),
                 const SizedBox(width: 4),
                 Flexible(
@@ -516,8 +551,12 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: isFiltered ? FontWeight.bold : FontWeight.w500,
-                      color: isFiltered ? AppColors.usstRed : AppColors.textPrimary,
+                      fontWeight: isFiltered
+                          ? FontWeight.bold
+                          : FontWeight.w500,
+                      color: isFiltered
+                          ? AppColors.usstRed
+                          : AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -525,7 +564,9 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
                 Icon(
                   Icons.keyboard_arrow_down_rounded,
                   size: 16,
-                  color: isFiltered ? AppColors.usstRed : AppColors.textSecondary,
+                  color: isFiltered
+                      ? AppColors.usstRed
+                      : AppColors.textSecondary,
                 ),
               ],
             ),
@@ -549,9 +590,10 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
           Text(
             label,
             style: const TextStyle(
-                fontSize: 11,
-                color: AppColors.usstRed,
-                fontWeight: FontWeight.w500),
+              fontSize: 11,
+              color: AppColors.usstRed,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const SizedBox(width: 4),
           GestureDetector(
@@ -570,7 +612,10 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
         children: <Widget>[
           RichText(
             text: TextSpan(
-              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.textSecondary,
+              ),
               children: <TextSpan>[
                 const TextSpan(text: '检索结果：共找到 '),
                 TextSpan(
@@ -620,8 +665,11 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
               children: <Widget>[
                 Row(
                   children: <Widget>[
-                    Icon(Icons.tips_and_updates_outlined,
-                        color: AppColors.usstRed, size: 20),
+                    Icon(
+                      Icons.tips_and_updates_outlined,
+                      color: AppColors.usstRed,
+                      size: 20,
+                    ),
                     SizedBox(width: 8),
                     Text(
                       '全校课表搜索说明',

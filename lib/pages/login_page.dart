@@ -200,7 +200,10 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const Text(
                     '看不清可以点「登录」换一张；验证码和本次登录会话绑定，不要重启 App',
-                    style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ],
               ),

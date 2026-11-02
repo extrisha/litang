@@ -100,7 +100,8 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
 
     // 2. 查找矢量数据库及全校 POI 表
     final bld = VectorCampusRepository.buildingForRoom(roomOrBuildingName);
-    final poi = bld?.toPoi() ??
+    final poi =
+        bld?.toPoi() ??
         CampusData.poiForRoom(roomOrBuildingName) ??
         CampusData.search(query: roomOrBuildingName).firstOrNull;
 
@@ -174,10 +175,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       begin: camera.center.longitude,
       end: destLocation.longitude,
     );
-    final zoomTween = Tween<double>(
-      begin: camera.zoom,
-      end: destZoom,
-    );
+    final zoomTween = Tween<double>(begin: camera.zoom, end: destZoom);
 
     final controller = AnimationController(
       duration: const Duration(milliseconds: 380),
@@ -196,7 +194,8 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     });
 
     animation.addStatusListener((status) {
-      if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
+      if (status == AnimationStatus.completed ||
+          status == AnimationStatus.dismissed) {
         controller.dispose();
       }
     });
@@ -307,7 +306,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
 
   bool _isUsablePosition(Position p) {
     final age = DateTime.now().difference(p.timestamp);
-    return !age.isNegative && age <= const Duration(minutes: 5) && p.accuracy <= 100;
+    return !age.isNegative &&
+        age <= const Duration(minutes: 5) &&
+        p.accuracy <= 100;
   }
 
   void _applyPosition(Position pos) {
@@ -342,7 +343,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           content: Text(message, style: const TextStyle(fontSize: 13)),
           behavior: SnackBarBehavior.floating,
           duration: const Duration(milliseconds: 2200),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
   }
@@ -378,15 +381,16 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     if (!kMapFeatureEnabled) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('校园地图'),
-          centerTitle: true,
-        ),
+        appBar: AppBar(title: const Text('校园地图'), centerTitle: true),
         body: const Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.map_outlined, size: 64, color: AppColors.textSecondary),
+              Icon(
+                Icons.map_outlined,
+                size: 64,
+                color: AppColors.textSecondary,
+              ),
               SizedBox(height: 16),
               Text(
                 '校园地图功能维护中',
@@ -419,7 +423,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   return false;
                 }
                 if (b.name.toLowerCase().contains(queryLower)) return true;
-                return b.aliases.any((a) => a.toLowerCase().contains(queryLower));
+                return b.aliases.any(
+                  (a) => a.toLowerCase().contains(queryLower),
+                );
               }).toList();
 
               return matches.map((b) => _buildingToPoi(b)).toList();
@@ -509,7 +515,10 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                       icon: Icon(_mapViewMode.icon, size: 18),
                       label: Text(
                         _mapViewMode.label,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       onPressed: () {
                         setState(() {
@@ -517,9 +526,11 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                               ? MapViewMode.isometric
                               : MapViewMode.flat;
                         });
-                        _toast(_mapViewMode == MapViewMode.flat
-                            ? '已切换至 2D 平面手绘图'
-                            : '已切换至 2.5D 鸟瞰立体图');
+                        _toast(
+                          _mapViewMode == MapViewMode.flat
+                              ? '已切换至 2D 平面手绘图'
+                              : '已切换至 2.5D 鸟瞰立体图',
+                        );
                       },
                     ),
                     const SizedBox(height: 10),
@@ -528,16 +539,19 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   FloatingActionButton.small(
                     heroTag: 'map-location',
                     backgroundColor: Colors.white,
-                    foregroundColor:
-                        _userLocation != null ? AppColors.usstRed : AppColors.textPrimary,
+                    foregroundColor: _userLocation != null
+                        ? AppColors.usstRed
+                        : AppColors.textPrimary,
                     elevation: 3,
                     onPressed: _locateUser,
                     child: _locating
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child:
-                                CircularProgressIndicator(strokeWidth: 2, color: AppColors.usstRed),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.usstRed,
+                            ),
                           )
                         : const Icon(Icons.my_location, size: 20),
                   ),
@@ -556,7 +570,10 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                         });
                         _toast('已重置回校园全景');
                       } else {
-                        _animatedMapMove(_currentCampus.center, _currentCampus.defaultZoom);
+                        _animatedMapMove(
+                          _currentCampus.center,
+                          _currentCampus.defaultZoom,
+                        );
                       }
                     },
                     child: const Icon(Icons.center_focus_strong, size: 20),
@@ -602,7 +619,8 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     }
 
     for (final b in visibleBuildings) {
-      final isSelected = _selectedBuilding?.id == b.id || _selectedPoi?.name == b.name;
+      final isSelected =
+          _selectedBuilding?.id == b.id || _selectedPoi?.name == b.name;
       markers.add(
         Marker(
           point: b.center,
@@ -617,7 +635,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       );
     }
 
-    if (lod == 3 && _selectedBuilding != null && _selectedBuilding!.entrances.isNotEmpty) {
+    if (lod == 3 &&
+        _selectedBuilding != null &&
+        _selectedBuilding!.entrances.isNotEmpty) {
       for (final ent in _selectedBuilding!.entrances) {
         markers.add(
           Marker(
@@ -677,7 +697,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     }
 
     final initialCenter = _selectedPoi?.location ?? _currentCampus.center;
-    final initialZoom = _selectedPoi != null ? 17.5 : _currentCampus.defaultZoom;
+    final initialZoom = _selectedPoi != null
+        ? 17.5
+        : _currentCampus.defaultZoom;
 
     final groundPolygons = <Polygon>[
       for (final g in grounds)
@@ -696,10 +718,12 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           color: _selectedBuilding?.id == b.id || _selectedPoi?.name == b.name
               ? VectorMapStyle.selectedBuildingFill
               : VectorMapStyle.buildingFill(b.category),
-          borderColor: _selectedBuilding?.id == b.id || _selectedPoi?.name == b.name
+          borderColor:
+              _selectedBuilding?.id == b.id || _selectedPoi?.name == b.name
               ? VectorMapStyle.selectedBuildingStroke
               : VectorMapStyle.buildingStroke(b.category),
-          borderStrokeWidth: _selectedBuilding?.id == b.id || _selectedPoi?.name == b.name
+          borderStrokeWidth:
+              _selectedBuilding?.id == b.id || _selectedPoi?.name == b.name
               ? VectorMapStyle.selectedStrokeWidth
               : VectorMapStyle.defaultStrokeWidth,
         ),
@@ -731,7 +755,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           }
         },
         onTap: (_, point) {
-          final allBlds = VectorCampusRepository.buildingsForCampus(_currentCampus.id);
+          final allBlds = VectorCampusRepository.buildingsForCampus(
+            _currentCampus.id,
+          );
           BuildingFeature? hit;
           for (final b in allBlds) {
             if (_isPointInPolygon(point, b.points)) {
@@ -753,8 +779,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       children: <Widget>[
         if (_useHdOnline)
           TileLayer(
-            urlTemplate:
-                'https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scale=2&style=7',
+            urlTemplate: 'https://wprd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scale=2&style=7',
             tileDimension: 512,
             zoomOffset: -1,
             minZoom: 13.5,
@@ -773,7 +798,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   Color _groundFillColor(GroundType type) {
     switch (type) {
       case GroundType.campusGround:
-        return _useHdOnline ? const Color(0x33F9FAF8) : VectorMapStyle.campusGroundFill;
+        return _useHdOnline
+            ? const Color(0x33F9FAF8)
+            : VectorMapStyle.campusGroundFill;
       case GroundType.water:
         return VectorMapStyle.waterFill;
       case GroundType.lawn:
@@ -825,19 +852,23 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
             color: isSelected
                 ? AppColors.usstRed
                 : isOverview
-                    ? const Color(0xF7FFFFFF)
-                    : Colors.white,
+                ? const Color(0xF7FFFFFF)
+                : Colors.white,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: isSelected
                   ? Colors.white
                   : isOverview
-                      ? AppColors.usstRed.withValues(alpha: 0.6)
-                      : VectorMapStyle.buildingStroke(cat),
+                  ? AppColors.usstRed.withValues(alpha: 0.6)
+                  : VectorMapStyle.buildingStroke(cat),
               width: isSelected ? 1.4 : 1.0,
             ),
             boxShadow: const <BoxShadow>[
-              BoxShadow(color: Color(0x24000000), blurRadius: 4, offset: Offset(0, 1.5)),
+              BoxShadow(
+                color: Color(0x24000000),
+                blurRadius: 4,
+                offset: Offset(0, 1.5),
+              ),
             ],
           ),
           child: Row(
@@ -855,7 +886,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: isOverview ? 9.0 : 10.0,
-                    fontWeight: isSelected || isOverview ? FontWeight.w700 : FontWeight.w600,
+                    fontWeight: isSelected || isOverview
+                        ? FontWeight.w700
+                        : FontWeight.w600,
                     color: isSelected ? Colors.white : AppColors.textPrimary,
                   ),
                 ),
@@ -878,17 +911,25 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       decoration: BoxDecoration(
-        color: ent.hasStairs ? const Color(0xFFD9381E) : const Color(0xFF137333),
+        color: ent.hasStairs
+            ? const Color(0xFFD9381E)
+            : const Color(0xFF137333),
         borderRadius: BorderRadius.circular(6),
         boxShadow: const <BoxShadow>[
-          BoxShadow(color: Color(0x33000000), blurRadius: 3, offset: Offset(0, 1)),
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 3,
+            offset: Offset(0, 1),
+          ),
         ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Icon(
-            ent.hasStairs ? Icons.stairs_outlined : Icons.door_front_door_outlined,
+            ent.hasStairs
+                ? Icons.stairs_outlined
+                : Icons.door_front_door_outlined,
             size: 10,
             color: Colors.white,
           ),
@@ -932,7 +973,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           PopupMenuButton<Campus>(
             initialValue: _currentCampus,
             elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             onSelected: _switchCampus,
             itemBuilder: (context) => CampusData.allCampuses
                 .map(
@@ -952,10 +995,12 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                           c.name,
                           style: TextStyle(
                             fontSize: 13,
-                            fontWeight:
-                                c.id == _currentCampus.id ? FontWeight.w700 : FontWeight.normal,
-                            color:
-                                c.id == _currentCampus.id ? AppColors.usstRed : AppColors.textPrimary,
+                            fontWeight: c.id == _currentCampus.id
+                                ? FontWeight.w700
+                                : FontWeight.normal,
+                            color: c.id == _currentCampus.id
+                                ? AppColors.usstRed
+                                : AppColors.textPrimary,
                           ),
                         ),
                       ],
@@ -970,7 +1015,11 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: const Color(0xFFE5E5E5)),
                 boxShadow: const <BoxShadow>[
-                  BoxShadow(color: Color(0x10000000), blurRadius: 4, offset: Offset(0, 1)),
+                  BoxShadow(
+                    color: Color(0x10000000),
+                    blurRadius: 4,
+                    offset: Offset(0, 1),
+                  ),
                 ],
               ),
               child: Row(
@@ -979,9 +1028,16 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   Text(
                     _currentCampus.shortName,
                     style: const TextStyle(
-                        fontSize: 12, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+                      fontSize: 12,
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                  const Icon(Icons.arrow_drop_down, size: 16, color: AppColors.textSecondary),
+                  const Icon(
+                    Icons.arrow_drop_down,
+                    size: 16,
+                    color: AppColors.textSecondary,
+                  ),
                 ],
               ),
             ),
@@ -998,19 +1054,27 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _useHdOnline ? const Color(0xFFEBF5FE) : const Color(0xFFF5F5F5),
+                  color: _useHdOnline
+                      ? const Color(0xFFEBF5FE)
+                      : const Color(0xFFF5F5F5),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: _useHdOnline ? const Color(0xFF90CAF9) : const Color(0xFFE0E0E0),
+                    color: _useHdOnline
+                        ? const Color(0xFF90CAF9)
+                        : const Color(0xFFE0E0E0),
                   ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
                     Icon(
-                      _useHdOnline ? Icons.layers_outlined : Icons.brush_outlined,
+                      _useHdOnline
+                          ? Icons.layers_outlined
+                          : Icons.brush_outlined,
                       size: 13,
-                      color: _useHdOnline ? const Color(0xFF1976D2) : AppColors.textSecondary,
+                      color: _useHdOnline
+                          ? const Color(0xFF1976D2)
+                          : AppColors.textSecondary,
                     ),
                     const SizedBox(width: 4),
                     Text(
@@ -1018,7 +1082,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: _useHdOnline ? const Color(0xFF1976D2) : AppColors.textPrimary,
+                        color: _useHdOnline
+                            ? const Color(0xFF1976D2)
+                            : AppColors.textPrimary,
                       ),
                     ),
                   ],
@@ -1039,7 +1105,11 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: const Color(0xFFE8E8E8)),
         boxShadow: const <BoxShadow>[
-          BoxShadow(color: Color(0x0C000000), blurRadius: 6, offset: Offset(0, 2)),
+          BoxShadow(
+            color: Color(0x0C000000),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
         ],
       ),
       child: TextField(
@@ -1048,7 +1118,11 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
         decoration: InputDecoration(
           hintText: '搜索${_currentCampus.shortName}建筑、教学楼、教室...',
           hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF999999)),
-          prefixIcon: const Icon(Icons.search, size: 18, color: AppColors.textSecondary),
+          prefixIcon: const Icon(
+            Icons.search,
+            size: 18,
+            color: AppColors.textSecondary,
+          ),
           suffixIcon: _query.isNotEmpty
               ? IconButton(
                   icon: const Icon(Icons.close, size: 16),
@@ -1059,7 +1133,10 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                 )
               : null,
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
           isDense: true,
         ),
         onChanged: (val) => setState(() => _query = val.trim()),
@@ -1096,7 +1173,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   cat.label,
                   style: TextStyle(
                     fontSize: 11.5,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight: isSelected
+                        ? FontWeight.w600
+                        : FontWeight.normal,
                     color: isSelected ? Colors.white : AppColors.textPrimary,
                   ),
                 ),
@@ -1131,7 +1210,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   Widget _buildBuildingQuickSelector(bool is516Illustrated) {
     if (is516Illustrated) {
       final buildings = Campus516Data.buildings
-          .where((b) => b.campusCategory == _selectedCategory && b.name != '未命名建筑')
+          .where(
+            (b) => b.campusCategory == _selectedCategory && b.name != '未命名建筑',
+          )
           .toList();
 
       if (buildings.isEmpty) return const SizedBox.shrink();
@@ -1161,7 +1242,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
                 side: BorderSide(
-                  color: isSelected ? AppColors.usstRed : const Color(0xFFE0E0E0),
+                  color: isSelected
+                      ? AppColors.usstRed
+                      : const Color(0xFFE0E0E0),
                   width: 0.8,
                 ),
               ),
@@ -1191,7 +1274,8 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
         separatorBuilder: (_, _) => const SizedBox(width: 6),
         itemBuilder: (context, i) {
           final b = buildings[i];
-          final isSelected = _selectedBuilding?.id == b.id || _selectedPoi?.name == b.name;
+          final isSelected =
+              _selectedBuilding?.id == b.id || _selectedPoi?.name == b.name;
 
           return ActionChip(
             label: Text(
@@ -1233,7 +1317,10 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                 child: Center(
                   child: Text(
                     '未找到匹配地点，请尝试输入简称如「一教」「卓越」「五食」',
-                    style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ),
               )
@@ -1246,19 +1333,32 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   final poi = results[i];
                   return ListTile(
                     dense: true,
-                    leading: Icon(poi.category.icon, size: 18, color: AppColors.usstRed),
+                    leading: Icon(
+                      poi.category.icon,
+                      size: 18,
+                      color: AppColors.usstRed,
+                    ),
                     title: Text(
                       poi.name,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     subtitle: poi.subtitle != null
                         ? Text(
                             poi.subtitle!,
-                            style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textSecondary,
+                            ),
                           )
                         : null,
-                    trailing: const Icon(Icons.arrow_forward_ios,
-                        size: 12, color: AppColors.textSecondary),
+                    trailing: const Icon(
+                      Icons.arrow_forward_ios,
+                      size: 12,
+                      color: AppColors.textSecondary,
+                    ),
                     onTap: () => _selectPoi(poi),
                   );
                 },
@@ -1272,7 +1372,11 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     String? distanceText;
     if (_userLocation != null) {
       const distanceCalc = Distance();
-      final meters = distanceCalc.as(LengthUnit.Meter, _userLocation!, poi.location);
+      final meters = distanceCalc.as(
+        LengthUnit.Meter,
+        _userLocation!,
+        poi.location,
+      );
       distanceText = meters >= 1000
           ? '距您约 ${(meters / 1000).toStringAsFixed(1)} km'
           : '距您约 ${meters.toStringAsFixed(0)} 米';
@@ -1286,7 +1390,11 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: const <BoxShadow>[
-          BoxShadow(color: Color(0x24000000), blurRadius: 14, offset: Offset(0, 4)),
+          BoxShadow(
+            color: Color(0x24000000),
+            blurRadius: 14,
+            offset: Offset(0, 4),
+          ),
         ],
       ),
       child: Column(
@@ -1303,7 +1411,11 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   color: AppColors.redTint,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(poi.category.icon, size: 20, color: AppColors.usstRed),
+                child: Icon(
+                  poi.category.icon,
+                  size: 20,
+                  color: AppColors.usstRed,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -1312,17 +1424,26 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   children: <Widget>[
                     Text(
                       poi.name,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Row(
                       children: <Widget>[
                         Text(
                           _currentCampus.shortName,
-                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                          ),
                         ),
                         if (distanceText != null) ...<Widget>[
-                          const Text(' · ', style: TextStyle(color: AppColors.textSecondary)),
+                          const Text(
+                            ' · ',
+                            style: TextStyle(color: AppColors.textSecondary),
+                          ),
                           Text(
                             distanceText,
                             style: const TextStyle(
@@ -1338,14 +1459,21 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                       const SizedBox(height: 3),
                       Text(
                         poi.subtitle!,
-                        style: const TextStyle(fontSize: 11.5, color: Color(0xFF666666)),
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF666666),
+                        ),
                       ),
                     ],
                   ],
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.close, size: 18, color: AppColors.textSecondary),
+                icon: const Icon(
+                  Icons.close,
+                  size: 18,
+                  color: AppColors.textSecondary,
+                ),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
                 onPressed: () => setState(() {
@@ -1358,7 +1486,8 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           ),
 
           // 建筑出入口与就近教室指引 (若有)
-          if (_selectedBuilding != null && _selectedBuilding!.entrances.isNotEmpty) ...<Widget>[
+          if (_selectedBuilding != null &&
+              _selectedBuilding!.entrances.isNotEmpty) ...<Widget>[
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1372,7 +1501,11 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                 children: <Widget>[
                   const Row(
                     children: <Widget>[
-                      Icon(Icons.door_sliding_outlined, size: 14, color: AppColors.usstRed),
+                      Icon(
+                        Icons.door_sliding_outlined,
+                        size: 14,
+                        color: AppColors.usstRed,
+                      ),
                       SizedBox(width: 4),
                       Text(
                         '出入口与就近教室指引',
@@ -1393,7 +1526,10 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                         children: <Widget>[
                           Container(
                             margin: const EdgeInsets.only(top: 2),
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1.5,
+                            ),
                             decoration: BoxDecoration(
                               color: ent.hasStairs
                                   ? const Color(0xFFFFF0ED)
@@ -1454,7 +1590,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                       foregroundColor: AppColors.usstRed,
                       side: const BorderSide(color: Color(0xFFE0C4C4)),
                       padding: const EdgeInsets.symmetric(vertical: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                     icon: const Icon(Icons.meeting_room_outlined, size: 15),
                     label: const Text('查本楼空教室', style: TextStyle(fontSize: 12)),
@@ -1474,7 +1612,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                   style: FilledButton.styleFrom(
                     backgroundColor: AppColors.usstRed,
                     padding: const EdgeInsets.symmetric(vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                   icon: const Icon(Icons.navigation_outlined, size: 15),
                   label: const Text('外部地图导航', style: TextStyle(fontSize: 12)),
@@ -1495,8 +1635,10 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       final xi = polygon[i].latitude, yi = polygon[i].longitude;
       final xj = polygon[j].latitude, yj = polygon[j].longitude;
 
-      final intersect = ((yi > point.longitude) != (yj > point.longitude)) &&
-          (point.latitude < (xj - xi) * (point.longitude - yi) / (yj - yi) + xi);
+      final intersect =
+          ((yi > point.longitude) != (yj > point.longitude)) &&
+          (point.latitude <
+              (xj - xi) * (point.longitude - yi) / (yj - yi) + xi);
       if (intersect) inside = !inside;
     }
     return inside;

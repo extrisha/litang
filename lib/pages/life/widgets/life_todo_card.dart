@@ -41,8 +41,7 @@ class LifeTodoCard extends StatelessWidget {
     if (direct != null) {
       // 纯日期（2026-03-05）要按当天 23:59 算，否则截止日当天 00:01 就被判
       // 「已逾期」。带时间的写法（含 T 或 HH:mm）保持不变。
-      final hasTime =
-          s.contains('T') || RegExp(r'\d{1,2}:\d{2}').hasMatch(s);
+      final hasTime = s.contains('T') || RegExp(r'\d{1,2}:\d{2}').hasMatch(s);
       if (hasTime) return direct;
       return DateTime(direct.year, direct.month, direct.day, 23, 59);
     }
@@ -61,9 +60,8 @@ class LifeTodoCard extends StatelessWidget {
     }
 
     // MM月DD日 [HH:mm]
-    final mdCn = RegExp(
-      r'^(\d{1,2})月(\d{1,2})日(?:\s+(\d{1,2}):(\d{2}))?',
-    ).firstMatch(s);
+    final mdCn = RegExp(r'^(\d{1,2})月(\d{1,2})日(?:\s+(\d{1,2}):(\d{2}))?')
+        .firstMatch(s);
     if (mdCn != null) {
       final m = int.parse(mdCn.group(1)!);
       final d = int.parse(mdCn.group(2)!);
@@ -73,9 +71,8 @@ class LifeTodoCard extends StatelessWidget {
     }
 
     // YYYY-MM-DD [HH:mm]
-    final ymd = RegExp(
-      r'^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?',
-    ).firstMatch(s);
+    final ymd = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?')
+        .firstMatch(s);
     if (ymd != null) {
       final y = int.parse(ymd.group(1)!);
       final m = int.parse(ymd.group(2)!);
@@ -86,9 +83,8 @@ class LifeTodoCard extends StatelessWidget {
     }
 
     // MM-DD [HH:mm]
-    final md = RegExp(
-      r'^(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?',
-    ).firstMatch(s);
+    final md = RegExp(r'^(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?')
+        .firstMatch(s);
     if (md != null) {
       final m = int.parse(md.group(1)!);
       final d = int.parse(md.group(2)!);
@@ -189,15 +185,18 @@ class LifeTodoCard extends StatelessWidget {
   }
 
   Widget _buildUnifiedTodoBody() {
-    final items = <({
-      String id,
-      String title,
-      String course,
-      String source,
-      DateTime? deadline,
-      String deadlineText,
-      VoidCallback onTap,
-    })>[];
+    final items =
+        <
+          ({
+            String id,
+            String title,
+            String course,
+            String source,
+            DateTime? deadline,
+            String deadlineText,
+            VoidCallback onTap,
+          })
+        >[];
 
     for (final t in todos) {
       items.add((
@@ -239,7 +238,10 @@ class LifeTodoCard extends StatelessWidget {
         child: Center(
           child: Text(
             err ?? '暂无待办作业，尽情享受自由时光 ☕',
-            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
           ),
         ),
       );
@@ -283,9 +285,14 @@ class LifeTodoCard extends StatelessWidget {
                         Row(
                           children: <Widget>[
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 1,
+                              ),
                               decoration: BoxDecoration(
-                                color: isTron ? const Color(0xFFE8F0FE) : const Color(0xFFFDE8E8),
+                                color: isTron
+                                    ? const Color(0xFFE8F0FE)
+                                    : const Color(0xFFFDE8E8),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
@@ -293,7 +300,9 @@ class LifeTodoCard extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 9.5,
                                   fontWeight: FontWeight.w600,
-                                  color: isTron ? const Color(0xFF1967D2) : AppColors.usstRed,
+                                  color: isTron
+                                      ? const Color(0xFF1967D2)
+                                      : AppColors.usstRed,
                                 ),
                               ),
                             ),

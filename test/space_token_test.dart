@@ -13,7 +13,8 @@ void main() {
     required Duration elapsed,
   }) {
     final api = SpaceBookingApi()
-      ..accessToken = 'not-a-jwt' // 非 JWT，强制走 tokenObtainedAt 分支
+      ..accessToken =
+          'not-a-jwt' // 非 JWT，强制走 tokenObtainedAt 分支
       ..tokenExpiresInSeconds = expiresInSeconds
       ..tokenObtainedAt = DateTime.now().subtract(elapsed);
     return api;

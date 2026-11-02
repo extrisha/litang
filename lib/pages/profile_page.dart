@@ -403,11 +403,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final info = result.info;
     if (info == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            result.failed ? '检查更新失败，请检查网络后重试' : '当前已是最新版本',
-          ),
-        ),
+        SnackBar(content: Text(result.failed ? '检查更新失败，请检查网络后重试' : '当前已是最新版本')),
       );
       return;
     }
@@ -622,11 +618,9 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _openSpaceBooking() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const SpaceBookingPage(),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const SpaceBookingPage()));
   }
 
   Future<void> _openXuegong() async {

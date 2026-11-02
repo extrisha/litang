@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:project_usst/data/auth/cas_client.dart';
@@ -10,7 +11,10 @@ class _MockCasClient extends CasClient {
   final Map<String, dynamic> mockResponses;
 
   @override
-  Future<Response<String>> getApi(Uri uri, {Map<String, String>? headers}) async {
+  Future<Response<String>> getApi(
+    Uri uri, {
+    Map<String, String>? headers,
+  }) async {
     final key = uri.toString();
     if (key.contains('oauth/v1/authorize')) {
       return Response<String>(
@@ -26,7 +30,9 @@ class _MockCasClient extends CasClient {
         return Response<String>(
           requestOptions: RequestOptions(path: key),
           statusCode: 200,
-          data: entry.value is String ? entry.value as String : jsonEncode(entry.value),
+          data: entry.value is String
+              ? entry.value as String
+              : jsonEncode(entry.value),
         );
       }
     }
@@ -50,7 +56,9 @@ class _MockCasClient extends CasClient {
         return Response<String>(
           requestOptions: RequestOptions(path: key),
           statusCode: 200,
-          data: entry.value is String ? entry.value as String : jsonEncode(entry.value),
+          data: entry.value is String
+              ? entry.value as String
+              : jsonEncode(entry.value),
         );
       }
     }
@@ -74,7 +82,9 @@ class _MockCasClient extends CasClient {
         return Response<String>(
           requestOptions: RequestOptions(path: key),
           statusCode: 200,
-          data: entry.value is String ? entry.value as String : jsonEncode(entry.value),
+          data: entry.value is String
+              ? entry.value as String
+              : jsonEncode(entry.value),
         );
       }
     }
@@ -89,11 +99,15 @@ class _MockCasClient extends CasClient {
 void main() {
   group('SpaceBookingApi Unit Tests', () {
     test('login success with root accessToken & post user', () async {
-      final jwtPayload = base64Url.encode(
-        utf8.encode(jsonEncode(<String, dynamic>{
-          'sub': jsonEncode(<String, dynamic>{'uid': '123456'}),
-        })),
-      ).replaceAll('=', '');
+      final jwtPayload = base64Url
+          .encode(
+            utf8.encode(
+              jsonEncode(<String, dynamic>{
+                'sub': jsonEncode(<String, dynamic>{'uid': '123456'}),
+              }),
+            ),
+          )
+          .replaceAll('=', '');
       final mockJwt = 'header.$jwtPayload.signature';
 
       final mockClient = _MockCasClient(<String, dynamic>{
@@ -146,49 +160,52 @@ void main() {
       expect(rooms.first.capacityDesc, '2 - 6 人');
     });
 
-    test('fetchMyReservations parses active & history with status mappings', () async {
-      final mockClient = _MockCasClient(<String, dynamic>{
-        'reservationByUserId': <String, dynamic>{
-          'id': 'res1',
-          'roomId': '1',
-          'roomName': '研讨间101',
-          'startTime': '2026-10-30 14:00:00',
-          'endTime': '2026-10-30 16:00:00',
-          'reservationStatus': 21,
-          'type': 0,
-        },
-        'pageByUserId': <String, dynamic>{
-          'records': <dynamic>[
-            <String, dynamic>{
-              'id': 'res2',
-              'roomId': '2',
-              'roomName': '研讨间102',
-              'startTime': '2026-10-29 10:00:00',
-              'endTime': '2026-10-29 12:00:00',
-              'reservationStatus': 51,
-              'type': 1,
-            },
-          ],
-        },
-      });
+    test(
+      'fetchMyReservations parses active & history with status mappings',
+      () async {
+        final mockClient = _MockCasClient(<String, dynamic>{
+          'reservationByUserId': <String, dynamic>{
+            'id': 'res1',
+            'roomId': '1',
+            'roomName': '研讨间101',
+            'startTime': '2026-10-30 14:00:00',
+            'endTime': '2026-10-30 16:00:00',
+            'reservationStatus': 21,
+            'type': 0,
+          },
+          'pageByUserId': <String, dynamic>{
+            'records': <dynamic>[
+              <String, dynamic>{
+                'id': 'res2',
+                'roomId': '2',
+                'roomName': '研讨间102',
+                'startTime': '2026-10-29 10:00:00',
+                'endTime': '2026-10-29 12:00:00',
+                'reservationStatus': 51,
+                'type': 1,
+              },
+            ],
+          },
+        });
 
-      final api = SpaceBookingApi(mockClient);
-      api.userId = '123456';
-      api.accessToken = 'test-token';
+        final api = SpaceBookingApi(mockClient);
+        api.userId = '123456';
+        api.accessToken = 'test-token';
 
-      final list = await api.fetchMyReservations();
-      expect(list.length, 2);
-      expect(list[0].statusDesc, '已预约');
-      expect(list[0].status, 0); // 待使用
-      expect(list[0].isLeader, isTrue);
-      expect(list[0].roomId, '1');
-      expect(list[0].isUpcoming, isTrue);
+        final list = await api.fetchMyReservations();
+        expect(list.length, 2);
+        expect(list[0].statusDesc, '已预约');
+        expect(list[0].status, 0); // 待使用
+        expect(list[0].isLeader, isTrue);
+        expect(list[0].roomId, '1');
+        expect(list[0].isUpcoming, isTrue);
 
-      expect(list[1].statusDesc, '个人签退');
-      expect(list[1].status, 2); // 已完成
-      expect(list[1].isLeader, isFalse);
-      expect(list[1].isFinished, isTrue);
-    });
+        expect(list[1].statusDesc, '个人签退');
+        expect(list[1].status, 2); // 已完成
+        expect(list[1].isLeader, isFalse);
+        expect(list[1].isFinished, isTrue);
+      },
+    );
 
     test('cancelReservation calls postApi', () async {
       final mockClient = _MockCasClient(<String, dynamic>{
@@ -265,7 +282,8 @@ void main() {
         status: 0,
       );
       expect(pod.shortBuildingName, '复兴');
-      final isPodSingle = pod.maxNum == 1 ||
+      final isPodSingle =
+          pod.maxNum == 1 ||
           pod.name.contains('静音舱') ||
           pod.roomType.contains('单人');
       expect(isPodSingle, isTrue);
@@ -281,7 +299,8 @@ void main() {
         status: 0,
       );
       expect(smallRoom.shortBuildingName, '334号');
-      final fitsSmall = (smallRoom.maxNum <= 4 && smallRoom.maxNum >= 2) ||
+      final fitsSmall =
+          (smallRoom.maxNum <= 4 && smallRoom.maxNum >= 2) ||
           (smallRoom.minNum <= 2 && smallRoom.maxNum <= 6);
       expect(fitsSmall, isTrue);
 
@@ -296,69 +315,76 @@ void main() {
         status: 0,
       );
       expect(mediumRoom.shortBuildingName, '湛恩');
-      final fitsMedium = (mediumRoom.maxNum >= 5 && mediumRoom.minNum <= 6) ||
+      final fitsMedium =
+          (mediumRoom.maxNum >= 5 && mediumRoom.minNum <= 6) ||
           (mediumRoom.minNum >= 3 && mediumRoom.maxNum >= 4);
       expect(fitsMedium, isTrue);
     });
 
-    test('fetchRoomReservationDetail parses time slices and booked segments', () async {
-      final mockClient = _MockCasClient(<String, dynamic>{
-        'room/reservation': <String, dynamic>{
-          'id': '101',
-          'roomName': '湛恩101',
-          'dateTimeSlicesList': <dynamic>[
-            <dynamic>[
-              <String, dynamic>{
-                'startTime': '2026-10-30 08:00:00',
-                'endTime': '2026-10-30 08:30:00',
-                'reservationStatus': 0,
-              },
+    test(
+      'fetchRoomReservationDetail parses time slices and booked segments',
+      () async {
+        final mockClient = _MockCasClient(<String, dynamic>{
+          'room/reservation': <String, dynamic>{
+            'id': '101',
+            'roomName': '湛恩101',
+            'dateTimeSlicesList': <dynamic>[
+              <dynamic>[
+                <String, dynamic>{
+                  'startTime': '2026-10-30 08:00:00',
+                  'endTime': '2026-10-30 08:30:00',
+                  'reservationStatus': 0,
+                },
+                <String, dynamic>{
+                  'startTime': '2026-10-30 08:30:00',
+                  'endTime': '2026-10-30 09:00:00',
+                  'reservationStatus': 1,
+                },
+              ],
+            ],
+            'reservations': <dynamic>[
               <String, dynamic>{
                 'startTime': '2026-10-30 08:30:00',
                 'endTime': '2026-10-30 09:00:00',
-                'reservationStatus': 1,
+                'stateName': '已预约',
               },
             ],
-          ],
-          'reservations': <dynamic>[
-            <String, dynamic>{
-              'startTime': '2026-10-30 08:30:00',
-              'endTime': '2026-10-30 09:00:00',
-              'stateName': '已预约',
-            },
-          ],
-        },
-      });
+          },
+        });
 
-      final api = SpaceBookingApi(mockClient);
-      api.accessToken = 'test-token';
+        final api = SpaceBookingApi(mockClient);
+        api.accessToken = 'test-token';
 
-      final detail = await api.fetchRoomReservationDetail(roomId: '101', date: '2026-10-30');
-      expect(detail, isNotNull);
-      expect(detail!.room.name, '湛恩101');
-      expect(detail.timeSlices.length, 2);
-      expect(detail.timeSlices[0].startTime, '08:00');
-      expect(detail.timeSlices[0].endTime, '08:30');
-      expect(detail.timeSlices[0].isOccupied, isFalse);
-      expect(detail.timeSlices[1].isOccupied, isTrue);
+        final detail = await api.fetchRoomReservationDetail(
+          roomId: '101',
+          date: '2026-10-30',
+        );
+        expect(detail, isNotNull);
+        expect(detail!.room.name, '湛恩101');
+        expect(detail.timeSlices.length, 2);
+        expect(detail.timeSlices[0].startTime, '08:00');
+        expect(detail.timeSlices[0].endTime, '08:30');
+        expect(detail.timeSlices[0].isOccupied, isFalse);
+        expect(detail.timeSlices[1].isOccupied, isTrue);
 
-      expect(detail.bookedSegments.length, 1);
-      expect(detail.bookedSegments[0].timeRange, '08:30 - 09:00');
-      expect(detail.bookedSegments[0].statusDesc, '已预约');
+        expect(detail.bookedSegments.length, 1);
+        expect(detail.bookedSegments[0].timeRange, '08:30 - 09:00');
+        expect(detail.bookedSegments[0].statusDesc, '已预约');
 
-      final hourSlots = detail.hourSlots;
-      expect(hourSlots.isNotEmpty, isTrue);
-      expect(hourSlots[0].startHour, '08:00');
-      expect(hourSlots[0].endHour, '09:00');
-      expect(hourSlots[0].isOccupied, isTrue); // 08:30-09:00 was occupied
-      expect(hourSlots[0].occupantDesc, '已预约');
+        final hourSlots = detail.hourSlots;
+        expect(hourSlots.isNotEmpty, isTrue);
+        expect(hourSlots[0].startHour, '08:00');
+        expect(hourSlots[0].endHour, '09:00');
+        expect(hourSlots[0].isOccupied, isTrue); // 08:30-09:00 was occupied
+        expect(hourSlots[0].occupantDesc, '已预约');
 
-      // Test isPastFor
-      final pastDate = DateTime(2020, 1, 1);
-      expect(hourSlots[0].isPastFor(pastDate), isFalse); // not today
-      final futureDate = DateTime(2035, 1, 1);
-      expect(hourSlots[0].isPastFor(futureDate), isFalse);
-    });
+        // Test isPastFor
+        final pastDate = DateTime(2020, 1, 1);
+        expect(hourSlots[0].isPastFor(pastDate), isFalse); // not today
+        final futureDate = DateTime(2035, 1, 1);
+        expect(hourSlots[0].isPastFor(futureDate), isFalse);
+      },
+    );
 
     test('fetchUserProfile and fetchPurposes work as expected', () async {
       final mockClient = _MockCasClient(<String, dynamic>{

@@ -60,11 +60,9 @@ class NoticePrefs {
     _selected = (college == null || college.isEmpty) ? null : college;
     _selectedLoaded = true;
     if (debugSkipStorage) return;
-    await CacheStore.write(
-      _key,
-      <String, dynamic>{'college': _selected ?? ''},
-      secure: true,
-    );
+    await CacheStore.write(_key, <String, dynamic>{
+      'college': _selected ?? '',
+    }, secure: true);
   }
 
   /// 测试用：把内存里的状态清干净。

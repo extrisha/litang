@@ -35,7 +35,9 @@ void main() {
 
   test('抓到登录页时抛 auth 类异常', () async {
     final api = ChaoxingCourseDetailApi(
-      _FakeClient('<html><a href="https://passport2.chaoxing.com/login">请登录</a></html>'),
+      _FakeClient(
+        '<html><a href="https://passport2.chaoxing.com/login">请登录</a></html>',
+      ),
     );
     await expectLater(
       api.fetchChapters(course),

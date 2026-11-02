@@ -11,9 +11,7 @@ const FlutterSecureStorage kDefaultSecureStorage = FlutterSecureStorage(
     encryptedSharedPreferences: true,
     resetOnError: true,
   ),
-  iOptions: IOSOptions(
-    accessibility: KeychainAccessibility.first_unlock,
-  ),
+  iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
 );
 
 /// 一份缓存记录：数据 + 写入时间。

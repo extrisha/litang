@@ -65,7 +65,10 @@ class SchoolCourseCard extends StatelessWidget {
               if (course.courseType.isNotEmpty) ...<Widget>[
                 const SizedBox(width: 4),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF4F4F5),
                     borderRadius: BorderRadius.circular(6),
@@ -86,7 +89,11 @@ class SchoolCourseCard extends StatelessWidget {
           // 教师与学院
           Row(
             children: <Widget>[
-              const Icon(Icons.person_outline, size: 15, color: AppColors.textSecondary),
+              const Icon(
+                Icons.person_outline,
+                size: 15,
+                color: AppColors.textSecondary,
+              ),
               const SizedBox(width: 4),
               Text(
                 course.teacherDisplay,
@@ -98,7 +105,11 @@ class SchoolCourseCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               if (course.college.isNotEmpty) ...<Widget>[
-                const Icon(Icons.apartment_outlined, size: 15, color: AppColors.textSecondary),
+                const Icon(
+                  Icons.apartment_outlined,
+                  size: 15,
+                  color: AppColors.textSecondary,
+                ),
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
@@ -120,7 +131,11 @@ class SchoolCourseCard extends StatelessWidget {
           Row(
             children: <Widget>[
               if (course.creditHoursDisplay.isNotEmpty) ...<Widget>[
-                const Icon(Icons.credit_card_outlined, size: 15, color: AppColors.textSecondary),
+                const Icon(
+                  Icons.credit_card_outlined,
+                  size: 15,
+                  color: AppColors.textSecondary,
+                ),
                 const SizedBox(width: 4),
                 Text(
                   course.creditHoursDisplay,
@@ -135,7 +150,9 @@ class SchoolCourseCard extends StatelessWidget {
                 child: Text(
                   course.className.isNotEmpty
                       ? course.className
-                      : (course.classCode.isNotEmpty ? '班级：${course.classCode}' : ''),
+                      : (course.classCode.isNotEmpty
+                            ? '班级：${course.classCode}'
+                            : ''),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -166,11 +183,17 @@ class SchoolCourseCard extends StatelessWidget {
                     children: <Widget>[
                       // 星期与节次
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 1.5,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: const Color(0xFFE5E7EB), width: 0.6),
+                          border: Border.all(
+                            color: const Color(0xFFE5E7EB),
+                            width: 0.6,
+                          ),
                         ),
                         child: Text(
                           '${slot.dayOfWeekName} ${slot.sectionDesc}',
@@ -184,7 +207,11 @@ class SchoolCourseCard extends StatelessWidget {
                       const SizedBox(width: 8),
 
                       // 上课地点
-                      const Icon(Icons.place_outlined, size: 13, color: AppColors.usstRed),
+                      const Icon(
+                        Icons.place_outlined,
+                        size: 13,
+                        color: AppColors.usstRed,
+                      ),
                       const SizedBox(width: 2),
                       Text(
                         slot.classroom.isNotEmpty ? slot.classroom : '待定',
@@ -209,7 +236,10 @@ class SchoolCourseCard extends StatelessWidget {
                       // 本周有课徽章
                       if (isThisWeek)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 1,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFFDCFCE7),
                             borderRadius: BorderRadius.circular(4),

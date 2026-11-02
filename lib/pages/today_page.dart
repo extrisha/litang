@@ -65,7 +65,10 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
     // 每分钟自检，跨节次或跨日无需手动刷新即可实时高亮
     _lastActivePeriod = _activePeriod();
     _lastDayStamp = _dayStamp(DateTime.now());
-    _minuteTimer = Timer.periodic(const Duration(minutes: 1), (_) => _tickClock());
+    _minuteTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _tickClock(),
+    );
   }
 
   static int _dayStamp(DateTime t) => t.year * 10000 + t.month * 100 + t.day;
@@ -112,7 +115,8 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
 
   Future<void> _initSchedule() async {
     final cached = await CourseRepository.loadCache();
-    final curWeek = CalendarService.instance.currentWeek ?? cached?.currentWeek ?? 1;
+    final curWeek =
+        CalendarService.instance.currentWeek ?? cached?.currentWeek ?? 1;
     if (mounted) {
       setState(() {
         _snapshot = cached;
@@ -132,7 +136,10 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
     if (mounted && cached != null) {
       setState(() {
         _snapshot = cached;
-        _selectedWeek = CalendarService.instance.currentWeek ?? cached.currentWeek ?? _selectedWeek;
+        _selectedWeek =
+            CalendarService.instance.currentWeek ??
+            cached.currentWeek ??
+            _selectedWeek;
       });
     }
     await _refresh(silent: silent);
@@ -156,7 +163,8 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _snapshot = fresh;
-          _selectedWeek = CalendarService.instance.currentWeek ??
+          _selectedWeek =
+              CalendarService.instance.currentWeek ??
               fresh.currentWeek ??
               _selectedWeek;
           _syncFailed = false;
@@ -266,8 +274,8 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
                   child: !auth.isLoggedIn && _snapshot == null
                       ? _unloggedPlaceholder()
                       : _snapshot == null
-                          ? _emptyPlaceholder()
-                          : _scheduleGrid(),
+                      ? _emptyPlaceholder()
+                      : _scheduleGrid(),
                 ),
               ],
             ),
@@ -278,16 +286,10 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () => setState(() => _showWeekSelector = false),
-                  child: Container(
-                    color: const Color(0x33000000),
-                  ),
+                  child: Container(color: const Color(0x33000000)),
                 ),
               ),
-              Positioned(
-                top: 56,
-                left: 14,
-                child: _weekDropdownPanel(),
-              ),
+              Positioned(top: 56, left: 14, child: _weekDropdownPanel()),
             ],
           ],
         ),
@@ -311,10 +313,14 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               InkWell(
-                onTap: () => setState(() => _showWeekSelector = !_showWeekSelector),
+                onTap: () =>
+                    setState(() => _showWeekSelector = !_showWeekSelector),
                 borderRadius: BorderRadius.circular(8),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 2,
+                    horizontal: 4,
+                  ),
                   child: Row(
                     children: <Widget>[
                       Text(
@@ -355,27 +361,36 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
               onPressed: () => setState(() => _selectedWeek = _currentWeek),
               style: TextButton.styleFrom(
                 foregroundColor: AppColors.usstRed,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
               icon: const Icon(Icons.today, size: 16),
-              label: const Text('回到本周', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              label: const Text(
+                '回到本周',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
             ),
           IconButton(
             tooltip: '校园地图',
-            icon: const Icon(Icons.map_outlined, size: 21, color: AppColors.textPrimary),
+            icon: const Icon(
+              Icons.map_outlined,
+              size: 21,
+              color: AppColors.textPrimary,
+            ),
             onPressed: () {
               if (!kMapFeatureEnabled) {
                 _showToast('校园地图升级维护中，暂未开放');
                 return;
               }
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const MapPage()),
-              );
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute<void>(builder: (_) => const MapPage()));
             },
           ),
-
         ],
       ),
     );
@@ -434,7 +449,10 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.usstRed,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -472,7 +490,10 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
           Text(
             failed ? '课表同步失败，请检查网络后重试' : '暂无课表数据',
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 15, color: AppColors.textSecondary),
+            style: const TextStyle(
+              fontSize: 15,
+              color: AppColors.textSecondary,
+            ),
           ),
           const SizedBox(height: 14),
           OutlinedButton.icon(

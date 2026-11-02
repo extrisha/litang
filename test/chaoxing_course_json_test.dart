@@ -14,10 +14,7 @@ void main() {
       <String, dynamic>{
         'catalogId': 9146613,
         'key': 9146613,
-        'content': <String, dynamic>{
-          'folderName': '大一上',
-          'cpi': 497874758,
-        },
+        'content': <String, dynamic>{'folderName': '大一上', 'cpi': 497874758},
       },
       // 2) 正常课程
       <String, dynamic>{
@@ -70,10 +67,7 @@ void main() {
   });
 
   test('未登录（result=0）返回 null，让调用方回退 HTML', () {
-    final raw = jsonEncode(<String, dynamic>{
-      'result': 0,
-      'msg': '请重新登录',
-    });
+    final raw = jsonEncode(<String, dynamic>{'result': 0, 'msg': '请重新登录'});
     expect(ChaoxingClient.parseCourseListJson(raw), isNull);
   });
 

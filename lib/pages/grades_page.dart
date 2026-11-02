@@ -435,9 +435,7 @@ class _GradesPageState extends State<GradesPage> {
     child: AsyncStateView(
       loading: _loading,
       error: _error,
-      emptyText: JwglAuth.instance.isLoggedIn
-          ? '还没有成绩数据，点右上角刷新'
-          : '登录后自动同步成绩',
+      emptyText: JwglAuth.instance.isLoggedIn ? '还没有成绩数据，点右上角刷新' : '登录后自动同步成绩',
       onRetry: () => _refresh(),
     ),
   );

@@ -87,16 +87,17 @@ class _ForumPageState extends State<ForumPage> {
                   const SizedBox(width: 8),
                   const Text(
                     '选课避坑 · 校园参考',
-                    style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                   const Spacer(),
                   _tabSwitcher(),
                 ],
               ),
             ),
-            Expanded(
-              child: _tab == 0 ? _reviewList() : _partnerList(),
-            ),
+            Expanded(child: _tab == 0 ? _reviewList() : _partnerList()),
           ],
         ),
       ),
@@ -112,10 +113,7 @@ class _ForumPageState extends State<ForumPage> {
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          _tabChip('课程点评', 0),
-          _tabChip('找搭子', 1),
-        ],
+        children: <Widget>[_tabChip('课程点评', 0), _tabChip('找搭子', 1)],
       ),
     );
   }
@@ -172,11 +170,17 @@ class _ForumPageState extends State<ForumPage> {
                 children: <Widget>[
                   Text(
                     r['course'] as String,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const Spacer(),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFFF7E6),
                       borderRadius: BorderRadius.circular(6),
@@ -185,7 +189,11 @@ class _ForumPageState extends State<ForumPage> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        const Icon(Icons.star_rounded, size: 13, color: Color(0xFFD46B08)),
+                        const Icon(
+                          Icons.star_rounded,
+                          size: 13,
+                          color: Color(0xFFD46B08),
+                        ),
                         const SizedBox(width: 2),
                         Text(
                           r['rating'] as String,
@@ -203,7 +211,10 @@ class _ForumPageState extends State<ForumPage> {
               const SizedBox(height: 4),
               Text(
                 r['teacher'] as String,
-                style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: AppColors.textSecondary,
+                ),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -211,14 +222,20 @@ class _ForumPageState extends State<ForumPage> {
                 runSpacing: 4,
                 children: tags.map((t) {
                   return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 1.5,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF5F5F5),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       t,
-                      style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   );
                 }).toList(),
@@ -258,7 +275,10 @@ class _ForumPageState extends State<ForumPage> {
               Row(
                 children: <Widget>[
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.redTint,
                       borderRadius: BorderRadius.circular(6),

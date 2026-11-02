@@ -55,15 +55,15 @@ class WeatherSummary {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'hasRainOrSnow': hasRainOrSnow,
-        'weatherStatus': weatherStatus,
-        'rainTimeWindow': rainTimeWindow,
-        'probabilityText': probabilityText,
-        'umbrellaAdvice': umbrellaAdvice,
-        'tempRange': tempRange,
-        'iconType': iconType,
-        'updatedAt': updatedAt.toIso8601String(),
-      };
+    'hasRainOrSnow': hasRainOrSnow,
+    'weatherStatus': weatherStatus,
+    'rainTimeWindow': rainTimeWindow,
+    'probabilityText': probabilityText,
+    'umbrellaAdvice': umbrellaAdvice,
+    'tempRange': tempRange,
+    'iconType': iconType,
+    'updatedAt': updatedAt.toIso8601String(),
+  };
 }
 
 /// 上理军工路校区气象与降水预报服务 (基于 Open-Meteo 免费高精度开源气象 API)
@@ -115,8 +115,9 @@ class WeatherService {
     final hourly = data['hourly'] as Map<String, dynamic>;
     final times = List<String>.from(hourly['time'] as List);
     final temps = List<num>.from(hourly['temperature_2m'] as List);
-    final precipProbs =
-        List<num>.from(hourly['precipitation_probability'] as List);
+    final precipProbs = List<num>.from(
+      hourly['precipitation_probability'] as List,
+    );
     final precips = List<num>.from(hourly['precipitation'] as List);
     final codes = List<int>.from(hourly['weather_code'] as List);
 
@@ -157,7 +158,8 @@ class WeatherService {
       if (prob > maxProb) maxProb = prob;
 
       final isRainCode = _isRainOrSnowCode(code);
-      final isSnowCode = code == 71 ||
+      final isSnowCode =
+          code == 71 ||
           code == 73 ||
           code == 75 ||
           code == 77 ||
@@ -200,16 +202,21 @@ class WeatherService {
         umbrellaAdvice = upcomingIsSnow ? '降雪中，注意防滑 ❄️' : '当前有雨，出门带伞 ☔';
         rainTimeWindow = '当前有雨 (预计至${firstRange.end + 1}:00)';
       } else {
-        weatherStatus = upcomingIsSnow ? '稍后有雪' : (upcomingMaxProb > 70 ? '稍后有雨' : '可能有阵雨');
+        weatherStatus = upcomingIsSnow
+            ? '稍后有雪'
+            : (upcomingMaxProb > 70 ? '稍后有雨' : '可能有阵雨');
         umbrellaAdvice = upcomingIsSnow ? '出门防寒带伞 ❄️' : '出门记得带伞 🌂';
-        rainTimeWindow = '${firstRange.start}:00~${firstRange.end + 1}:00 $typeName';
+        rainTimeWindow =
+            '${firstRange.start}:00~${firstRange.end + 1}:00 $typeName';
         if (ranges.length > 1) {
           rainTimeWindow += '等';
         }
       }
     } else {
       // 当前与后续无降水
-      final midDayCode = codes.length > 12 ? codes[12] : (codes.isNotEmpty ? codes.first : 0);
+      final midDayCode = codes.length > 12
+          ? codes[12]
+          : (codes.isNotEmpty ? codes.first : 0);
       if (midDayCode == 0) {
         iconType = 'sunny';
         weatherStatus = '晴天';

@@ -24,22 +24,10 @@ void main() {
         AttachmentCache.safeFilename('../../etc/passwd'),
         '____etc_passwd',
       );
-      expect(
-        AttachmentCache.safeFilename('..'),
-        startsWith('attachment_'),
-      );
-      expect(
-        AttachmentCache.safeFilename('.'),
-        startsWith('attachment_'),
-      );
-      expect(
-        AttachmentCache.safeFilename(''),
-        startsWith('attachment_'),
-      );
-      expect(
-        AttachmentCache.safeFilename('....'),
-        startsWith('attachment_'),
-      );
+      expect(AttachmentCache.safeFilename('..'), startsWith('attachment_'));
+      expect(AttachmentCache.safeFilename('.'), startsWith('attachment_'));
+      expect(AttachmentCache.safeFilename(''), startsWith('attachment_'));
+      expect(AttachmentCache.safeFilename('....'), startsWith('attachment_'));
     });
   });
 }

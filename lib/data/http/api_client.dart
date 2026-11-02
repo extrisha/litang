@@ -137,7 +137,10 @@ class _LogInterceptor extends Interceptor {
   }
 
   @override
-  void onResponse(Response<dynamic> response, ResponseInterceptorHandler handler) {
+  void onResponse(
+    Response<dynamic> response,
+    ResponseInterceptorHandler handler,
+  ) {
     _log(response.requestOptions, response.statusCode);
     handler.next(response);
   }

@@ -80,9 +80,9 @@ class BuildingFeature extends VectorFeature {
 /// 地形地貌类型（校园围墙轮廓、水系、草坪绿化、跑道运动场等）
 enum GroundType {
   campusGround, // 校园红线范围
-  water,        // 黄浦江或校园内河
-  lawn,         // 绿地草坪
-  sportsTrack,  // 跑道体育场
+  water, // 黄浦江或校园内河
+  lawn, // 绿地草坪
+  sportsTrack, // 跑道体育场
 }
 
 /// 地貌景观实体

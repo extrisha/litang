@@ -76,9 +76,8 @@ class _HomeworkPageState extends State<HomeworkPage> {
       debugPrint('[homework] 提醒设置失败: $e');
       if (!mounted) return;
       setState(() => _reminderOn = !value);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('提醒设置失败，请检查通知权限后重试')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('提醒设置失败，请检查通知权限后重试')));
       return;
     }
     if (!mounted) return;
@@ -197,7 +196,9 @@ class _HomeworkPageState extends State<HomeworkPage> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SimpleWebPage(
-          title: widget.todo.courseName.isEmpty ? '作业详情' : widget.todo.courseName,
+          title: widget.todo.courseName.isEmpty
+              ? '作业详情'
+              : widget.todo.courseName,
           url: url,
           cookies: cookies,
         ),
@@ -243,10 +244,7 @@ class _HomeworkPageState extends State<HomeworkPage> {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: <Widget>[
-                        TextButton(
-                          onPressed: _load,
-                          child: const Text('重试'),
-                        ),
+                        TextButton(onPressed: _load, child: const Text('重试')),
                         const SizedBox(width: 8),
                         FilledButton.icon(
                           onPressed: _openWeb,
@@ -491,9 +489,8 @@ class _HomeworkPageState extends State<HomeworkPage> {
   Future<void> _submit() async {
     final client = JwglAuth.instance.client;
     if (client == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先登录教务系统')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请先登录教务系统')));
       return;
     }
     final ok = await Navigator.of(context).push<bool>(

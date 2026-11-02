@@ -208,7 +208,6 @@ class _LifePageState extends State<LifePage> {
     await _loadDormElectricity(force: true);
   }
 
-
   Future<void> _refreshRollcallsOnly() async {
     if (_rollcallsRefreshing) return;
     setState(() => _rollcallsRefreshing = true);
@@ -1146,12 +1145,19 @@ class _LifePageState extends State<LifePage> {
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
                 child: Row(
                   children: <Widget>[
-                    const Icon(Icons.how_to_reg_outlined, color: AppColors.usstRed, size: 20),
+                    const Icon(
+                      Icons.how_to_reg_outlined,
+                      color: AppColors.usstRed,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         '${activity.courseName} · 签到',
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1163,9 +1169,15 @@ class _LifePageState extends State<LifePage> {
               ListTile(
                 leading: const CircleAvatar(
                   backgroundColor: Color(0xFFFFF1F0),
-                  child: Icon(Icons.camera_alt_outlined, color: AppColors.usstRed),
+                  child: Icon(
+                    Icons.camera_alt_outlined,
+                    color: AppColors.usstRed,
+                  ),
                 ),
-                title: const Text('拍照 / 直接签到', style: TextStyle(fontWeight: FontWeight.w600)),
+                title: const Text(
+                  '拍照 / 直接签到',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
                 subtitle: const Text('支持拍照上传、普通签到、手势及位置签到'),
                 onTap: () => Navigator.of(ctx).pop('web'),
               ),
@@ -1174,7 +1186,10 @@ class _LifePageState extends State<LifePage> {
                   backgroundColor: Color(0xFFE6F4FF),
                   child: Icon(Icons.qr_code_scanner, color: Color(0xFF1677FF)),
                 ),
-                title: const Text('扫描二维码签到', style: TextStyle(fontWeight: FontWeight.w600)),
+                title: const Text(
+                  '扫描二维码签到',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
                 subtitle: const Text('扫描教师投影屏幕上展示的签到二维码'),
                 onTap: () => Navigator.of(ctx).pop('qr'),
               ),
@@ -1537,7 +1552,9 @@ class _LifePageState extends State<LifePage> {
                 fetchedAt: _dormFetchedAt,
                 loading: _dormLoading,
                 error: _dormError,
-                canFetch: JwglAuth.instance.client != null || JwglAuth.instance.hasSavedPassword,
+                canFetch:
+                    JwglAuth.instance.client != null ||
+                    JwglAuth.instance.hasSavedPassword,
                 onRefresh: () => _loadDormElectricity(force: true),
                 onLogin: _loginThenLoadDorm,
               ),

@@ -113,7 +113,8 @@ class LifeCourseCard extends StatelessWidget {
                 scrollDirection: Axis.horizontal,
                 itemCount: courseInfos.length,
                 separatorBuilder: (_, _) => const SizedBox(width: 10),
-                itemBuilder: (context, i) => _buildCourseTile(context, courseInfos[i]),
+                itemBuilder: (context, i) =>
+                    _buildCourseTile(context, courseInfos[i]),
               ),
             ),
         ],

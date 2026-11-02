@@ -22,13 +22,11 @@ class UsstCampusIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final iconColor = color ?? IconTheme.of(context).color ?? AppColors.textPrimary;
+    final iconColor =
+        color ?? IconTheme.of(context).color ?? AppColors.textPrimary;
     return CustomPaint(
       size: Size(size, size),
-      painter: _UsstCampusIconPainter(
-        selected: selected,
-        color: iconColor,
-      ),
+      painter: _UsstCampusIconPainter(selected: selected, color: iconColor),
     );
   }
 }
@@ -37,10 +35,7 @@ class _UsstCampusIconPainter extends CustomPainter {
   final bool selected;
   final Color color;
 
-  const _UsstCampusIconPainter({
-    required this.selected,
-    required this.color,
-  });
+  const _UsstCampusIconPainter({required this.selected, required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -97,7 +92,12 @@ class _UsstCampusIconPainter extends CustomPainter {
     final leftWinPath = Path()..addRRect(leftWinRRect);
 
     // 右翼拱窗
-    final rightWinRect = Rect.fromLTRB(16.5 * sx, 14.0 * sy, 18.5 * sx, 17.0 * sy);
+    final rightWinRect = Rect.fromLTRB(
+      16.5 * sx,
+      14.0 * sy,
+      18.5 * sx,
+      17.0 * sy,
+    );
     final rightWinRRect = RRect.fromRectAndCorners(
       rightWinRect,
       topLeft: Radius.circular(1.0 * sx),
@@ -113,7 +113,11 @@ class _UsstCampusIconPainter extends CustomPainter {
         ..addPath(leftWinPath, Offset.zero)
         ..addPath(rightWinPath, Offset.zero);
 
-      final solidPath = Path.combine(PathOperation.difference, buildingPath, cutouts);
+      final solidPath = Path.combine(
+        PathOperation.difference,
+        buildingPath,
+        cutouts,
+      );
 
       final fillPaint = Paint()
         ..color = color
@@ -130,7 +134,11 @@ class _UsstCampusIconPainter extends CustomPainter {
         ..strokeCap = StrokeCap.round
         ..isAntiAlias = true;
 
-      canvas.drawLine(Offset(2.0 * sx, 20.0 * sy), Offset(22.0 * sx, 20.0 * sy), linePaint);
+      canvas.drawLine(
+        Offset(2.0 * sx, 20.0 * sy),
+        Offset(22.0 * sx, 20.0 * sy),
+        linePaint,
+      );
     } else {
       // 未选态：精致线框轮廓，与 Material 线性图标一致
       final strokePaint = Paint()
@@ -148,7 +156,11 @@ class _UsstCampusIconPainter extends CustomPainter {
       canvas.drawPath(rightWinPath, strokePaint);
 
       // 地平线底座
-      canvas.drawLine(Offset(2.0 * sx, 20.0 * sy), Offset(22.0 * sx, 20.0 * sy), strokePaint);
+      canvas.drawLine(
+        Offset(2.0 * sx, 20.0 * sy),
+        Offset(22.0 * sx, 20.0 * sy),
+        strokePaint,
+      );
     }
   }
 

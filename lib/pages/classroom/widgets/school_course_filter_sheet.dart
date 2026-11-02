@@ -43,7 +43,10 @@ void showCollegePickerModal({
                   children: <Widget>[
                     const Text(
                       '选择开课学院',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     IconButton(
                       icon: const Icon(Icons.close, size: 20),
@@ -66,12 +69,20 @@ void showCollegePickerModal({
                         college,
                         style: TextStyle(
                           fontSize: 14,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: isSelected
+                              ? AppColors.usstRed
+                              : AppColors.textPrimary,
                         ),
                       ),
                       trailing: isSelected
-                          ? const Icon(Icons.check, color: AppColors.usstRed, size: 20)
+                          ? const Icon(
+                              Icons.check,
+                              color: AppColors.usstRed,
+                              size: 20,
+                            )
                           : null,
                       onTap: () {
                         onSelected(college);
@@ -130,16 +141,27 @@ void showLevelPickerModal({
                   children: <Widget>[
                     const Text(
                       '选择培养层次',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, size: 20, color: AppColors.textSecondary),
+                      icon: const Icon(
+                        Icons.close,
+                        size: 20,
+                        color: AppColors.textSecondary,
+                      ),
                       onPressed: () => Navigator.of(ctx).pop(),
                     ),
                   ],
                 ),
               ),
-              const Divider(height: 1, thickness: 0.6, color: Color(0xFFF3F4F6)),
+              const Divider(
+                height: 1,
+                thickness: 0.6,
+                color: Color(0xFFF3F4F6),
+              ),
               ...options.map((opt) {
                 final isSel = selectedLevel == opt.value;
                 return InkWell(
@@ -148,17 +170,31 @@ void showLevelPickerModal({
                     Navigator.of(ctx).pop();
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 14,
+                    ),
                     decoration: BoxDecoration(
-                      color: isSel ? const Color(0xFFFEF2F2) : Colors.transparent,
-                      border: const Border(bottom: BorderSide(color: Color(0xFFF3F4F6), width: 0.6)),
+                      color: isSel
+                          ? const Color(0xFFFEF2F2)
+                          : Colors.transparent,
+                      border: const Border(
+                        bottom: BorderSide(
+                          color: Color(0xFFF3F4F6),
+                          width: 0.6,
+                        ),
+                      ),
                     ),
                     child: Row(
                       children: <Widget>[
                         Icon(
-                          isSel ? Icons.check_circle : Icons.radio_button_unchecked,
+                          isSel
+                              ? Icons.check_circle
+                              : Icons.radio_button_unchecked,
                           size: 18,
-                          color: isSel ? AppColors.usstRed : const Color(0xFFD1D5DB),
+                          color: isSel
+                              ? AppColors.usstRed
+                              : const Color(0xFFD1D5DB),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -169,8 +205,12 @@ void showLevelPickerModal({
                                 opt.label,
                                 style: TextStyle(
                                   fontSize: 14,
-                                  fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
-                                  color: isSel ? AppColors.usstRed : AppColors.textPrimary,
+                                  fontWeight: isSel
+                                      ? FontWeight.bold
+                                      : FontWeight.w500,
+                                  color: isSel
+                                      ? AppColors.usstRed
+                                      : AppColors.textPrimary,
                                 ),
                               ),
                               const SizedBox(height: 2),
@@ -240,16 +280,27 @@ void showCourseDayPickerModal({
                   children: <Widget>[
                     const Text(
                       '选择星期几',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, size: 20, color: AppColors.textSecondary),
+                      icon: const Icon(
+                        Icons.close,
+                        size: 20,
+                        color: AppColors.textSecondary,
+                      ),
                       onPressed: () => Navigator.of(ctx).pop(),
                     ),
                   ],
                 ),
               ),
-              const Divider(height: 1, thickness: 0.6, color: Color(0xFFF3F4F6)),
+              const Divider(
+                height: 1,
+                thickness: 0.6,
+                color: Color(0xFFF3F4F6),
+              ),
               ...options.map((opt) {
                 final isSel = selectedCourseDay == opt.value;
                 return InkWell(
@@ -258,25 +309,43 @@ void showCourseDayPickerModal({
                     Navigator.of(ctx).pop();
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
-                      color: isSel ? const Color(0xFFFEF2F2) : Colors.transparent,
-                      border: const Border(bottom: BorderSide(color: Color(0xFFF3F4F6), width: 0.6)),
+                      color: isSel
+                          ? const Color(0xFFFEF2F2)
+                          : Colors.transparent,
+                      border: const Border(
+                        bottom: BorderSide(
+                          color: Color(0xFFF3F4F6),
+                          width: 0.6,
+                        ),
+                      ),
                     ),
                     child: Row(
                       children: <Widget>[
                         Icon(
-                          isSel ? Icons.check_circle : Icons.radio_button_unchecked,
+                          isSel
+                              ? Icons.check_circle
+                              : Icons.radio_button_unchecked,
                           size: 18,
-                          color: isSel ? AppColors.usstRed : const Color(0xFFD1D5DB),
+                          color: isSel
+                              ? AppColors.usstRed
+                              : const Color(0xFFD1D5DB),
                         ),
                         const SizedBox(width: 12),
                         Text(
                           opt.label,
                           style: TextStyle(
                             fontSize: 14,
-                            fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
-                            color: isSel ? AppColors.usstRed : AppColors.textPrimary,
+                            fontWeight: isSel
+                                ? FontWeight.bold
+                                : FontWeight.w500,
+                            color: isSel
+                                ? AppColors.usstRed
+                                : AppColors.textPrimary,
                           ),
                         ),
                       ],
@@ -335,10 +404,17 @@ void showCourseWeekPickerModal({
                     children: <Widget>[
                       const Text(
                         '选择教学周',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.close, size: 20, color: AppColors.textSecondary),
+                        icon: const Icon(
+                          Icons.close,
+                          size: 20,
+                          color: AppColors.textSecondary,
+                        ),
                         onPressed: () => Navigator.of(ctx).pop(),
                       ),
                     ],
@@ -359,7 +435,9 @@ void showCourseWeekPickerModal({
                                 ? AppColors.usstRed
                                 : const Color(0xFFE5E7EB),
                           ),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                         onPressed: () {
                           onSelected(-1);
@@ -390,7 +468,9 @@ void showCourseWeekPickerModal({
                                 ? AppColors.usstRed
                                 : const Color(0xFFE5E7EB),
                           ),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                         onPressed: () {
                           onSelected(0);
@@ -412,8 +492,10 @@ void showCourseWeekPickerModal({
                   ],
                 ),
                 const SizedBox(height: 16),
-                const Text('指定教学周：',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                const Text(
+                  '指定教学周：',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 8,
@@ -422,18 +504,26 @@ void showCourseWeekPickerModal({
                     final w = i + 1;
                     final isSel = selectedCourseWeek == w;
                     return ChoiceChip(
-                      label: Text('第$w周',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: isSel ? Colors.white : AppColors.textPrimary)),
+                      label: Text(
+                        '第$w周',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isSel ? Colors.white : AppColors.textPrimary,
+                        ),
+                      ),
                       selected: isSel,
                       selectedColor: AppColors.usstRed,
                       backgroundColor: const Color(0xFFF3F4F6),
                       showCheckmark: false,
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
-                        side: BorderSide(color: isSel ? AppColors.usstRed : Colors.transparent),
+                        side: BorderSide(
+                          color: isSel ? AppColors.usstRed : Colors.transparent,
+                        ),
                       ),
                       onSelected: (_) {
                         onSelected(w);

@@ -5,7 +5,8 @@ import 'package:project_usst/data/chaoxing/chaoxing_client.dart';
 /// 这些 HTML 片段取自 2026-10-28 的真实响应。
 void main() {
   test('已签到过的二维码 → 成功（回显原来的签到时间）', () {
-    const html = '<html><body><div class="title">签到结果</div>'
+    const html =
+        '<html><body><div class="title">签到结果</div>'
         '<div class="status">签到成功</div>'
         '<div class="time">10-28 09:48</div></body></html>';
     final result = ChaoxingClient.parseSignResult(html);
@@ -44,7 +45,9 @@ void main() {
     test('合法的超星签到二维码 URL', () {
       expect(
         ChaoxingClient.isValidSignQrUrl(
-          Uri.parse('https://mobilelearn.chaoxing.com/widget/sign/e?id=123&enc=ABC'),
+          Uri.parse(
+            'https://mobilelearn.chaoxing.com/widget/sign/e?id=123&enc=ABC',
+          ),
         ),
         isTrue,
       );

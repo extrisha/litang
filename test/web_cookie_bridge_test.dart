@@ -27,18 +27,27 @@ void main() {
     });
 
     test('空串返回空列表', () {
-      expect(WebCookieBridge.parseCookieHeader('', domain: '.chaoxing.com'), isEmpty);
+      expect(
+        WebCookieBridge.parseCookieHeader('', domain: '.chaoxing.com'),
+        isEmpty,
+      );
     });
   });
 
   group('cookie 归属域', () {
     test('chaoxing 的子域统一记到 .chaoxing.com', () {
-      expect(WebCookieBridge.cookieDomain('https://i.chaoxing.com/'), '.chaoxing.com');
+      expect(
+        WebCookieBridge.cookieDomain('https://i.chaoxing.com/'),
+        '.chaoxing.com',
+      );
       expect(
         WebCookieBridge.cookieDomain('https://passport2.chaoxing.com/'),
         '.chaoxing.com',
       );
-      expect(WebCookieBridge.cookieDomain('https://chaoxing.com/'), '.chaoxing.com');
+      expect(
+        WebCookieBridge.cookieDomain('https://chaoxing.com/'),
+        '.chaoxing.com',
+      );
     });
 
     test('别的域名按 host-only，不能把 edu.cn 当成可共享域', () {
@@ -46,7 +55,10 @@ void main() {
         WebCookieBridge.cookieDomain('https://www.sbc.usst.edu.cn/'),
         'www.sbc.usst.edu.cn',
       );
-      expect(WebCookieBridge.cookieDomain('https://jwgl.usst.edu.cn/'), 'jwgl.usst.edu.cn');
+      expect(
+        WebCookieBridge.cookieDomain('https://jwgl.usst.edu.cn/'),
+        'jwgl.usst.edu.cn',
+      );
     });
 
     test('非法 URL 返回空串', () {

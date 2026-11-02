@@ -228,10 +228,7 @@ class ChaoxingCourseDetailApi {
     if (html.contains('passport2.chaoxing.com/login') ||
         html.contains('请输入密码') ||
         html.contains('loginForm')) {
-      throw const AppException(
-        AppFailure.auth,
-        '学习通登录已失效，请回到「我的」重新登录',
-      );
+      throw const AppException(AppFailure.auth, '学习通登录已失效，请回到「我的」重新登录');
     }
   }
 

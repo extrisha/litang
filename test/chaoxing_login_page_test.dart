@@ -5,7 +5,9 @@ void main() {
   group('ChaoxingLoginPage.isOfficialLoginPage', () {
     test('合法官方登录地址返回 true', () {
       expect(
-        ChaoxingLoginPage.isOfficialLoginPage('https://passport2.chaoxing.com/login'),
+        ChaoxingLoginPage.isOfficialLoginPage(
+          'https://passport2.chaoxing.com/login',
+        ),
         isTrue,
       );
       expect(
@@ -50,7 +52,9 @@ void main() {
   group('ChaoxingLoginPage.isAllowedNavigation', () {
     test('允许白名单域：超星体系与上理体系', () {
       expect(
-        ChaoxingLoginPage.isAllowedNavigation('https://passport2.chaoxing.com/login'),
+        ChaoxingLoginPage.isAllowedNavigation(
+          'https://passport2.chaoxing.com/login',
+        ),
         isTrue,
       );
       expect(
@@ -58,13 +62,12 @@ void main() {
         isTrue,
       );
       expect(
-        ChaoxingLoginPage.isAllowedNavigation('https://ids6.usst.edu.cn/authserver/login'),
+        ChaoxingLoginPage.isAllowedNavigation(
+          'https://ids6.usst.edu.cn/authserver/login',
+        ),
         isTrue,
       );
-      expect(
-        ChaoxingLoginPage.isAllowedNavigation('about:blank'),
-        isTrue,
-      );
+      expect(ChaoxingLoginPage.isAllowedNavigation('about:blank'), isTrue);
     });
 
     test('拒绝未经允许的外部域与恶意跳转', () {
@@ -73,11 +76,15 @@ void main() {
         isFalse,
       );
       expect(
-        ChaoxingLoginPage.isAllowedNavigation('https://evil-chaoxing.com/login'),
+        ChaoxingLoginPage.isAllowedNavigation(
+          'https://evil-chaoxing.com/login',
+        ),
         isFalse,
       );
       expect(
-        ChaoxingLoginPage.isAllowedNavigation('https://usst.edu.cn.attacker.org/'),
+        ChaoxingLoginPage.isAllowedNavigation(
+          'https://usst.edu.cn.attacker.org/',
+        ),
         isFalse,
       );
       expect(
@@ -89,13 +96,20 @@ void main() {
 
   group('ChaoxingLoginPage.looksLoggedIn', () {
     test('超星业务页命中', () {
-      expect(ChaoxingLoginPage.looksLoggedIn('https://i.chaoxing.com/'), isTrue);
       expect(
-        ChaoxingLoginPage.looksLoggedIn('https://mooc1.chaoxing.com/visit/courses'),
+        ChaoxingLoginPage.looksLoggedIn('https://i.chaoxing.com/'),
         isTrue,
       );
       expect(
-        ChaoxingLoginPage.looksLoggedIn('https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu'),
+        ChaoxingLoginPage.looksLoggedIn(
+          'https://mooc1.chaoxing.com/visit/courses',
+        ),
+        isTrue,
+      );
+      expect(
+        ChaoxingLoginPage.looksLoggedIn(
+          'https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu',
+        ),
         isTrue,
       );
     });
@@ -107,7 +121,9 @@ void main() {
       );
       // 包含业务域名关键字的外部攻击者页面
       expect(
-        ChaoxingLoginPage.looksLoggedIn('https://attacker.com/fake?dummy=i.chaoxing.com'),
+        ChaoxingLoginPage.looksLoggedIn(
+          'https://attacker.com/fake?dummy=i.chaoxing.com',
+        ),
         isFalse,
       );
     });

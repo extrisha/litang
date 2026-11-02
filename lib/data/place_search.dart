@@ -14,25 +14,28 @@ import 'campus_places.dart';
 
 /// 编号类简称的规则：`<数字><类>` → `<第N…>`。
 /// 只覆盖校园里高频的几类，别的继续往 kBuildingAliases 里加就行。
-final List<({RegExp pattern, String Function(String number, String tail) build})>
-_shortRules = <({RegExp pattern, String Function(String number, String tail) build})>[
-  (
-    pattern: RegExp(r'^([0-9]{1,2}|[一二三四五六七八九十]{1,3})公(.*)$'),
-    build: (number, tail) => '第${_digits(number)}学生公寓$tail',
-  ),
-  (
-    pattern: RegExp(r'^([0-9]{1,2}|[一二三四五六七八九十]{1,3})食(?:堂)?(.*)$'),
-    build: (number, tail) => '第${_digits(number)}食堂$tail',
-  ),
-  (
-    pattern: RegExp(r'^([0-9]{1,2}|[一二三四五六七八九十]{1,3})教(?:学楼)?(.*)$'),
-    build: (number, tail) => '第${_digits(number)}教学楼$tail',
-  ),
-  (
-    pattern: RegExp(r'^([0-9]{1,2}|[一二三四五六七八九十]{1,3})宿(?:舍)?(.*)$'),
-    build: (number, tail) => '第${_digits(number)}学生宿舍$tail',
-  ),
-];
+final List<
+  ({RegExp pattern, String Function(String number, String tail) build})
+>
+_shortRules =
+    <({RegExp pattern, String Function(String number, String tail) build})>[
+      (
+        pattern: RegExp(r'^([0-9]{1,2}|[一二三四五六七八九十]{1,3})公(.*)$'),
+        build: (number, tail) => '第${_digits(number)}学生公寓$tail',
+      ),
+      (
+        pattern: RegExp(r'^([0-9]{1,2}|[一二三四五六七八九十]{1,3})食(?:堂)?(.*)$'),
+        build: (number, tail) => '第${_digits(number)}食堂$tail',
+      ),
+      (
+        pattern: RegExp(r'^([0-9]{1,2}|[一二三四五六七八九十]{1,3})教(?:学楼)?(.*)$'),
+        build: (number, tail) => '第${_digits(number)}教学楼$tail',
+      ),
+      (
+        pattern: RegExp(r'^([0-9]{1,2}|[一二三四五六七八九十]{1,3})宿(?:舍)?(.*)$'),
+        build: (number, tail) => '第${_digits(number)}学生宿舍$tail',
+      ),
+    ];
 
 const Map<String, String> _cnDigits = <String, String>{
   '一': '1',
@@ -100,7 +103,8 @@ List<String> expandPlaceQuery(String query) {
   // 1) 别名表：精确命中，或「查询是别名前缀」（二公 → 二公一/二公二/二公三）
   for (final entry in kBuildingAliases.entries) {
     final key = normalizePlaceText(entry.key);
-    if (key == normalizePlaceText(raw) || key.startsWith(normalizePlaceText(raw))) {
+    if (key == normalizePlaceText(raw) ||
+        key.startsWith(normalizePlaceText(raw))) {
       add(entry.value);
     }
   }
@@ -170,7 +174,9 @@ int? _scoreVariant(String n, String needle) {
   if (n.isEmpty) return null;
 
   if (n == needle) return 1000;
-  if (n.startsWith(needle)) return 800 - (n.length - needle.length).clamp(0, 200);
+  if (n.startsWith(needle)) {
+    return 800 - (n.length - needle.length).clamp(0, 200);
+  }
   final idx = n.indexOf(needle);
   if (idx >= 0) return 600 - idx * 3 - (n.length - needle.length).clamp(0, 200);
 
@@ -179,11 +185,16 @@ int? _scoreVariant(String n, String needle) {
   return _subsequenceScore(n, needle);
 }
 
-
 /// 比较两个名字里的数字序列，用来给同分结果定序。
 int _compareNumbers(String a, String b) {
-  final na = RegExp(r'\d+').allMatches(normalizePlaceText(a)).map((m) => int.parse(m.group(0)!)).toList();
-  final nb = RegExp(r'\d+').allMatches(normalizePlaceText(b)).map((m) => int.parse(m.group(0)!)).toList();
+  final na = RegExp(r'\d+')
+      .allMatches(normalizePlaceText(a))
+      .map((m) => int.parse(m.group(0)!))
+      .toList();
+  final nb = RegExp(r'\d+')
+      .allMatches(normalizePlaceText(b))
+      .map((m) => int.parse(m.group(0)!))
+      .toList();
   final len = na.length < nb.length ? na.length : nb.length;
   for (var i = 0; i < len; i++) {
     if (na[i] != nb[i]) return na[i].compareTo(nb[i]);

@@ -42,7 +42,9 @@ class ClassroomCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
-              room.isFree ? Icons.meeting_room_outlined : Icons.lock_clock_outlined,
+              room.isFree
+                  ? Icons.meeting_room_outlined
+                  : Icons.lock_clock_outlined,
               size: 20,
               color: room.isFree ? const Color(0xFF16A34A) : AppColors.usstRed,
             ),
@@ -64,7 +66,10 @@ class ClassroomCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 1.5,
+                      ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF3F4F6),
                         borderRadius: BorderRadius.circular(4),

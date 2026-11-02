@@ -35,7 +35,9 @@ class VectorCampusRepository {
   }) {
     return allBuildings.where((b) {
       if (b.campusId != campusId) return false;
-      if (category != CampusCategory.all && b.category != category) return false;
+      if (category != CampusCategory.all && b.category != category) {
+        return false;
+      }
       return true;
     }).toList();
   }
@@ -55,7 +57,9 @@ class VectorCampusRepository {
 
     return allBuildings.where((b) {
       if (campusId != null && b.campusId != campusId) return false;
-      if (category != CampusCategory.all && b.category != category) return false;
+      if (category != CampusCategory.all && b.category != category) {
+        return false;
+      }
 
       final nameMatch = b.name.toLowerCase().contains(q);
       final aliasMatch = b.aliases.any((a) => a.toLowerCase().contains(q));

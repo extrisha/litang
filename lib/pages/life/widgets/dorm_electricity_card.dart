@@ -131,7 +131,11 @@ class DormElectricityCard extends StatelessWidget {
                 children: <Widget>[
                   const Padding(
                     padding: EdgeInsets.only(top: 1),
-                    child: Icon(Icons.info_outline, size: 13, color: AppColors.usstRed),
+                    child: Icon(
+                      Icons.info_outline,
+                      size: 13,
+                      color: AppColors.usstRed,
+                    ),
                   ),
                   const SizedBox(width: 4),
                   Expanded(
@@ -139,7 +143,10 @@ class DormElectricityCard extends StatelessWidget {
                       error!.contains('校园网') || error!.contains('登录')
                           ? error!
                           : '$error（请使用校园网访问）',
-                      style: const TextStyle(fontSize: 11, color: AppColors.usstRed),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.usstRed,
+                      ),
                     ),
                   ),
                 ],

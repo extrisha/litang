@@ -21,14 +21,8 @@ void main() {
     });
 
     test('允许校内其他子域', () {
-      expect(
-        JwglWebPage.isAllowedUrl('https://cas.usst.edu.cn/login'),
-        isTrue,
-      );
-      expect(
-        JwglWebPage.isAllowedUrl('https://sso.usst.edu.cn/sso'),
-        isTrue,
-      );
+      expect(JwglWebPage.isAllowedUrl('https://cas.usst.edu.cn/login'), isTrue);
+      expect(JwglWebPage.isAllowedUrl('https://sso.usst.edu.cn/sso'), isTrue);
     });
 
     test('拦截非校内外部域名', () {
@@ -40,29 +34,14 @@ void main() {
         JwglWebPage.isAllowedUrl('https://usst.edu.cn.attacker.com/'),
         isFalse,
       );
-      expect(
-        JwglWebPage.isAllowedUrl('https://www.baidu.com/'),
-        isFalse,
-      );
+      expect(JwglWebPage.isAllowedUrl('https://www.baidu.com/'), isFalse);
     });
 
     test('拦截非 HTTP/HTTPS 协议与非法 URL', () {
-      expect(
-        JwglWebPage.isAllowedUrl('javascript:alert(1)'),
-        isFalse,
-      );
-      expect(
-        JwglWebPage.isAllowedUrl('file:///etc/passwd'),
-        isFalse,
-      );
-      expect(
-        JwglWebPage.isAllowedUrl('data:text/html,hello'),
-        isFalse,
-      );
-      expect(
-        JwglWebPage.isAllowedUrl(''),
-        isFalse,
-      );
+      expect(JwglWebPage.isAllowedUrl('javascript:alert(1)'), isFalse);
+      expect(JwglWebPage.isAllowedUrl('file:///etc/passwd'), isFalse);
+      expect(JwglWebPage.isAllowedUrl('data:text/html,hello'), isFalse);
+      expect(JwglWebPage.isAllowedUrl(''), isFalse);
     });
   });
 }

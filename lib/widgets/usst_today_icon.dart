@@ -22,7 +22,8 @@ class UsstTodayNavIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final iconColor = color ?? IconTheme.of(context).color ?? AppColors.textPrimary;
+    final iconColor =
+        color ?? IconTheme.of(context).color ?? AppColors.textPrimary;
     return CustomPaint(
       size: Size(size, size),
       painter: _UsstTodayNavIconPainter(
@@ -99,8 +100,16 @@ class _UsstTodayNavIconPainter extends CustomPainter {
       ..strokeWidth = 1.6 * sx
       ..strokeCap = StrokeCap.round;
 
-    canvas.drawLine(Offset(7.5 * sx, 2.5 * sy), Offset(7.5 * sx, 5.5 * sy), ringPaint);
-    canvas.drawLine(Offset(16.5 * sx, 2.5 * sy), Offset(16.5 * sx, 5.5 * sy), ringPaint);
+    canvas.drawLine(
+      Offset(7.5 * sx, 2.5 * sy),
+      Offset(7.5 * sx, 5.5 * sy),
+      ringPaint,
+    );
+    canvas.drawLine(
+      Offset(16.5 * sx, 2.5 * sy),
+      Offset(16.5 * sx, 5.5 * sy),
+      ringPaint,
+    );
 
     // 3. 中间绘制当天的日期数字 (如 29)
     final dayStr = '$day';

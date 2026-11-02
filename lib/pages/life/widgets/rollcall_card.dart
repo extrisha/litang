@@ -99,7 +99,11 @@ class RollcallCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                   child: const Padding(
                     padding: EdgeInsets.all(4),
-                    child: Icon(Icons.refresh, size: 18, color: AppColors.textSecondary),
+                    child: Icon(
+                      Icons.refresh,
+                      size: 18,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ),
             ],
@@ -145,7 +149,8 @@ class RollcallCard extends StatelessWidget {
             Column(
               children: <Widget>[
                 for (final rollcall in rollcalls) _buildRollcallTile(rollcall),
-                for (final activity in cxActivities) _buildCxActivityTile(activity),
+                for (final activity in cxActivities)
+                  _buildCxActivityTile(activity),
               ],
             ),
         ],
@@ -274,9 +279,14 @@ class RollcallCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
             ),
-            child: const Text('去签到', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            child: const Text(
+              '去签到',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
           ),
         ],
       ),

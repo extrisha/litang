@@ -56,16 +56,14 @@ void main() {
   });
 
   test('两种结构混在一起时都能解析', () {
-    final works = ChaoxingClient.parseWorkListHtml(
-      '$modern\n$legacy',
-      course,
-    );
+    final works = ChaoxingClient.parseWorkListHtml('$modern\n$legacy', course);
     expect(works.length, 2);
     expect(works.map((w) => w.title), containsAll(<String>['消化系统', '心血管系统']));
   });
 
   test('没有 workId 的条目跳过，不抛异常', () {
-    const broken = '<li onclick="goTask(this);" data="https://x/task?courseId=1"></li>';
+    const broken =
+        '<li onclick="goTask(this);" data="https://x/task?courseId=1"></li>';
     expect(ChaoxingClient.parseWorkListHtml(broken, course), isEmpty);
     expect(ChaoxingClient.parseWorkListHtml('', course), isEmpty);
     expect(ChaoxingClient.parseWorkListHtml('<html></html>', course), isEmpty);

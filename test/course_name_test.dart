@@ -12,10 +12,7 @@ void main() {
     test('保留课程本身的分册编号', () {
       // (1)/(2) 是两门不同的课，合并会让课表定位错到另一门课上
       expect(CourseName.clean('大学物理(2)'), '大学物理(2)');
-      expect(
-        CourseName.clean('大学物理(1)'),
-        isNot(CourseName.clean('大学物理(2)')),
-      );
+      expect(CourseName.clean('大学物理(1)'), isNot(CourseName.clean('大学物理(2)')));
     });
 
     test('压缩所有空白', () {
@@ -73,7 +70,10 @@ void main() {
     test('只有月日且已过去超过 30 天时回卷到明年', () {
       // 12 月看到的「1月5日」是明年 1 月 5 日，不是今年已经过去的那个
       expect(
-        LifeTodoCard.parseTaskDeadline('1月5日 10:00', now: DateTime(2026, 12, 20)),
+        LifeTodoCard.parseTaskDeadline(
+          '1月5日 10:00',
+          now: DateTime(2026, 12, 20),
+        ),
         DateTime(2027, 1, 5, 10, 0),
       );
     });
@@ -81,14 +81,20 @@ void main() {
     test('只有月日时不做无谓回卷：上个月的截止时间保持今年', () {
       // 早就该交的作业不能被 +1 年变成「还有 300 天」
       expect(
-        LifeTodoCard.parseTaskDeadline('10月15日 10:00', now: DateTime(2026, 11, 2)),
+        LifeTodoCard.parseTaskDeadline(
+          '10月15日 10:00',
+          now: DateTime(2026, 11, 2),
+        ),
         DateTime(2026, 10, 15, 10, 0),
       );
     });
 
     test('同年内的未来日期不回卷', () {
       expect(
-        LifeTodoCard.parseTaskDeadline('1月20日 10:00', now: DateTime(2027, 1, 5)),
+        LifeTodoCard.parseTaskDeadline(
+          '1月20日 10:00',
+          now: DateTime(2027, 1, 5),
+        ),
         DateTime(2027, 1, 20, 10, 0),
       );
     });

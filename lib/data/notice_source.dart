@@ -336,11 +336,7 @@ class JwcNoticeSource implements NoticeSource {
           ),
         );
         if (res.statusCode == 200 && res.data != null) {
-          final parsed = _parse(
-            res.data!,
-            entry.key,
-            entry.value,
-          );
+          final parsed = _parse(res.data!, entry.key, entry.value);
           result.addAll(parsed.take(8));
         }
       } catch (_) {

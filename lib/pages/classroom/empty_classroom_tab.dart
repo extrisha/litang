@@ -29,15 +29,16 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
   List<ClassroomInfo> _allRooms = const <ClassroomInfo>[];
   final TextEditingController _searchController = TextEditingController();
 
-  static const List<({String name, int day})> _days = <({String name, int day})>[
-    (name: '周一', day: 1),
-    (name: '周二', day: 2),
-    (name: '周三', day: 3),
-    (name: '周四', day: 4),
-    (name: '周五', day: 5),
-    (name: '周六', day: 6),
-    (name: '周日', day: 7),
-  ];
+  static const List<({String name, int day})> _days =
+      <({String name, int day})>[
+        (name: '周一', day: 1),
+        (name: '周二', day: 2),
+        (name: '周三', day: 3),
+        (name: '周四', day: 4),
+        (name: '周五', day: 5),
+        (name: '周六', day: 6),
+        (name: '周日', day: 7),
+      ];
 
   @override
   void initState() {
@@ -205,14 +206,19 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
-                      const Icon(Icons.error_outline,
-                          color: AppColors.textSecondary, size: 48),
+                      const Icon(
+                        Icons.error_outline,
+                        color: AppColors.textSecondary,
+                        size: 48,
+                      ),
                       const SizedBox(height: 12),
                       Text(
                         _error!,
                         textAlign: TextAlign.center,
                         style: const TextStyle(
-                            color: AppColors.textSecondary, fontSize: 14),
+                          color: AppColors.textSecondary,
+                          fontSize: 14,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       ElevatedButton(
@@ -235,13 +241,18 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: <Widget>[
-                    Icon(Icons.inbox_outlined,
-                        color: AppColors.textSecondary, size: 48),
+                    Icon(
+                      Icons.inbox_outlined,
+                      color: AppColors.textSecondary,
+                      size: 48,
+                    ),
                     SizedBox(height: 12),
                     Text(
                       '没有找到匹配的教室',
                       style: TextStyle(
-                          color: AppColors.textSecondary, fontSize: 14),
+                        color: AppColors.textSecondary,
+                        fontSize: 14,
+                      ),
                     ),
                   ],
                 ),
@@ -278,20 +289,33 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
                   decoration: BoxDecoration(
                     color: const Color(0xFFF7F8FA),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFE5E7EB), width: 0.8),
+                    border: Border.all(
+                      color: const Color(0xFFE5E7EB),
+                      width: 0.8,
+                    ),
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   child: Row(
                     children: <Widget>[
-                      const Icon(Icons.search, size: 17, color: AppColors.textSecondary),
+                      const Icon(
+                        Icons.search,
+                        size: 17,
+                        color: AppColors.textSecondary,
+                      ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: TextField(
                           controller: _searchController,
-                          style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textPrimary,
+                          ),
                           decoration: const InputDecoration(
                             hintText: '搜索教室名或占用课程',
-                            hintStyle: TextStyle(color: Color(0xFF9CA3AF), fontSize: 12),
+                            hintStyle: TextStyle(
+                              color: Color(0xFF9CA3AF),
+                              fontSize: 12,
+                            ),
                             border: InputBorder.none,
                             isDense: true,
                             contentPadding: EdgeInsets.zero,
@@ -301,7 +325,11 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
                       if (_classroomKeyword.isNotEmpty)
                         GestureDetector(
                           onTap: () => _searchController.clear(),
-                          child: const Icon(Icons.cancel, size: 16, color: Color(0xFF9CA3AF)),
+                          child: const Icon(
+                            Icons.cancel,
+                            size: 16,
+                            color: Color(0xFF9CA3AF),
+                          ),
                         ),
                     ],
                   ),
@@ -316,10 +344,14 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
                   height: 40,
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   decoration: BoxDecoration(
-                    color: _onlyFree ? const Color(0xFFECFDF5) : const Color(0xFFF7F8FA),
+                    color: _onlyFree
+                        ? const Color(0xFFECFDF5)
+                        : const Color(0xFFF7F8FA),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: _onlyFree ? const Color(0xFFA7F3D0) : const Color(0xFFE5E7EB),
+                      color: _onlyFree
+                          ? const Color(0xFFA7F3D0)
+                          : const Color(0xFFE5E7EB),
                       width: 0.8,
                     ),
                   ),
@@ -327,17 +359,25 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
                       Icon(
-                        _onlyFree ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+                        _onlyFree
+                            ? Icons.check_circle_rounded
+                            : Icons.radio_button_unchecked,
                         size: 15,
-                        color: _onlyFree ? const Color(0xFF059669) : AppColors.textSecondary,
+                        color: _onlyFree
+                            ? const Color(0xFF059669)
+                            : AppColors.textSecondary,
                       ),
                       const SizedBox(width: 4),
                       Text(
                         '仅看空闲',
                         style: TextStyle(
                           fontSize: 12,
-                          fontWeight: _onlyFree ? FontWeight.bold : FontWeight.normal,
-                          color: _onlyFree ? const Color(0xFF059669) : AppColors.textSecondary,
+                          fontWeight: _onlyFree
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: _onlyFree
+                              ? const Color(0xFF059669)
+                              : AppColors.textSecondary,
                         ),
                       ),
                     ],
@@ -419,10 +459,14 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
             height: 38,
             padding: const EdgeInsets.symmetric(horizontal: 8),
             decoration: BoxDecoration(
-              color: isFiltered ? const Color(0xFFFEF2F2) : const Color(0xFFF7F8FA),
+              color: isFiltered
+                  ? const Color(0xFFFEF2F2)
+                  : const Color(0xFFF7F8FA),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: isFiltered ? const Color(0xFFFECACA) : const Color(0xFFE5E7EB),
+                color: isFiltered
+                    ? const Color(0xFFFECACA)
+                    : const Color(0xFFE5E7EB),
                 width: isFiltered ? 1 : 0.8,
               ),
             ),
@@ -432,7 +476,9 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
                 Icon(
                   icon,
                   size: 14,
-                  color: isFiltered ? AppColors.usstRed : AppColors.textSecondary,
+                  color: isFiltered
+                      ? AppColors.usstRed
+                      : AppColors.textSecondary,
                 ),
                 const SizedBox(width: 4),
                 Flexible(
@@ -442,8 +488,12 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: isFiltered ? FontWeight.bold : FontWeight.w500,
-                      color: isFiltered ? AppColors.usstRed : AppColors.textPrimary,
+                      fontWeight: isFiltered
+                          ? FontWeight.bold
+                          : FontWeight.w500,
+                      color: isFiltered
+                          ? AppColors.usstRed
+                          : AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -451,7 +501,9 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
                 Icon(
                   Icons.keyboard_arrow_down_rounded,
                   size: 16,
-                  color: isFiltered ? AppColors.usstRed : AppColors.textSecondary,
+                  color: isFiltered
+                      ? AppColors.usstRed
+                      : AppColors.textSecondary,
                 ),
               ],
             ),
@@ -468,7 +520,10 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
         children: <Widget>[
           RichText(
             text: TextSpan(
-              style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: AppColors.textSecondary,
+              ),
               children: <TextSpan>[
                 const TextSpan(text: '检索统计：'),
                 TextSpan(

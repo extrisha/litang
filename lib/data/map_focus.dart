@@ -17,7 +17,8 @@ class MapFocus {
 
   static void focus(CampusPlace place) {
     target.value = place;
-    targetPoi.value = CampusData.poiForRoom(place.name) ??
+    targetPoi.value =
+        CampusData.poiForRoom(place.name) ??
         CampusData.search(query: place.name).firstOrNull;
   }
 

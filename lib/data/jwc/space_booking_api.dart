@@ -74,7 +74,11 @@ class SpaceRoom {
 
   String get shortBuildingName {
     if (buildingName.contains('湛恩') || name.contains('湛恩')) return '湛恩';
-    if (buildingName.contains('南校区') || buildingName.contains('334') || name.contains('334')) return '334号';
+    if (buildingName.contains('南校区') ||
+        buildingName.contains('334') ||
+        name.contains('334')) {
+      return '334号';
+    }
     if (buildingName.contains('复兴') || name.contains('复兴')) return '复兴';
     if (buildingName.contains('1100') || name.contains('1100')) return '1100号';
     if (buildingName.isNotEmpty) return buildingName;
@@ -112,7 +116,9 @@ class SpaceRoom {
     if (allTime == 1) return '全天可约';
     if (spaceTime <= 0) return '暂无空闲';
     if (spaceTime >= 120) {
-      final hours = (spaceTime / 60).toStringAsFixed(spaceTime % 60 == 0 ? 0 : 1);
+      final hours = (spaceTime / 60).toStringAsFixed(
+        spaceTime % 60 == 0 ? 0 : 1,
+      );
       return '余约 $hours 小时';
     }
     return '剩余 $spaceTime 分钟';
@@ -185,7 +191,8 @@ class SpaceRoomDetail {
       String desc = '';
 
       for (final b in bookedSegments) {
-        if (sHour.compareTo(b.endTime) < 0 && eHour.compareTo(b.startTime) > 0) {
+        if (sHour.compareTo(b.endTime) < 0 &&
+            eHour.compareTo(b.startTime) > 0) {
           occupied = true;
           desc = b.statusDesc;
           break;
@@ -204,12 +211,14 @@ class SpaceRoomDetail {
         }
       }
 
-      slots.add(SpaceHourSlot(
-        startHour: sHour,
-        endHour: eHour,
-        isOccupied: occupied,
-        occupantDesc: desc,
-      ));
+      slots.add(
+        SpaceHourSlot(
+          startHour: sHour,
+          endHour: eHour,
+          isOccupied: occupied,
+          occupantDesc: desc,
+        ),
+      );
     }
 
     return slots;
@@ -226,7 +235,7 @@ class SpaceHourSlot {
   });
 
   final String startHour; // 如 "08:00"
-  final String endHour;   // 如 "09:00"
+  final String endHour; // 如 "09:00"
   final bool isOccupied;
   final String occupantDesc;
 
@@ -235,7 +244,9 @@ class SpaceHourSlot {
   /// 判断该时段对于指定日期是否已经过期
   bool isPastFor(DateTime date) {
     final now = DateTime.now();
-    if (date.year == now.year && date.month == now.month && date.day == now.day) {
+    if (date.year == now.year &&
+        date.month == now.month &&
+        date.day == now.day) {
       final startH = int.tryParse(startHour.split(':').first) ?? 0;
       if (startH < now.hour) return true;
       if (startH == now.hour && now.minute >= 10) return true;
@@ -438,8 +449,10 @@ class SpaceBookingApi {
 
       // 若未拿到 code，检查是否被 CAS 登录页拦截；若是则自动重登 CAS 恢复
       if (code == null || code.isEmpty) {
-        final isCasIntercepted = realUri.toString().contains('cas.usst.edu.cn') ||
-            (resp.data?.contains('username') == true && resp.data?.contains('password') == true);
+        final isCasIntercepted =
+            realUri.toString().contains('cas.usst.edu.cn') ||
+            (resp.data?.contains('username') == true &&
+                resp.data?.contains('password') == true);
         if (isCasIntercepted) {
           final sessionOk = await JwglAuth.instance.ensureSession();
           if (sessionOk) {
@@ -485,8 +498,10 @@ class SpaceBookingApi {
 
       // 如果未拿到 code，说明 CAS SSO 会话已过期，被重定向到了 cas.usst.edu.cn/cas/login
       if (code == null || code.isEmpty) {
-        final isCasIntercepted = realUri.toString().contains('cas.usst.edu.cn') ||
-            (resp.data?.contains('username') == true && resp.data?.contains('password') == true);
+        final isCasIntercepted =
+            realUri.toString().contains('cas.usst.edu.cn') ||
+            (resp.data?.contains('username') == true &&
+                resp.data?.contains('password') == true);
         if (isCasIntercepted) {
           final sessionOk = await JwglAuth.instance.ensureSession();
           if (sessionOk) {
@@ -549,16 +564,16 @@ class SpaceBookingApi {
             final userResp = await casClient.postApi(
               userUri,
               <String, String>{},
-              extraHeaders: <String, String>{
-                'Authorization': accessToken!,
-              },
+              extraHeaders: <String, String>{'Authorization': accessToken!},
             );
             if (userResp.statusCode == 200 && userResp.data != null) {
               final Map<String, dynamic> uJson =
                   jsonDecode(userResp.data!) as Map<String, dynamic>;
               final uData = (uJson['data'] as Map<String, dynamic>?) ?? uJson;
               userId = (uData['userId'] ?? uData['id'])?.toString();
-              realName = (uData['realName'] ?? uData['userName'] ?? uData['nickName'])?.toString();
+              realName =
+                  (uData['realName'] ?? uData['userName'] ?? uData['nickName'])
+                      ?.toString();
             }
           } catch (_) {}
 
@@ -607,7 +622,8 @@ class SpaceBookingApi {
           final m = (json['data'] is Map ? json['data'] : json) as Map;
           final profile = SpaceUserProfile(
             userId: (m['userId'] ?? userId ?? '').toString(),
-            realName: (m['realName'] ?? m['nickName'] ?? realName ?? '').toString(),
+            realName: (m['realName'] ?? m['nickName'] ?? realName ?? '')
+                .toString(),
             departmentName: (m['departmentName'] ?? '').toString(),
             totalScore: _parseInt(m['totalScore'], 10),
             cardNumber: (m['cardNumber'] ?? '').toString(),
@@ -658,7 +674,9 @@ class SpaceBookingApi {
 
     if (accessToken == null) return fallbackPurposes;
 
-    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/dict/type?type=reservation_use');
+    final uri = Uri.parse(
+      '$_libspaceBase/api/studyroom/v1/dict/type?type=reservation_use',
+    );
     try {
       var resp = await casClient.getApi(
         uri,
@@ -741,11 +759,8 @@ class SpaceBookingApi {
     }
 
     final queryDate = date ?? _formatDate(DateTime.now());
-    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/room/mRooms').replace(
-      queryParameters: <String, String>{
-        'date': queryDate,
-      },
-    );
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/room/mRooms')
+        .replace(queryParameters: <String, String>{'date': queryDate});
 
     Response<String> resp;
     try {
@@ -763,10 +778,7 @@ class SpaceBookingApi {
         invalidateToken();
         final reAuthOk = await login();
         if (!reAuthOk) {
-          throw SpaceBookingException(
-            '空间预约登录已失效，请重新登录后重试',
-            authRelated: true,
-          );
+          throw SpaceBookingException('空间预约登录已失效，请重新登录后重试', authRelated: true);
         }
         resp = await casClient.getApi(
           uri,
@@ -783,16 +795,14 @@ class SpaceBookingApi {
     }
 
     if (resp.statusCode != 200 || resp.data == null) {
-      final authLike = resp.statusCode == 400 ||
+      final authLike =
+          resp.statusCode == 400 ||
           resp.statusCode == 401 ||
           resp.statusCode == 403;
       if (authLike) {
         // 重登之后还是被拒：把 token 彻底作废，让下次「重试」必定重新认证
         invalidateToken();
-        throw SpaceBookingException(
-          '空间预约登录已失效，请重新登录后重试',
-          authRelated: true,
-        );
+        throw SpaceBookingException('空间预约登录已失效，请重新登录后重试', authRelated: true);
       }
       throw SpaceBookingException('获取房间列表失败（HTTP ${resp.statusCode}）');
     }
@@ -829,12 +839,10 @@ class SpaceBookingApi {
   }) async {
     await ensureAuthenticated();
 
-    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/room/reservation').replace(
-      queryParameters: <String, String>{
-        'roomId': roomId,
-        'date': date,
-      },
-    );
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/room/reservation')
+        .replace(
+          queryParameters: <String, String>{'roomId': roomId, 'date': date},
+        );
 
     try {
       var resp = await casClient.getApi(
@@ -862,7 +870,10 @@ class SpaceBookingApi {
       if (resp.statusCode == 200 && resp.data != null) {
         final dynamic rawJson = jsonDecode(resp.data!);
         if (rawJson is Map) {
-          final dynamic data = rawJson.containsKey('data') && rawJson['data'] is Map ? rawJson['data'] : rawJson;
+          final dynamic data =
+              rawJson.containsKey('data') && rawJson['data'] is Map
+              ? rawJson['data']
+              : rawJson;
           final m = (data as Map).cast<String, dynamic>();
           final room = _parseRoom(m);
 
@@ -873,8 +884,14 @@ class SpaceBookingApi {
               if (group is List) {
                 for (final slice in group) {
                   if (slice is Map) {
-                    final start = _formatTimestampOrString(slice['startTime'], timeOnly: true);
-                    final end = _formatTimestampOrString(slice['endTime'], timeOnly: true);
+                    final start = _formatTimestampOrString(
+                      slice['startTime'],
+                      timeOnly: true,
+                    );
+                    final end = _formatTimestampOrString(
+                      slice['endTime'],
+                      timeOnly: true,
+                    );
                     final status = _parseInt(slice['reservationStatus'], 0);
                     timeSlices.add(
                       SpaceTimeSlice(
@@ -886,8 +903,14 @@ class SpaceBookingApi {
                   }
                 }
               } else if (group is Map) {
-                final start = _formatTimestampOrString(group['startTime'], timeOnly: true);
-                final end = _formatTimestampOrString(group['endTime'], timeOnly: true);
+                final start = _formatTimestampOrString(
+                  group['startTime'],
+                  timeOnly: true,
+                );
+                final end = _formatTimestampOrString(
+                  group['endTime'],
+                  timeOnly: true,
+                );
                 final status = _parseInt(group['reservationStatus'], 0);
                 timeSlices.add(
                   SpaceTimeSlice(
@@ -908,9 +931,16 @@ class SpaceBookingApi {
               if (res is Map) {
                 final rMap = res.cast<String, dynamic>();
                 existingList.add(rMap);
-                final sTime = _formatTimestampOrString(rMap['startTime'] ?? rMap['beginTime'], timeOnly: true);
-                final eTime = _formatTimestampOrString(rMap['endTime'], timeOnly: true);
-                final sDesc = (rMap['stateName'] ?? rMap['statusName'] ?? '已预约').toString();
+                final sTime = _formatTimestampOrString(
+                  rMap['startTime'] ?? rMap['beginTime'],
+                  timeOnly: true,
+                );
+                final eTime = _formatTimestampOrString(
+                  rMap['endTime'],
+                  timeOnly: true,
+                );
+                final sDesc = (rMap['stateName'] ?? rMap['statusName'] ?? '已预约')
+                    .toString();
                 if (sTime.isNotEmpty && eTime.isNotEmpty) {
                   bookedSegments.add(
                     SpaceBookedSegment(
@@ -964,9 +994,13 @@ class SpaceBookingApi {
         }
       }
 
-      if (cResp.statusCode == 200 && cResp.data != null && cResp.data!.trim().isNotEmpty) {
+      if (cResp.statusCode == 200 &&
+          cResp.data != null &&
+          cResp.data!.trim().isNotEmpty) {
         final dynamic raw = jsonDecode(cResp.data!);
-        final dynamic data = (raw is Map && raw.containsKey('data')) ? raw['data'] : raw;
+        final dynamic data = (raw is Map && raw.containsKey('data'))
+            ? raw['data']
+            : raw;
         if (data is Map && data.isNotEmpty) {
           list.add(_parseReservation(data.cast<String, dynamic>(), userId));
         } else if (data is List && data.isNotEmpty) {
@@ -981,9 +1015,7 @@ class SpaceBookingApi {
       // 2. 历史预约分页 (pageByUserId，必须使用 POST 提交 JSON body: {userId})
       final pageUri = Uri.parse(
         '$_libspaceBase/api/studyroom/v1/reservation/pageByUserId',
-      ).replace(
-        queryParameters: <String, String>{'page': '1', 'size': '20'},
-      );
+      ).replace(queryParameters: <String, String>{'page': '1', 'size': '20'});
       var pResp = await casClient.sendJsonWithHeaders(
         pageUri,
         data: <String, dynamic>{'userId': userId},
@@ -1002,8 +1034,12 @@ class SpaceBookingApi {
 
       if (pResp.statusCode == 200 && pResp.data != null) {
         final dynamic raw = jsonDecode(pResp.data!);
-        final dynamic pData = (raw is Map && raw.containsKey('data')) ? raw['data'] : raw;
-        final records = (pData is Map) ? (pData['records'] as List<dynamic>?) : null;
+        final dynamic pData = (raw is Map && raw.containsKey('data'))
+            ? raw['data']
+            : raw;
+        final records = (pData is Map)
+            ? (pData['records'] as List<dynamic>?)
+            : null;
         if (records != null) {
           for (final rec in records) {
             if (rec is! Map) continue;
@@ -1051,9 +1087,9 @@ class SpaceBookingApi {
       'filePath': filePath,
     };
 
-    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1.1/reservation/reservation').replace(
-      queryParameters: queryParams,
-    );
+    final uri = Uri.parse(
+      '$_libspaceBase/api/studyroom/v1.1/reservation/reservation',
+    ).replace(queryParameters: queryParams);
 
     try {
       var resp = await casClient.postApi(
@@ -1080,15 +1116,22 @@ class SpaceBookingApi {
 
       final body = resp.data ?? '';
       if (body.isEmpty) {
-        return const ReservationResult(success: false, message: '服务器未返回响应，请稍后重试');
+        return const ReservationResult(
+          success: false,
+          message: '服务器未返回响应，请稍后重试',
+        );
       }
 
       final dynamic raw = jsonDecode(body);
       if (raw is Map) {
         final code = _parseInt(raw['code'], -1);
         final success = raw['success'] == true || code == 200 || code == 0;
-        final msg = (raw['msg'] ?? raw['message'] ?? (success ? '预约成功' : '预约失败')).toString();
-        final resId = (raw['data'] is Map ? (raw['data'] as Map)['id'] : raw['data'])?.toString();
+        final msg =
+            (raw['msg'] ?? raw['message'] ?? (success ? '预约成功' : '预约失败'))
+                .toString();
+        final resId =
+            (raw['data'] is Map ? (raw['data'] as Map)['id'] : raw['data'])
+                ?.toString();
 
         return ReservationResult(
           success: success,
@@ -1111,13 +1154,16 @@ class SpaceBookingApi {
     await ensureAuthenticated();
     if (accessToken == null || userId == null) return false;
 
-    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/reservation/reservationUserJudge').replace(
-      queryParameters: <String, String>{
-        'userId': userId!,
-        'memberIds': memberIds.join(','),
-        'startTime': startTime,
-      },
-    );
+    final uri =
+        Uri.parse(
+          '$_libspaceBase/api/studyroom/v1/reservation/reservationUserJudge',
+        ).replace(
+          queryParameters: <String, String>{
+            'userId': userId!,
+            'memberIds': memberIds.join(','),
+            'startTime': startTime,
+          },
+        );
 
     try {
       final resp = await casClient.getApi(
@@ -1135,11 +1181,13 @@ class SpaceBookingApi {
   /// 获取常用同行人列表 (topContactsByUserId)
   Future<List<Map<String, dynamic>>> fetchTopContacts() async {
     await ensureAuthenticated();
-    if (accessToken == null || userId == null) return const <Map<String, dynamic>>[];
+    if (accessToken == null || userId == null) {
+      return const <Map<String, dynamic>>[];
+    }
 
-    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/reservation/topContactsByUserId').replace(
-      queryParameters: <String, String>{'userId': userId!},
-    );
+    final uri = Uri.parse(
+      '$_libspaceBase/api/studyroom/v1/reservation/topContactsByUserId',
+    ).replace(queryParameters: <String, String>{'userId': userId!});
 
     try {
       final resp = await casClient.getApi(
@@ -1151,9 +1199,14 @@ class SpaceBookingApi {
       );
       if (resp.statusCode == 200 && resp.data != null) {
         final dynamic raw = jsonDecode(resp.data!);
-        final dynamic list = (raw is Map && raw['data'] is List) ? raw['data'] : (raw is List ? raw : null);
+        final dynamic list = (raw is Map && raw['data'] is List)
+            ? raw['data']
+            : (raw is List ? raw : null);
         if (list is List) {
-          return list.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+          return list
+              .whereType<Map>()
+              .map((m) => m.cast<String, dynamic>())
+              .toList();
         }
       }
     } catch (_) {}
@@ -1165,13 +1218,14 @@ class SpaceBookingApi {
     await ensureAuthenticated();
     if (accessToken == null) return null;
 
-    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/user/pageUser').replace(
-      queryParameters: <String, String>{
-        'param': studentIdOrName.trim(),
-        'page': '1',
-        'size': '10',
-      },
-    );
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/user/pageUser')
+        .replace(
+          queryParameters: <String, String>{
+            'param': studentIdOrName.trim(),
+            'page': '1',
+            'size': '10',
+          },
+        );
 
     try {
       final resp = await casClient.getApi(
@@ -1183,7 +1237,9 @@ class SpaceBookingApi {
       );
       if (resp.statusCode == 200 && resp.data != null) {
         final dynamic raw = jsonDecode(resp.data!);
-        final records = (raw is Map && raw['records'] is List) ? (raw['records'] as List) : null;
+        final records = (raw is Map && raw['records'] is List)
+            ? (raw['records'] as List)
+            : null;
         if (records != null && records.isNotEmpty) {
           final first = records.first;
           if (first is Map) return first.cast<String, dynamic>();
@@ -1199,12 +1255,13 @@ class SpaceBookingApi {
     await ensureAuthenticated();
     if (accessToken == null || userId == null) return false;
 
-    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/reservation/signOut').replace(
-      queryParameters: <String, String>{
-        'userId': userId!,
-        'roomId': roomId,
-      },
-    );
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/reservation/signOut')
+        .replace(
+          queryParameters: <String, String>{
+            'userId': userId!,
+            'roomId': roomId,
+          },
+        );
 
     try {
       var resp = await casClient.postApi(
@@ -1228,7 +1285,8 @@ class SpaceBookingApi {
         }
       }
       if (resp.statusCode == 200 && resp.data != null) {
-        final Map<String, dynamic> json = jsonDecode(resp.data!) as Map<String, dynamic>;
+        final Map<String, dynamic> json =
+            jsonDecode(resp.data!) as Map<String, dynamic>;
         return json['code'] == 200 || json['success'] == true;
       }
     } catch (_) {}
@@ -1241,12 +1299,13 @@ class SpaceBookingApi {
     await ensureAuthenticated();
     if (accessToken == null || userId == null) return false;
 
-    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/reservation/afk').replace(
-      queryParameters: <String, String>{
-        'userId': userId!,
-        'roomId': roomId,
-      },
-    );
+    final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/reservation/afk')
+        .replace(
+          queryParameters: <String, String>{
+            'userId': userId!,
+            'roomId': roomId,
+          },
+        );
 
     try {
       var resp = await casClient.postApi(
@@ -1270,7 +1329,8 @@ class SpaceBookingApi {
         }
       }
       if (resp.statusCode == 200 && resp.data != null) {
-        final Map<String, dynamic> json = jsonDecode(resp.data!) as Map<String, dynamic>;
+        final Map<String, dynamic> json =
+            jsonDecode(resp.data!) as Map<String, dynamic>;
         return json['code'] == 200 || json['success'] == true;
       }
     } catch (_) {}
@@ -1282,13 +1342,12 @@ class SpaceBookingApi {
     await ensureAuthenticated();
     if (accessToken == null) return false;
 
-    final uri = Uri.parse(
-      '$_libspaceBase/api/studyroom/v1/reservation/cancelReservation',
-    ).replace(
-      queryParameters: <String, String>{
-        'reservationId': reservationId,
-      },
-    );
+    final uri =
+        Uri.parse(
+          '$_libspaceBase/api/studyroom/v1/reservation/cancelReservation',
+        ).replace(
+          queryParameters: <String, String>{'reservationId': reservationId},
+        );
     try {
       var resp = await casClient.postApi(
         uri,
@@ -1323,7 +1382,8 @@ class SpaceBookingApi {
   static bool _isUnauthorized(Response<String> resp) {
     if (resp.statusCode == 401 || resp.statusCode == 403) return true;
     final realUriStr = resp.realUri.toString();
-    if (realUriStr.contains('cas.usst.edu.cn') || realUriStr.contains('/oauth/v1/authorize')) {
+    if (realUriStr.contains('cas.usst.edu.cn') ||
+        realUriStr.contains('/oauth/v1/authorize')) {
       return true;
     }
     final body = resp.data ?? '';
@@ -1350,18 +1410,27 @@ class SpaceBookingApi {
     return false;
   }
 
-  static SpaceRoom _parseRoom(Map<String, dynamic> m, [String buildingName = '']) {
+  static SpaceRoom _parseRoom(
+    Map<String, dynamic> m, [
+    String buildingName = '',
+  ]) {
     return SpaceRoom(
       id: (m['id'] ?? '').toString(),
       name: (m['roomName'] ?? m['name'] ?? '研讨间').toString(),
-      floor: (m['floorName'] ?? m['floor'] ?? m['roomLocation'] ?? '').toString(),
+      floor: (m['floorName'] ?? m['floor'] ?? m['roomLocation'] ?? '')
+          .toString(),
       roomType: (m['roomTypeName'] ?? m['type'] ?? '研修空间').toString(),
-      minNum: _parseInt(m['minNum'] ?? m['minPerson'] ?? m['minReservationNum'], 1),
+      minNum: _parseInt(
+        m['minNum'] ?? m['minPerson'] ?? m['minReservationNum'],
+        1,
+      ),
       maxNum: _parseInt(m['maxNum'] ?? m['maxPerson'], 8),
       devices: (m['deviceNames'] ?? m['itemRemarks'] ?? m['devices'] ?? '')
           .toString(),
       status: _parseInt(m['state'] ?? m['status'], 0),
-      buildingName: buildingName.isNotEmpty ? buildingName : (m['buildingName'] ?? '').toString(),
+      buildingName: buildingName.isNotEmpty
+          ? buildingName
+          : (m['buildingName'] ?? '').toString(),
       spaceTime: _parseInt(m['spaceTime'], 0),
       allTime: _parseInt(m['allTime'], 0),
       openStartTime: (m['startTime'] ?? '08:00').toString(),
@@ -1377,8 +1446,14 @@ class SpaceBookingApi {
     );
   }
 
-  static SpaceReservation _parseReservation(Map<String, dynamic> m, [String? currentUserId]) {
-    final rawStatus = _parseInt(m['reservationStatus'] ?? m['state'] ?? m['status'], 0);
+  static SpaceReservation _parseReservation(
+    Map<String, dynamic> m, [
+    String? currentUserId,
+  ]) {
+    final rawStatus = _parseInt(
+      m['reservationStatus'] ?? m['state'] ?? m['status'],
+      0,
+    );
 
     // 官方状态码字典对照（libspace 前端 getStatus）：
     // 11: 待审核, 12: 待受约人确认, 21: 已预约, 22: 审核通过, 23: 审核不通过
@@ -1403,9 +1478,15 @@ class SpaceBookingApi {
     };
 
     int normalizedStatus = 0;
-    if (rawStatus == 31 || rawStatus == 41 || rawStatus == 42 || rawStatus == 1) {
+    if (rawStatus == 31 ||
+        rawStatus == 41 ||
+        rawStatus == 42 ||
+        rawStatus == 1) {
       normalizedStatus = 1; // 使用中
-    } else if (rawStatus == 51 || rawStatus == 52 || rawStatus == 53 || rawStatus == 2) {
+    } else if (rawStatus == 51 ||
+        rawStatus == 52 ||
+        rawStatus == 53 ||
+        rawStatus == 2) {
       normalizedStatus = 2; // 已完成
     } else if (rawStatus == 23 || rawStatus >= 61 || rawStatus == 3) {
       normalizedStatus = 3; // 已取消
@@ -1413,23 +1494,31 @@ class SpaceBookingApi {
       normalizedStatus = 0; // 待使用 (11, 12, 21, 22 等)
     }
 
-    final statusDesc = statusMap[rawStatus] ??
+    final statusDesc =
+        statusMap[rawStatus] ??
         (m['stateName'] ??
-            m['statusName'] ??
-            (normalizedStatus == 0
-                ? '待使用'
-                : normalizedStatus == 1
+                m['statusName'] ??
+                (normalizedStatus == 0
+                    ? '待使用'
+                    : normalizedStatus == 1
                     ? '使用中'
                     : normalizedStatus == 2
-                        ? '已完成'
-                        : '已取消'))
+                    ? '已完成'
+                    : '已取消'))
             .toString();
 
-    final dateStr = _formatTimestampOrString(m['reservationDate'] ?? m['startTime'] ?? m['date'], dateOnly: true);
-    final beginTimeStr = _formatTimestampOrString(m['beginTime'] ?? m['startTime'], timeOnly: true);
+    final dateStr = _formatTimestampOrString(
+      m['reservationDate'] ?? m['startTime'] ?? m['date'],
+      dateOnly: true,
+    );
+    final beginTimeStr = _formatTimestampOrString(
+      m['beginTime'] ?? m['startTime'],
+      timeOnly: true,
+    );
     final endTimeStr = _formatTimestampOrString(m['endTime'], timeOnly: true);
 
-    bool isLeader = m['type'] == 0 || m['isLeader'] == true || m['userType'] == 1;
+    bool isLeader =
+        m['type'] == 0 || m['isLeader'] == true || m['userType'] == 1;
     if (currentUserId != null && m['leader'] is Map) {
       final leaderUserId = (m['leader'] as Map)['userId']?.toString();
       if (leaderUserId != null && leaderUserId.isNotEmpty) {
@@ -1437,10 +1526,19 @@ class SpaceBookingApi {
       }
     }
 
-    final minSignStr = _formatTimestampOrString(m['minSignTime'], timeOnly: true);
-    final maxSignStr = _formatTimestampOrString(m['maxSignTime'], timeOnly: true);
+    final minSignStr = _formatTimestampOrString(
+      m['minSignTime'],
+      timeOnly: true,
+    );
+    final maxSignStr = _formatTimestampOrString(
+      m['maxSignTime'],
+      timeOnly: true,
+    );
     final signInStr = _formatTimestampOrString(m['signInTime'], timeOnly: true);
-    final signOutStr = _formatTimestampOrString(m['signOutTime'], timeOnly: true);
+    final signOutStr = _formatTimestampOrString(
+      m['signOutTime'],
+      timeOnly: true,
+    );
 
     final dictId = _parseInt(m['dictId'], 0);
     String dictName = (m['dictValue'] ?? m['dictName'] ?? '').toString();
@@ -1473,7 +1571,11 @@ class SpaceBookingApi {
     );
   }
 
-  static String _formatTimestampOrString(dynamic val, {bool dateOnly = false, bool timeOnly = false}) {
+  static String _formatTimestampOrString(
+    dynamic val, {
+    bool dateOnly = false,
+    bool timeOnly = false,
+  }) {
     if (val == null) return '';
     final str = val.toString().trim();
     if (str.isEmpty) return '';

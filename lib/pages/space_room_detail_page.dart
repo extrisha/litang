@@ -173,16 +173,15 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
       final maxAllowedHours = (widget.room.reservationMaxTime / 60).round();
 
       if (durationHours > maxAllowedHours) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('单次预约最多允许 $maxAllowedHours 小时')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('单次预约最多允许 $maxAllowedHours 小时')));
         return;
       }
 
       if (_hasTimeConflict(_selectedStartTime!, slot.endHour)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('所选区间包含已占用时段，无法选择')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('所选区间包含已占用时段，无法选择')));
         return;
       }
 
@@ -270,9 +269,16 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Row(
           children: <Widget>[
-            Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A), size: 28),
+            Icon(
+              Icons.check_circle_rounded,
+              color: Color(0xFF16A34A),
+              size: 28,
+            ),
             SizedBox(width: 10),
-            Text('预约成功', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            Text(
+              '预约成功',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
           ],
         ),
         content: Column(
@@ -281,12 +287,20 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
           children: <Widget>[
             Text(
               '您已成功预约【${room.name}】',
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               '日期：${DateFmt.ymd(_selectedDate)}\n时段：${_selectedStartTime ?? ''} - ${_selectedEndTime ?? ''}',
-              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.4),
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.textSecondary,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 12),
             Container(
@@ -297,12 +311,19 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
               ),
               child: const Row(
                 children: <Widget>[
-                  Icon(Icons.access_time_filled, color: Color(0xFFD97706), size: 16),
+                  Icon(
+                    Icons.access_time_filled,
+                    color: Color(0xFFD97706),
+                    size: 16,
+                  ),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       '请务必在开场前20分钟至开场后20分钟内在门口刷卡或扫码签到，以免影响信用积分。',
-                      style: TextStyle(fontSize: 11.5, color: Color(0xFF92400E)),
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF92400E),
+                      ),
                     ),
                   ),
                 ],
@@ -315,7 +336,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.usstRed,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
             onPressed: () {
               Navigator.of(ctx).pop();
@@ -397,7 +420,8 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
       child: Row(
         children: List<Widget>.generate(candidateDates.length, (i) {
           final d = candidateDates[i];
-          final isSelected = d.year == _selectedDate.year &&
+          final isSelected =
+              d.year == _selectedDate.year &&
               d.month == _selectedDate.month &&
               d.day == _selectedDate.day;
 
@@ -421,10 +445,14 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                   height: 38,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFFFDE8E8) : const Color(0xFFF4F4F5),
+                    color: isSelected
+                        ? const Color(0xFFFDE8E8)
+                        : const Color(0xFFF4F4F5),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: isSelected ? AppColors.usstRed : Colors.transparent,
+                      color: isSelected
+                          ? AppColors.usstRed
+                          : Colors.transparent,
                       width: 1,
                     ),
                   ),
@@ -435,8 +463,12 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                         DateFmt.md(d),
                         style: TextStyle(
                           fontSize: 12.5,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                          color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.w500,
+                          color: isSelected
+                              ? AppColors.usstRed
+                              : AppColors.textPrimary,
                         ),
                       ),
                       const SizedBox(width: 4),
@@ -444,8 +476,12 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                         labels[i],
                         style: TextStyle(
                           fontSize: 11.5,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          color: isSelected ? AppColors.usstRed : AppColors.textSecondary,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: isSelected
+                              ? AppColors.usstRed
+                              : AppColors.textSecondary,
                         ),
                       ),
                     ],
@@ -508,7 +544,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                     Text(
                       room.locationDesc.isNotEmpty
                           ? room.locationDesc
-                          : (room.buildingName.isNotEmpty ? room.buildingName : '校内研讨室'),
+                          : (room.buildingName.isNotEmpty
+                                ? room.buildingName
+                                : '校内研讨室'),
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textSecondary,
@@ -518,7 +556,10 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: badgeBg,
                   borderRadius: BorderRadius.circular(6),
@@ -544,7 +585,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
               _buildMetaTag(Icons.people_outline, room.capacityDesc),
               _buildMetaTag(Icons.meeting_room_outlined, room.roomType),
               _buildMetaTag(
-                room.verify == 1 ? Icons.verified_user_outlined : Icons.lock_open_outlined,
+                room.verify == 1
+                    ? Icons.verified_user_outlined
+                    : Icons.lock_open_outlined,
                 room.verify == 1 ? '须审核' : '免审核',
               ),
               if (room.spaceTime > 0)
@@ -571,7 +614,10 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
           const SizedBox(width: 4),
           Text(
             label,
-            style: const TextStyle(fontSize: 11.5, color: AppColors.textPrimary),
+            style: const TextStyle(
+              fontSize: 11.5,
+              color: AppColors.textPrimary,
+            ),
           ),
         ],
       ),
@@ -615,14 +661,20 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
             runSpacing: 8,
             children: deviceList.map((dev) {
               return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4.5,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF3F4F6),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
                   dev,
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF374151)),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF374151),
+                  ),
                 ),
               );
             }).toList(),
@@ -636,8 +688,12 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
   // 卡片 3: 使用与预约规则
   // =========================================================================
   Widget _buildRulesCard(SpaceRoom room) {
-    final minHours = (room.reservationMinTime / 60).toStringAsFixed(room.reservationMinTime % 60 == 0 ? 0 : 1);
-    final maxHours = (room.reservationMaxTime / 60).toStringAsFixed(room.reservationMaxTime % 60 == 0 ? 0 : 1);
+    final minHours = (room.reservationMinTime / 60).toStringAsFixed(
+      room.reservationMinTime % 60 == 0 ? 0 : 1,
+    );
+    final maxHours = (room.reservationMaxTime / 60).toStringAsFixed(
+      room.reservationMaxTime % 60 == 0 ? 0 : 1,
+    );
 
     return Container(
       width: double.infinity,
@@ -701,12 +757,19 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  const Icon(Icons.info_outline, size: 15, color: Color(0xFFD97706)),
+                  const Icon(
+                    Icons.info_outline,
+                    size: 15,
+                    color: Color(0xFFD97706),
+                  ),
                   SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       room.label.isNotEmpty ? room.label : room.remark,
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF92400E)),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF92400E),
+                      ),
                     ),
                   ),
                 ],
@@ -728,7 +791,10 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
           width: 68,
           child: Text(
             label,
-            style: const TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: AppColors.textSecondary,
+            ),
           ),
         ),
         Expanded(
@@ -769,7 +835,11 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
         children: <Widget>[
           Row(
             children: <Widget>[
-              const Icon(Icons.calendar_view_day_outlined, size: 16, color: AppColors.usstRed),
+              const Icon(
+                Icons.calendar_view_day_outlined,
+                size: 16,
+                color: AppColors.usstRed,
+              ),
               const SizedBox(width: 6),
               const Text(
                 '当日时段预约',
@@ -780,11 +850,19 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 ),
               ),
               const Spacer(),
-              _buildLegend(const Color(0xFFDCFCE7), const Color(0xFF15803D), '可预约'),
+              _buildLegend(
+                const Color(0xFFDCFCE7),
+                const Color(0xFF15803D),
+                '可预约',
+              ),
               const SizedBox(width: 8),
               _buildLegend(const Color(0xFFFEE2E2), AppColors.usstRed, '已选'),
               const SizedBox(width: 8),
-              _buildLegend(const Color(0xFFF3F4F6), const Color(0xFF9CA3AF), '不可约'),
+              _buildLegend(
+                const Color(0xFFF3F4F6),
+                const Color(0xFF9CA3AF),
+                '不可约',
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -795,7 +873,10 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 child: SizedBox(
                   width: 24,
                   height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2.2, color: AppColors.usstRed),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.2,
+                    color: AppColors.usstRed,
+                  ),
                 ),
               ),
             )
@@ -806,7 +887,10 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 children: <Widget>[
                   Text(
                     _error!,
-                    style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 8),
@@ -834,7 +918,8 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 final slot = _hourSlots[idx];
                 final occupied = slot.isOccupied;
                 final isPast = slot.isPastFor(_selectedDate);
-                final isSelected = (_selectedStartTime != null && _selectedEndTime != null) &&
+                final isSelected =
+                    (_selectedStartTime != null && _selectedEndTime != null) &&
                     (slot.startHour.compareTo(_selectedStartTime!) >= 0 &&
                         slot.endHour.compareTo(_selectedEndTime!) <= 0);
                 final isAvailable = !occupied && !isPast;
@@ -855,7 +940,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                   bg = const Color(0xFFF3F4F6);
                   border = const Color(0xFFE5E7EB);
                   textColor = const Color(0xFF9CA3AF);
-                  statusText = slot.occupantDesc.isNotEmpty ? slot.occupantDesc : '已被约';
+                  statusText = slot.occupantDesc.isNotEmpty
+                      ? slot.occupantDesc
+                      : '已被约';
                   icon = Icons.lock_outline;
                 } else if (isPast) {
                   bg = const Color(0xFFF9FAFB);
@@ -875,11 +962,17 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                   onTap: isAvailable ? () => _onTapHourSlot(slot) : null,
                   borderRadius: BorderRadius.circular(8),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: bg,
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: border, width: isSelected ? 1.4 : 0.8),
+                      border: Border.all(
+                        color: border,
+                        width: isSelected ? 1.4 : 0.8,
+                      ),
                     ),
                     child: Row(
                       children: <Widget>[
@@ -894,7 +987,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                                 slot.timeRange,
                                 style: TextStyle(
                                   fontSize: 12.5,
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.w600,
                                   color: textColor,
                                 ),
                               ),
@@ -917,10 +1012,14 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 );
               },
             ),
-            if (_selectedStartTime != null && _selectedEndTime != null) ...<Widget>[
+            if (_selectedStartTime != null &&
+                _selectedEndTime != null) ...<Widget>[
               const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF8FAFC),
                   borderRadius: BorderRadius.circular(8),
@@ -928,12 +1027,20 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 ),
                 child: Row(
                   children: <Widget>[
-                    const Icon(Icons.touch_app_outlined, size: 16, color: AppColors.usstRed),
+                    const Icon(
+                      Icons.touch_app_outlined,
+                      size: 16,
+                      color: AppColors.usstRed,
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         '已选：$_selectedStartTime - $_selectedEndTime (${_calculateDurationText(_selectedStartTime!, _selectedEndTime!)})',
-                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
                     ),
                     TextButton(
@@ -948,7 +1055,13 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                           _selectedEndTime = null;
                         });
                       },
-                      child: const Text('重置', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                      child: const Text(
+                        '重置',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -959,37 +1072,60 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
               const SizedBox(height: 14),
               const Text(
                 '已被占用时段明细：',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textSecondary,
+                ),
               ),
               const SizedBox(height: 6),
               Column(
                 children: _detail!.bookedSegments.map((seg) {
                   return Container(
                     margin: const EdgeInsets.only(bottom: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFAFAFA),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFFE5E7EB), width: 0.6),
+                      border: Border.all(
+                        color: const Color(0xFFE5E7EB),
+                        width: 0.6,
+                      ),
                     ),
                     child: Row(
                       children: <Widget>[
-                        const Icon(Icons.event_busy, size: 14, color: Color(0xFFEF4444)),
+                        const Icon(
+                          Icons.event_busy,
+                          size: 14,
+                          color: Color(0xFFEF4444),
+                        ),
                         const SizedBox(width: 6),
                         Text(
                           seg.timeRange,
-                          style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textPrimary,
+                          ),
                         ),
                         const Spacer(),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 1.5,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFFFEE2E2),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
                             seg.statusDesc,
-                            style: const TextStyle(fontSize: 10.5, color: Color(0xFFB91C1C)),
+                            style: const TextStyle(
+                              fontSize: 10.5,
+                              color: Color(0xFFB91C1C),
+                            ),
                           ),
                         ),
                       ],
@@ -1004,7 +1140,10 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
               alignment: Alignment.center,
               child: Text(
                 room.allTime == 1 ? '该空间当天全天开放可预约' : '当天暂无开放时段信息',
-                style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                ),
               ),
             ),
           ],
@@ -1027,10 +1166,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
           ),
         ),
         const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(fontSize: 11, color: text),
-        ),
+        Text(label, style: TextStyle(fontSize: 11, color: text)),
       ],
     );
   }
@@ -1051,9 +1187,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
       ),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8),
-        ),
+        border: Border(top: BorderSide(color: Color(0xFFE5E7EB), width: 0.8)),
       ),
       child: Row(
         children: <Widget>[
@@ -1075,11 +1209,13 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                   _selectedStartTime != null && _selectedEndTime != null
                       ? '已选：$_selectedStartTime - $_selectedEndTime (${_calculateDurationText(_selectedStartTime!, _selectedEndTime!)})'
                       : available
-                          ? '点击上方时段卡片选择'
-                          : room.statusDesc,
+                      ? '点击上方时段卡片选择'
+                      : room.statusDesc,
                   style: TextStyle(
                     fontSize: 11.5,
-                    color: available ? const Color(0xFF15803D) : const Color(0xFFDC2626),
+                    color: available
+                        ? const Color(0xFF15803D)
+                        : const Color(0xFFDC2626),
                   ),
                 ),
               ],
@@ -1098,9 +1234,14 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
             icon: const Icon(Icons.event_available, size: 16),
             label: Text(
               available ? '立即预约' : '查看预约规则',
-              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-            onPressed: available ? () => _openNativeBookingSheet(room) : _openWebBooking,
+            onPressed: available
+                ? () => _openNativeBookingSheet(room)
+                : _openWebBooking,
           ),
         ],
       ),
@@ -1135,7 +1276,8 @@ class _NativeBookingBottomSheet extends StatefulWidget {
   final VoidCallback onFallbackWeb;
 
   @override
-  State<_NativeBookingBottomSheet> createState() => _NativeBookingBottomSheetState();
+  State<_NativeBookingBottomSheet> createState() =>
+      _NativeBookingBottomSheetState();
 }
 
 class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
@@ -1151,7 +1293,8 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
   String? _formError;
 
   List<String> get _openHours {
-    final startH = int.tryParse(widget.room.openStartTime.split(':').first) ?? 8;
+    final startH =
+        int.tryParse(widget.room.openStartTime.split(':').first) ?? 8;
     final endH = int.tryParse(widget.room.openEndTime.split(':').first) ?? 21;
     final list = <String>[];
     for (var h = startH; h < endH; h++) {
@@ -1200,7 +1343,8 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
 
   String get _endHour {
     final sH = int.tryParse(_startHour.split(':').first) ?? 8;
-    final openEndH = int.tryParse(widget.room.openEndTime.split(':').first) ?? 21;
+    final openEndH =
+        int.tryParse(widget.room.openEndTime.split(':').first) ?? 21;
     final eH = (sH + _durationHours).clamp(sH + 1, openEndH);
     return '${eH.toString().padLeft(2, '0')}:00';
   }
@@ -1211,7 +1355,8 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
   bool get _hasConflict {
     final end = _endHour;
     for (final b in widget.bookedSegments) {
-      if (_startHour.compareTo(b.endTime) < 0 && end.compareTo(b.startTime) > 0) {
+      if (_startHour.compareTo(b.endTime) < 0 &&
+          end.compareTo(b.startTime) > 0) {
         return true;
       }
     }
@@ -1267,7 +1412,8 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
       }
     }
 
-    if (widget.api.userProfile != null && widget.api.userProfile!.mobile.isNotEmpty) {
+    if (widget.api.userProfile != null &&
+        widget.api.userProfile!.mobile.isNotEmpty) {
       _mobileCtrl.text = widget.api.userProfile!.mobile;
     }
   }
@@ -1336,7 +1482,10 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
     final requiredMin = _selectedPurpose?.minNum ?? widget.room.minNum;
     final totalMembers = 1 + _memberIds.length;
     if (totalMembers < requiredMin) {
-      setState(() => _formError = '【${_selectedPurpose?.label ?? '研讨'}】要求至少 $requiredMin 人同时预约（含本人还需添加 ${requiredMin - totalMembers} 名同行人）');
+      setState(
+        () => _formError =
+            '【${_selectedPurpose?.label ?? '研讨'}】要求至少 $requiredMin 人同时预约（含本人还需添加 ${requiredMin - totalMembers} 名同行人）',
+      );
       return;
     }
 
@@ -1409,13 +1558,20 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                   const SizedBox(height: 2),
                   Text(
                     '${DateFmt.ymd(widget.selectedDate)} · ${widget.room.shortBuildingName} ${widget.room.floor}',
-                    style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ],
               ),
               const Spacer(),
               IconButton(
-                icon: const Icon(Icons.close, size: 20, color: AppColors.textSecondary),
+                icon: const Icon(
+                  Icons.close,
+                  size: 20,
+                  color: AppColors.textSecondary,
+                ),
                 onPressed: () => Navigator.of(context).pop(),
               ),
             ],
@@ -1427,7 +1583,14 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   // 1. 用途选择
-                  const Text('预约用途', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  const Text(
+                    '预约用途',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
@@ -1441,11 +1604,17 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                         backgroundColor: const Color(0xFFF3F4F6),
                         labelStyle: TextStyle(
                           fontSize: 12,
-                          color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          color: isSelected
+                              ? AppColors.usstRed
+                              : AppColors.textPrimary,
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
                         ),
                         side: BorderSide(
-                          color: isSelected ? AppColors.usstRed : Colors.transparent,
+                          color: isSelected
+                              ? AppColors.usstRed
+                              : Colors.transparent,
                         ),
                         onSelected: (val) {
                           if (val) {
@@ -1467,12 +1636,19 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                       ),
                       child: const Row(
                         children: <Widget>[
-                          Icon(Icons.info_outline, size: 15, color: Color(0xFFD97706)),
+                          Icon(
+                            Icons.info_outline,
+                            size: 15,
+                            color: Color(0xFFD97706),
+                          ),
                           SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               '未能加载预约用途列表，将按系统默认用途提交',
-                              style: TextStyle(fontSize: 11.5, color: Color(0xFF92400E)),
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: Color(0xFF92400E),
+                              ),
                             ),
                           ),
                         ],
@@ -1482,8 +1658,14 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                   const SizedBox(height: 14),
 
                   // 2. 时段选择（整点小时）
-                  const Text('预约时段（按小时整点预约）',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  const Text(
+                    '预约时段（按小时整点预约）',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   Row(
                     children: <Widget>[
@@ -1492,28 +1674,45 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            const Text('开始时间', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                            const Text(
+                              '开始时间',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
                             const SizedBox(height: 4),
                             Container(
                               height: 40,
-                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                              ),
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: const Color(0xFFD1D5DB)),
+                                border: Border.all(
+                                  color: const Color(0xFFD1D5DB),
+                                ),
                                 color: const Color(0xFFFAFAFA),
                               ),
                               child: DropdownButtonHideUnderline(
                                 child: DropdownButton<String>(
                                   value: _startHour,
                                   isExpanded: true,
-                                  icon: const Icon(Icons.keyboard_arrow_down, size: 20, color: AppColors.textSecondary),
+                                  icon: const Icon(
+                                    Icons.keyboard_arrow_down,
+                                    size: 20,
+                                    color: AppColors.textSecondary,
+                                  ),
                                   items: _startHourItems.map((h) {
                                     return DropdownMenuItem<String>(
                                       value: h,
                                       child: Text(
                                         h,
                                         style: const TextStyle(
-                                            fontSize: 13.5, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                          fontSize: 13.5,
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.textPrimary,
+                                        ),
                                       ),
                                     );
                                   }).toList(),
@@ -1536,7 +1735,13 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            const Text('预约时长', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                            const Text(
+                              '预约时长',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
                             const SizedBox(height: 4),
                             Wrap(
                               spacing: 6,
@@ -1549,11 +1754,22 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                                   backgroundColor: const Color(0xFFF3F4F6),
                                   labelStyle: TextStyle(
                                     fontSize: 12,
-                                    color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    color: isSelected
+                                        ? AppColors.usstRed
+                                        : AppColors.textPrimary,
+                                    fontWeight: isSelected
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
                                   ),
-                                  side: BorderSide(color: isSelected ? AppColors.usstRed : Colors.transparent),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  side: BorderSide(
+                                    color: isSelected
+                                        ? AppColors.usstRed
+                                        : Colors.transparent,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
                                   visualDensity: VisualDensity.compact,
                                   onSelected: (val) {
                                     if (val) {
@@ -1570,18 +1786,31 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                   ),
                   const SizedBox(height: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
-                      color: _hasConflict ? const Color(0xFFFEF2F2) : const Color(0xFFF0FDF4),
+                      color: _hasConflict
+                          ? const Color(0xFFFEF2F2)
+                          : const Color(0xFFF0FDF4),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _hasConflict ? const Color(0xFFFECACA) : const Color(0xFFBBF7D0)),
+                      border: Border.all(
+                        color: _hasConflict
+                            ? const Color(0xFFFECACA)
+                            : const Color(0xFFBBF7D0),
+                      ),
                     ),
                     child: Row(
                       children: <Widget>[
                         Icon(
-                          _hasConflict ? Icons.error_outline : Icons.check_circle_outline,
+                          _hasConflict
+                              ? Icons.error_outline
+                              : Icons.check_circle_outline,
                           size: 16,
-                          color: _hasConflict ? const Color(0xFFDC2626) : const Color(0xFF16A34A),
+                          color: _hasConflict
+                              ? const Color(0xFFDC2626)
+                              : const Color(0xFF16A34A),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -1592,7 +1821,9 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                             style: TextStyle(
                               fontSize: 12.5,
                               fontWeight: FontWeight.w600,
-                              color: _hasConflict ? const Color(0xFFDC2626) : const Color(0xFF15803D),
+                              color: _hasConflict
+                                  ? const Color(0xFFDC2626)
+                                  : const Color(0xFF15803D),
                             ),
                           ),
                         ),
@@ -1605,13 +1836,22 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                   if (requiredMin > 1) ...<Widget>[
                     Row(
                       children: <Widget>[
-                        const Text('同行成员', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                        const Text(
+                          '同行成员',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
                         const SizedBox(width: 8),
                         Text(
                           '最少 $requiredMin 人（已选 $totalCount 人）',
                           style: TextStyle(
                             fontSize: 11.5,
-                            color: totalCount >= requiredMin ? const Color(0xFF16A34A) : AppColors.usstRed,
+                            color: totalCount >= requiredMin
+                                ? const Color(0xFF16A34A)
+                                : AppColors.usstRed,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -1629,11 +1869,19 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                               style: const TextStyle(fontSize: 13),
                               decoration: InputDecoration(
                                 hintText: '输入同行同学学号',
-                                hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                hintStyle: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF9CA3AF),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 8,
+                                ),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(6),
-                                  borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                                  borderSide: const BorderSide(
+                                    color: Color(0xFFD1D5DB),
+                                  ),
                                 ),
                               ),
                             ),
@@ -1645,11 +1893,19 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                             backgroundColor: const Color(0xFFF3F4F6),
                             foregroundColor: AppColors.textPrimary,
                             elevation: 0,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
                           ),
                           onPressed: _addMember,
-                          child: const Text('添加', style: TextStyle(fontSize: 12.5)),
+                          child: const Text(
+                            '添加',
+                            style: TextStyle(fontSize: 12.5),
+                          ),
                         ),
                       ],
                     ),
@@ -1659,10 +1915,17 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                       runSpacing: 6,
                       children: <Widget>[
                         Chip(
-                          avatar: const Icon(Icons.person, size: 14, color: AppColors.usstRed),
+                          avatar: const Icon(
+                            Icons.person,
+                            size: 14,
+                            color: AppColors.usstRed,
+                          ),
                           label: Text('${widget.api.realName ?? '本人'} (主约人)'),
                           backgroundColor: const Color(0xFFFEE2E2),
-                          labelStyle: const TextStyle(fontSize: 11.5, color: AppColors.usstRed),
+                          labelStyle: const TextStyle(
+                            fontSize: 11.5,
+                            color: AppColors.usstRed,
+                          ),
                           visualDensity: VisualDensity.compact,
                           padding: EdgeInsets.zero,
                         ),
@@ -1690,7 +1953,14 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            const Text('联系电话', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                            const Text(
+                              '联系电话',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
                             const SizedBox(height: 6),
                             SizedBox(
                               height: 38,
@@ -1700,11 +1970,19 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                                 style: const TextStyle(fontSize: 13),
                                 decoration: InputDecoration(
                                   hintText: '用于接收通知',
-                                  hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  hintStyle: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF9CA3AF),
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(6),
-                                    borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                                    borderSide: const BorderSide(
+                                      color: Color(0xFFD1D5DB),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -1717,7 +1995,14 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            const Text('预约备注', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                            const Text(
+                              '预约备注',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
                             const SizedBox(height: 6),
                             SizedBox(
                               height: 38,
@@ -1726,11 +2011,19 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                                 style: const TextStyle(fontSize: 13),
                                 decoration: InputDecoration(
                                   hintText: '如 自习、研讨',
-                                  hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  hintStyle: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF9CA3AF),
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(6),
-                                    borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+                                    borderSide: const BorderSide(
+                                      color: Color(0xFFD1D5DB),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -1750,12 +2043,19 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                       ),
                       child: Row(
                         children: <Widget>[
-                          const Icon(Icons.error_outline, size: 15, color: Color(0xFFDC2626)),
+                          const Icon(
+                            Icons.error_outline,
+                            size: 15,
+                            color: Color(0xFFDC2626),
+                          ),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               _formError!,
-                              style: const TextStyle(fontSize: 12, color: Color(0xFFDC2626)),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFFDC2626),
+                              ),
                             ),
                           ),
                         ],
@@ -1778,16 +2078,27 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                       backgroundColor: AppColors.usstRed,
                       foregroundColor: Colors.white,
                       elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                     onPressed: _submitting ? null : _submit,
                     child: _submitting
                         ? const SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
                           )
-                        : const Text('确认提交预约', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold)),
+                        : const Text(
+                            '确认提交预约',
+                            style: TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
                 ),
               ),
@@ -1797,7 +2108,10 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
           Center(
             child: TextButton(
               onPressed: widget.onFallbackWeb,
-              child: const Text('需要上传证明或改用官方网页端预约', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              child: const Text(
+                '需要上传证明或改用官方网页端预约',
+                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+              ),
             ),
           ),
         ],

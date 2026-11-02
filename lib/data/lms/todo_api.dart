@@ -61,7 +61,9 @@ class LmsTodo {
       courseName = (json['courseName'] ?? '').toString().trim();
     }
 
-    final type = (json['type'] ?? json['activity_type'] ?? '').toString().trim();
+    final type = (json['type'] ?? json['activity_type'] ?? '')
+        .toString()
+        .trim();
 
     return LmsTodo(
       id: _asInt(json['id']),

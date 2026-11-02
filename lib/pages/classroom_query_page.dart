@@ -49,8 +49,10 @@ class ClassroomQueryPage extends StatelessWidget {
             indicatorColor: AppColors.usstRed,
             indicatorWeight: 3,
             labelStyle: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-            unselectedLabelStyle:
-                TextStyle(fontWeight: FontWeight.normal, fontSize: 14),
+            unselectedLabelStyle: TextStyle(
+              fontWeight: FontWeight.normal,
+              fontSize: 14,
+            ),
             tabs: <Widget>[
               Tab(
                 icon: Icon(Icons.meeting_room_outlined, size: 20),
@@ -64,10 +66,7 @@ class ClassroomQueryPage extends StatelessWidget {
           ),
         ),
         body: const TabBarView(
-          children: <Widget>[
-            EmptyClassroomTab(),
-            SchoolCourseTab(),
-          ],
+          children: <Widget>[EmptyClassroomTab(), SchoolCourseTab()],
         ),
       ),
     );

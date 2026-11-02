@@ -90,7 +90,9 @@ class CalendarService {
             receiveTimeout: const Duration(seconds: 12),
           ),
         );
-        if ((response.statusCode ?? 0) != 200 || response.data == null) continue;
+        if ((response.statusCode ?? 0) != 200 || response.data == null) {
+          continue;
+        }
         final calendar = AcademicCalendar.fromYaml(response.data!);
         if (calendar == null) continue;
         notifier.value = calendar;

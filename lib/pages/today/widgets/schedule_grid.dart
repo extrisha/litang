@@ -39,7 +39,15 @@ class ScheduleGrid extends StatelessWidget {
   final double periodWidth;
   final double headerHeight;
 
-  static const List<String> dayNames = <String>['一', '二', '三', '四', '五', '六', '日'];
+  static const List<String> dayNames = <String>[
+    '一',
+    '二',
+    '三',
+    '四',
+    '五',
+    '六',
+    '日',
+  ];
 
   static String formatTeacher(String? raw) {
     if (raw == null || raw.trim().isEmpty) return '';
@@ -123,7 +131,11 @@ class ScheduleGrid extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       // 左侧节次时间列 (随课表整体上下滚动)
-                      _buildPeriodNumbersColumn(activePeriod, rowHeight, totalGridHeight),
+                      _buildPeriodNumbersColumn(
+                        activePeriod,
+                        rowHeight,
+                        totalGridHeight,
+                      ),
                       // 右侧课程网格
                       SizedBox(
                         width: dayWidth * visibleDays.length,
@@ -151,7 +163,8 @@ class ScheduleGrid extends StatelessWidget {
                                   dayWidth,
                                   rowHeight,
                                   visibleDays.indexOf(course.day),
-                                  themeMap[course.name] ?? themeForCourse(course.name),
+                                  themeMap[course.name] ??
+                                      themeForCourse(course.name),
                                 ),
                           ],
                         ),
@@ -221,7 +234,11 @@ class ScheduleGrid extends StatelessWidget {
     );
   }
 
-  Widget _buildPeriodNumbersColumn(int? activePeriod, double rowHeight, double totalHeight) {
+  Widget _buildPeriodNumbersColumn(
+    int? activePeriod,
+    double rowHeight,
+    double totalHeight,
+  ) {
     return Container(
       width: periodWidth,
       height: totalHeight,
@@ -466,10 +483,15 @@ class GridPainter extends CustomPainter {
     }
 
     // 如果当前正处于某一节次 (activePeriod != null)，整行使用与日期列完全一致的高亮底色
-    if (activePeriod != null && activePeriod! >= 1 && activePeriod! <= periods) {
+    if (activePeriod != null &&
+        activePeriod! >= 1 &&
+        activePeriod! <= periods) {
       final activeY = (activePeriod! - 1) * rowHeight;
       final activeRowPaint = Paint()..color = highlightColor;
-      canvas.drawRect(Rect.fromLTWH(0, activeY, size.width, rowHeight), activeRowPaint);
+      canvas.drawRect(
+        Rect.fromLTWH(0, activeY, size.width, rowHeight),
+        activeRowPaint,
+      );
     }
 
     // 横向网格线 (13节) 与时段红线分割 (第5节底上午下午、第10节底下 cruise 晚上)
@@ -480,7 +502,11 @@ class GridPainter extends CustomPainter {
     for (var i = 0; i <= periods; i++) {
       final y = i * rowHeight;
       if (i == 5 || i == 10) {
-        canvas.drawLine(Offset(0, y), Offset(size.width, y), sessionDividerPaint);
+        canvas.drawLine(
+          Offset(0, y),
+          Offset(size.width, y),
+          sessionDividerPaint,
+        );
       } else {
         canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
       }

@@ -227,8 +227,7 @@ void main() {
       final client = _FakeCasClient(<String, String>{
         '/_web/_customizes/usst/schoolTimetable/mobile/permit/pc/pub/index.html':
             '<html>ok</html>',
-        '/_web/_lightapp/schedule/mobile/school/queryClassXy.rst':
-            mockColleges,
+        '/_web/_lightapp/schedule/mobile/school/queryClassXy.rst': mockColleges,
       });
 
       final api = ClassroomApi(client);
