@@ -103,7 +103,9 @@ class _TronExamDetailPageState extends State<TronExamDetailPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
                     Text(
-                      _error ?? '暂无数据',
+                      // detail 为 null 但没抛异常时，不能写成「暂无数据」——
+                      // 这是「没取到」，用户看到「暂无」会以为这场考试没有资料
+                      _error ?? '没取到考试详情，请点重试',
                       style: const TextStyle(color: AppColors.textSecondary),
                     ),
                     const SizedBox(height: 12),
