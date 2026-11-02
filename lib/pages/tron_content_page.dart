@@ -7,6 +7,7 @@ import '../data/auth/jwgl_auth.dart';
 import '../data/lms/course_detail_api.dart';
 import '../data/lms/homework_api.dart';
 import '../data/lms/tronclass_auth.dart';
+import '../widgets/async_state.dart';
 import 'docx_text_page.dart';
 import 'image_preview_page.dart';
 import 'pdf_preview_page.dart';
@@ -147,17 +148,7 @@ class _TronContentPageState extends State<TronContentPage> {
       ),
       body: _error != null
           ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    _error!,
-                    style: const TextStyle(color: AppColors.textSecondary),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(onPressed: _load, child: const Text('重试')),
-                ],
-              ),
+              child: AsyncStateView(error: _error, onRetry: _load),
             )
           : detail == null
           ? const Center(child: CircularProgressIndicator())

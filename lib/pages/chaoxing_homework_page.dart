@@ -4,6 +4,7 @@ import '../app_theme.dart';
 import '../data/chaoxing/chaoxing_auth.dart';
 import '../data/chaoxing/chaoxing_client.dart';
 import '../services/reminder_service.dart';
+import '../widgets/async_state.dart';
 import 'homework_submit_page.dart';
 import 'simple_web.dart';
 
@@ -181,22 +182,11 @@ class _ChaoxingHomeworkPageState extends State<ChaoxingHomeworkPage> {
           ? const Center(child: CircularProgressIndicator())
           : _error != null
           ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    _error!,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  FilledButton(
-                    onPressed: _openWeb,
-                    child: const Text('用网页版打开'),
-                  ),
-                ],
+              child: AsyncStateView(
+                error: _error,
+                // 学习通作业详情失败时最实用的是直接去网页版
+                onRetry: _openWeb,
+                retryLabel: '用网页版打开',
               ),
             )
           : _content(_detail!),
