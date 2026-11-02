@@ -951,10 +951,12 @@ class _LifePageState extends State<LifePage> {
           });
         }
       }
-    } catch (_) {
+    } catch (e) {
       // 静默刷新失败就保持缓存内容，不打扰用户
       if (mounted && !silent) {
-        setState(() => _coursesError = '课程信息拉取失败');
+        setState(() {
+          _coursesError = e is AppException ? e.message : '课程信息拉取失败';
+        });
       }
     } finally {
       if (mounted && !silent) setState(() => _coursesLoading = false);

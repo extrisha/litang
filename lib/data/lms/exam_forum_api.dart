@@ -1,5 +1,9 @@
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
+
+import '../app_exception.dart';
 import '../auth/cas_client.dart';
 
 /// 一条考试提交记录。
@@ -100,10 +104,16 @@ class TronExamForumApi {
 
   /// 考试详情：元信息来自 /api/exams/{id}，得分与提交记录来自 submissions。
   Future<TronExamDetail> fetchExam(int examId) async {
-    final examResp = await client.getApi(Uri.parse('$_base/api/exams/$examId'));
+    final Response<dynamic> examResp;
+    try {
+      examResp = await client.getApi(Uri.parse('$_base/api/exams/$examId'));
+    } catch (e) {
+      throw AppException(AppFailure.network, '考试详情拉取失败，请检查网络', e);
+    }
     final exam = _json(examResp.data);
     if (exam.isEmpty) {
-      throw Exception('考试详情读取失败');
+      // 拿到的是 HTML（登录页）或空响应，不能当成「考试不存在」
+      throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
     }
     // 分数接口失败不影响基本信息展示
     var scoreMap = <String, dynamic>{};
@@ -112,7 +122,9 @@ class TronExamForumApi {
         Uri.parse('$_base/api/exams/$examId/submissions'),
       );
       scoreMap = _json(resp.data);
-    } catch (_) {
+    } catch (e) {
+      // 这里是有意的局部降级：只丢分数，不丢考试信息
+      debugPrint('[exam] 分数拉取失败（不影响详情）: $e');
       scoreMap = <String, dynamic>{};
     }
 
@@ -194,7 +206,9 @@ class TronExamForumApi {
           '';
       _uidCache = uid;
       return uid;
-    } catch (_) {
+    } catch (e) {
+      // 拿不到 uid 只影响「仅我的发言」筛选，退回显示全部
+      debugPrint('[exam] 取当前用户 id 失败: $e');
       return '';
     }
   }

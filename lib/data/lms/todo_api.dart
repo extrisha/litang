@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
+
+import '../app_exception.dart';
 import '../auth/cas_client.dart';
 
 /// 一网畅学待办（作业/任务）。
@@ -202,25 +205,36 @@ class LmsApi {
   Future<List<LmsCourseInfo>> fetchCourseInfos() async {
     var uid = _uidCache;
     if (uid == null || uid.isEmpty) {
-      final index = await client.getApi(
-        Uri.parse('https://1906.usst.edu.cn/user/index'),
-      );
+      final Response<dynamic> index;
+      try {
+        index = await client.getApi(
+          Uri.parse('https://1906.usst.edu.cn/user/index'),
+        );
+      } catch (e) {
+        throw AppException(AppFailure.network, '课程信息拉取失败，请检查网络', e);
+      }
       uid = RegExp(r'id="userId"[^>]*value="([^"]+)"')
           .firstMatch(index.data ?? '')
           ?.group(1);
       if (uid == null || uid.isEmpty) {
-        return const <LmsCourseInfo>[];
+        // 用户首页里没有 userId：拿到的是登录页/错误页
+        throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
       }
       _uidCache = uid;
     }
-    final response = await client.getApi(
-      Uri.parse(
-        'https://1906.usst.edu.cn/api/users/$uid/courses?page=1&page_size=100',
-      ),
-    );
+    final Response<dynamic> response;
+    try {
+      response = await client.getApi(
+        Uri.parse(
+          'https://1906.usst.edu.cn/api/users/$uid/courses?page=1&page_size=100',
+        ),
+      );
+    } catch (e) {
+      throw AppException(AppFailure.network, '课程信息拉取失败，请检查网络', e);
+    }
     final raw = response.data ?? '';
     if (!raw.trim().startsWith('{')) {
-      return const <LmsCourseInfo>[];
+      throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
     }
     final map = jsonDecode(raw) as Map<String, dynamic>;
     final list = (map['courses'] as List<dynamic>? ?? <dynamic>[]);
@@ -260,10 +274,15 @@ class LmsApi {
 
   /// 待办（作业/任务），按截止时间升序。
   Future<List<LmsTodo>> fetchTodos() async {
-    final resp = await client.getApi(Uri.parse(_todosUrl));
+    final Response<dynamic> resp;
+    try {
+      resp = await client.getApi(Uri.parse(_todosUrl));
+    } catch (e) {
+      throw AppException(AppFailure.network, '待办列表拉取失败，请检查网络', e);
+    }
     final raw = resp.data ?? '';
     if (raw.trim().isNotEmpty && !raw.trim().startsWith('{')) {
-      throw Exception('一网畅学待办返回异常，可能登录已失效');
+      throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
     }
     final list = parseTodos(raw);
     list.sort((a, b) {
@@ -285,19 +304,29 @@ class LmsApi {
 
   /// 考试安排（教务）。
   Future<List<LmsExam>> fetchExams() async {
-    final resp = await client.getJson(
-      Uri.parse(_examsUrl),
-      data: <String, String>{
-        'xnm': '',
-        'xqm': '',
-        '_search': 'false',
-        'queryModel.showCount': '200',
-        'queryModel.currentPage': '1',
-        'queryModel.sortName': '',
-        'queryModel.sortOrder': 'asc',
-      },
-    );
-    return parseExams(resp.data ?? '');
+    final Response<dynamic> resp;
+    try {
+      resp = await client.getJson(
+        Uri.parse(_examsUrl),
+        data: <String, String>{
+          'xnm': '',
+          'xqm': '',
+          '_search': 'false',
+          'queryModel.showCount': '200',
+          'queryModel.currentPage': '1',
+          'queryModel.sortName': '',
+          'queryModel.sortOrder': 'asc',
+        },
+      );
+    } catch (e) {
+      throw AppException(AppFailure.network, '考试安排拉取失败，请检查网络', e);
+    }
+    final raw = resp.data ?? '';
+    if (raw.trim().isNotEmpty && !raw.trim().startsWith('{')) {
+      // 拿到 HTML（登录页）而不是 JSON：不能当成「没有考试」
+      throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
+    }
+    return parseExams(raw);
   }
 
   static List<LmsTodo> parseTodos(String raw) {
