@@ -16,7 +16,9 @@ void showCourseDetailModal(
 }) {
   const dayNames = <String>['一', '二', '三', '四', '五', '六', '日'];
   final place = placeForRoom(course.room);
-  final timeStr = JwglSchedule.rangeOf(course.start, course.span) ?? '';
+  final timeStr = JwglSchedule.rangeOf(course.start, course.span);
+  // rangeOf 拿不到时不要留下空括号「第1~2节 ()」
+  final timeSuffix = (timeStr == null || timeStr.isEmpty) ? '' : ' ($timeStr)';
 
   showModalBottomSheet<void>(
     context: context,
@@ -28,13 +30,15 @@ void showCourseDetailModal(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
+        // 大字号 / 小屏时内容会超过弹窗高度，必须可滚动，否则直接溢出（黄黑条）
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
               Center(
                 child: Container(
                   width: 36,
@@ -90,7 +94,7 @@ void showCourseDetailModal(
               _buildDetailTile(
                 icon: Icons.access_time_rounded,
                 title: '上课时间',
-                content: '周${dayNames[course.day]} 第${course.start + 1}~${course.start + course.span}节 ($timeStr)',
+                content: '周${dayNames[course.day]} 第${course.start + 1}~${course.start + course.span}节$timeSuffix',
               ),
               _buildDetailTile(
                 icon: Icons.location_on_outlined,
@@ -135,6 +139,7 @@ void showCourseDetailModal(
               ),
             ],
           ),
+        ),
         ),
       );
     },

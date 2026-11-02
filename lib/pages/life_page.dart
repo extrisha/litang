@@ -13,7 +13,7 @@ import '../data/chaoxing/chaoxing_auth.dart';
 import '../data/chaoxing/chaoxing_cache.dart';
 import '../data/chaoxing/chaoxing_client.dart';
 import '../data/chaoxing/chaoxing_sso.dart';
-import '../data/geo/coordinate_utils.dart';
+import '../data/course_name.dart';
 import '../data/jwc/course_repository.dart';
 import '../data/life_cache.dart';
 import '../data/lms/rollcall_api.dart';
@@ -73,6 +73,10 @@ class _LifePageState extends State<LifePage> {
   DormElectricity? _dormElect;
   DateTime? _dormFetchedAt;
   DormElectricityService? _dormService;
+
+  /// [_dormService] 绑定的那个会话。教务静默重登会换掉 `JwglAuth.client`，
+  /// 旧 service 还连着旧 jar 的 cookie，继续用只会一直失败。
+  CasClient? _dormServiceClient;
   bool _dormLoading = false;
   String? _dormError;
 
@@ -86,7 +90,7 @@ class _LifePageState extends State<LifePage> {
     super.initState();
     _lastAuthStudentId = JwglAuth.instance.studentId;
     JwglAuth.instance.addListener(_onAuthChanged);
-    _bootstrap();
+    unawaited(_bootstrap());
   }
 
   @override
@@ -120,10 +124,16 @@ class _LifePageState extends State<LifePage> {
       _dormFetchedAt = null;
       _dormError = null;
       _dormService = null;
+      _dormServiceClient = null;
       _dormLoading = false;
       _loading = false;
       _coursesLoading = false;
       _cxLoading = false;
+      // 上一个账号的错误提示不能留给下一个账号
+      _error = null;
+      _todosError = null;
+      _coursesError = null;
+      _cxError = null;
     });
     if (id == null || id.isEmpty) {
       return;
@@ -208,9 +218,18 @@ class _LifePageState extends State<LifePage> {
           await TronclassAuth.instance.ensureLoggedIn();
           final rc = await RollcallApi(auth.client!).fetchOngoing();
           if (mounted) {
-            setState(() => _rollcalls = rc);
+            setState(() {
+              _rollcalls = rc;
+              _error = null;
+            });
           }
-        } catch (_) {}
+        } catch (e) {
+          // 以前这里用 `catch (_) {}` 静默吞掉，用户点刷新后完全没反馈。
+          debugPrint('[rollcall] 刷新失败: $e');
+          if (mounted) {
+            setState(() => _error = '签到信息拉取失败，请稍后重试');
+          }
+        }
       }
       await _refreshChaoxing(withWorks: false, autoLogin: true);
     } finally {
@@ -229,7 +248,23 @@ class _LifePageState extends State<LifePage> {
     ]);
   }
 
+  /// 初始化外壳：`_bootstrapInner` 里任何一处抛出（安全存储读失败、
+  /// 缓存解析失败、单例初始化异常）都不该变成未捕获的异步异常，
+  /// 也不该让 `_bootstrapped` 永远为 false —— 那会让换账号的清理逻辑失效。
   Future<void> _bootstrap() async {
+    try {
+      await _bootstrapInner();
+    } catch (e, stack) {
+      debugPrint('[bootstrap] 初始化失败: $e\n$stack');
+      if (mounted) {
+        setState(() => _error = '初始化失败，下拉刷新重试');
+      }
+    } finally {
+      _bootstrapped = true;
+    }
+  }
+
+  Future<void> _bootstrapInner() async {
     // 缓存读取和登录互不依赖，同时启动，省掉一次串行等待
     final snapshotFuture = CourseRepository.loadCache();
 
@@ -280,19 +315,22 @@ class _LifePageState extends State<LifePage> {
       await DormElectricityCache.load(username);
     }
     final cached = DormElectricityCache.dataFor(username);
-    if (cached != null) {
-      _dormElect = cached;
-      _dormFetchedAt = DormElectricityCache.fetchedAtFor(username);
-    }
     // 有缓存先展示；缓存超过 10 分钟再静默刷新，没有缓存也拉一次。
     final age = DormElectricityCache.ageFor(username);
     final stale = cached == null || age == null || age >= _dormCacheTtl;
     // 有教务会话（可走 SSO）或有保存的密码，才值得去刷新
     final canFetch = JwglAuth.instance.client != null || auth.hasSavedPassword;
+    // 必须走 setState：这段赋值发生在本轮所有 setState 之后，不主动刷新的话，
+    // 缓存新鲜（不触发网络刷新）时电费卡片会一直停在「未刷新」。
+    if (cached != null && mounted) {
+      setState(() {
+        _dormElect = cached;
+        _dormFetchedAt = DormElectricityCache.fetchedAtFor(username);
+      });
+    }
     if (canFetch && stale) {
       unawaited(_loadDormElectricity());
     }
-    _bootstrapped = true;
   }
 
   /// 并行任务的错误隔离：某一个失败只影响自己那块，不中断整页初始化。
@@ -375,6 +413,9 @@ class _LifePageState extends State<LifePage> {
       return;
     }
 
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _dormLoading = true;
       _dormError = null;
@@ -388,24 +429,23 @@ class _LifePageState extends State<LifePage> {
       setState(() {
         _dormElect = info;
         _dormFetchedAt = DateTime.now();
-        _dormLoading = false;
       });
     } on DormElectricityException catch (e) {
       if (!mounted) {
         return;
       }
-      setState(() {
-        _dormError = '${e.message}（请使用校园网访问）';
-        _dormLoading = false;
-      });
+      setState(() => _dormError = '${e.message}（请使用校园网访问）');
     } catch (e) {
       if (!mounted) {
         return;
       }
-      setState(() {
-        _dormError = '查询失败，请使用校园网访问';
-        _dormLoading = false;
-      });
+      setState(() => _dormError = '查询失败，请使用校园网访问');
+    } finally {
+      // 每条 return / 异常路径都必须复位：`_dormLoading` 卡在 true 时，
+      // 函数开头的互斥判断会让之后所有刷新（含下拉刷新）被静默跳过。
+      if (mounted) {
+        setState(() => _dormLoading = false);
+      }
     }
   }
 
@@ -414,6 +454,7 @@ class _LifePageState extends State<LifePage> {
         .push<bool>(MaterialPageRoute<bool>(builder: (_) => const LoginPage()));
     if (ok == true && mounted) {
       _dormService = null;
+      _dormServiceClient = null;
       await _loadDormElectricity(force: true);
     }
   }
@@ -426,6 +467,12 @@ class _LifePageState extends State<LifePage> {
   ) async {
     final client = JwglAuth.instance.client;
     if (client != null) {
+      // 教务静默重登（reauthenticate）会换一个新的 CasClient，而 savedUsername
+      // 不变、不会触发 `_onAuthChanged`。这里比对绑定关系，换过就重建 service。
+      if (!identical(_dormServiceClient, client)) {
+        _dormService = null;
+      }
+      _dormServiceClient = client;
       final service = _dormService ??= DormElectricityService.withSession(
         client.jar.headerFor,
         client.jar.absorbSetCookie,
@@ -660,20 +707,20 @@ class _LifePageState extends State<LifePage> {
       } catch (_) {
         // 考试安排失败保留旧数据
       }
-      if (!todosFetched && !examsFetched && _todos.isEmpty && _exams.isEmpty) {
-        // 两个都失败且无数据时给个提示
-        if (mounted) {
-          setState(() => _error = '学习数据拉取失败，请稍后重试');
-        }
-      }
       if (!mounted || JwglAuth.instance.savedUsername != requestUser) {
         return;
       }
+      // 两个都失败且无数据时给个提示。注意要写进 `_todosError`：
+      // 下面这次 setState 会把 `_error` 置空，写 `_error` 会被同一个同步片段
+      // 立刻覆盖掉，用户永远看不到（这是原来的 bug）。
+      final bothFailed = !todosFetched && !examsFetched;
       setState(() {
         _rollcalls = rollcalls;
         _todos = todos;
         _exams = _filterExams(exams);
-        _todosError = todosError;
+        _todosError = bothFailed && _todos.isEmpty && _exams.isEmpty
+            ? '学习数据拉取失败，请稍后重试'
+            : todosError;
         _error = null;
       });
       // 只写成功拉到的部分，避免把「保留的旧数据」当成新数据盖上时间戳
@@ -721,15 +768,9 @@ class _LifePageState extends State<LifePage> {
     }
   }
 
-  static String _cleanCourseName(String raw) {
-    return raw
-        .replaceAll('（', '(')
-        .replaceAll('）', ')')
-        // 只去掉 (2026-2027-1) 这种学期后缀，保留课程本身的 (1)/(2)
-        .replaceAll(RegExp(r'\(\d{4}-\d{4}-\d\)-.*$'), '')
-        .replaceAll(RegExp(r'\s+'), '')
-        .trim();
-  }
+  /// 实现统一在 [CourseName]；`LifeTodoCard` 也调同一份，
+  /// 免得待办卡片和课程卡片用的归一化规则跑偏。
+  static String _cleanCourseName(String raw) => CourseName.clean(raw);
 
   bool _isCurrentCourse(String name, String termCode) {
     final clean = _cleanCourseName(name);
@@ -807,7 +848,7 @@ class _LifePageState extends State<LifePage> {
         silent = true;
       }
     }
-    if (!silent) {
+    if (!silent && mounted) {
       setState(() {
         _coursesLoading = true;
         _coursesError = null;
@@ -822,7 +863,9 @@ class _LifePageState extends State<LifePage> {
         await TronclassAuth.instance.ensureLoggedIn();
         final client = auth.client;
         if (client == null) {
-          if (!silent) setState(() => _coursesError = '请先登录教务系统');
+          if (!silent && mounted) {
+            setState(() => _coursesError = '请先登录教务系统');
+          }
           return;
         }
         final list = await LmsApi(client).fetchCourseInfos();
@@ -868,7 +911,6 @@ class _LifePageState extends State<LifePage> {
         final courses = _cxCourses.isNotEmpty
             ? _cxCourses
             : await client.fetchCourses();
-        _cxCourses = courses;
         // 学习通列表没有 termCode，用本学期课表课程名过滤掉往期课程；
         // 课表/一网畅学都拿不到时才退回全量（至少不误藏当前课程）。
         await _ensureCurrentCourseNames();
@@ -889,7 +931,14 @@ class _LifePageState extends State<LifePage> {
               ),
             )
             .toList();
-        if (mounted) setState(() => _courseInfos = filtered);
+        // `_cxCourses` 也放进 setState：直接赋值属于构建期外的状态突变，
+        // 一旦上面的 await 期间页面被销毁就会留下不一致的状态。
+        if (mounted) {
+          setState(() {
+            _cxCourses = courses;
+            _courseInfos = filtered;
+          });
+        }
       }
     } catch (_) {
       // 静默刷新失败就保持缓存内容，不打扰用户
@@ -997,34 +1046,13 @@ class _LifePageState extends State<LifePage> {
       _toast('请先登录教务系统');
       return;
     }
-    final controller = TextEditingController();
+    // controller 由 dialog 组件自己持有并释放：在这里 `showDialog` 返回后
+    // 立刻 dispose，会和 dialog 的退场动画抢 TextField，偶发
+    // 「TextEditingController used after being disposed」。
     final input = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('${rollcall.courseName} · 数字口令'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            hintText: '输入老师给出的签到口令',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: const Text('签到'),
-          ),
-        ],
-      ),
+      builder: (_) => _SignNumberDialog(courseName: rollcall.courseName),
     );
-    controller.dispose();
     if (input == null || input.isEmpty || !mounted) {
       return;
     }
@@ -1221,11 +1249,21 @@ class _LifePageState extends State<LifePage> {
     try {
       final allowed = await _ensureLocationPermission();
       if (!allowed) {
-        _toast('雷达签到需要定位权限，请在系统设置里允许定位');
         return;
       }
-      if (!await Geolocator.isLocationServiceEnabled()) {
+      // 检查系统定位开关：
+      // Android 上部分机型由于国内 ROM 冻结 GMS，isLocationServiceEnabled() 会抛出异常或误报 false。
+      // 在 Android 上若误报先不强行拦截，交由后续底层原生 LocationManager 做真实校验；
+      // 其他平台若明确未开启，则提示并跳转设置。
+      var serviceEnabled = true;
+      try {
+        serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      } catch (_) {
+        serviceEnabled = true;
+      }
+      if (!serviceEnabled && defaultTargetPlatform != TargetPlatform.android) {
         _toast('系统定位服务未开启，请打开 GPS/定位开关');
+        await Geolocator.openLocationSettings();
         return;
       }
       try {
@@ -1243,20 +1281,20 @@ class _LifePageState extends State<LifePage> {
       } catch (e) {
         if (mounted) {
           _toast(_radarLocationError(e));
+          if (e is LocationServiceDisabledException) {
+            await Geolocator.openLocationSettings();
+          }
         }
         return;
       }
       final SignResult result;
       try {
-        // 一网畅学雷达接口要 GCJ-02；系统定位给的是 WGS-84，直接上报会偏几百米。
-        final (gcjLat, gcjLng) = CoordinateUtils.wgs84ToGcj02(
-          position.latitude,
-          position.longitude,
-        );
+        // 一网畅学（TronClass）雷达签到服务端比对的是标准 WGS-84 坐标，
+        // 系统定位给出的即为 WGS-84；切勿转换为 GCJ-02，否则会导致约 480 米偏差并触发超出签到范围。
         result = await RollcallApi(client).reportRadarPosition(
           rollcall,
-          gcjLat,
-          gcjLng,
+          position.latitude,
+          position.longitude,
           accuracy: position.accuracy,
           altitude: position.altitude,
           altitudeAccuracy: position.altitudeAccuracy,
@@ -1288,8 +1326,17 @@ class _LifePageState extends State<LifePage> {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-    return permission == LocationPermission.always ||
-        permission == LocationPermission.whileInUse;
+    if (permission == LocationPermission.deniedForever) {
+      _toast('定位权限已被永久禁用，请在手机应用设置中允许');
+      await Geolocator.openAppSettings();
+      return false;
+    }
+    if (permission != LocationPermission.always &&
+        permission != LocationPermission.whileInUse) {
+      _toast('雷达签到需要定位权限，请在系统设置里允许定位');
+      return false;
+    }
+    return true;
   }
 
   /// 雷达签到取坐标：先复用系统最近一次有效定位，再尝试实时高精度定位。
@@ -1297,11 +1344,12 @@ class _LifePageState extends State<LifePage> {
   /// Android 上强制走 LocationManager，避免部分机器（无 GMS / 国内 ROM）
   /// 的 FusedLocationProvider 一直不回调，最后只能超时。
   Future<Position> _getRadarPosition() async {
+    Position? last;
     try {
-      final last = await Geolocator.getLastKnownPosition(
+      last = await Geolocator.getLastKnownPosition(
         forceAndroidLocationManager: true,
       );
-      if (_isUsableLastKnown(last)) {
+      if (_isFreshPosition(last)) {
         return last!;
       }
     } catch (_) {
@@ -1331,8 +1379,26 @@ class _LifePageState extends State<LifePage> {
               accuracy: LocationAccuracy.medium,
               timeLimit: Duration(seconds: 12),
             );
-      return Geolocator.getCurrentPosition(locationSettings: medium);
+      try {
+        return await Geolocator.getCurrentPosition(locationSettings: medium);
+      } catch (e) {
+        // 室内若实时搜星超时，但有 5 分钟内可用的历史坐标，作为室内保底
+        if (last != null && _isUsableLastKnown(last)) {
+          return last;
+        }
+        rethrow;
+      }
     }
+  }
+
+  /// 90 秒以内的高精度定位，避免重复搜星耗时
+  bool _isFreshPosition(Position? position) {
+    if (position == null) return false;
+    final age = DateTime.now().difference(position.timestamp);
+    return !age.isNegative &&
+        age <= const Duration(seconds: 90) &&
+        position.accuracy > 0 &&
+        position.accuracy <= 50;
   }
 
   /// 最近一次定位要够新、够准才用于签到，避免拿着上节课的旧坐标。
@@ -1430,7 +1496,7 @@ class _LifePageState extends State<LifePage> {
                 rollcalls: _rollcalls,
                 cxActivities: _cxActivities,
                 error: _error,
-                refreshing: _rollcallsRefreshing,
+                refreshing: _rollcallsRefreshing || _loading,
                 onRefresh: _refreshRollcallsOnly,
                 onRetry: _retryTronclass,
                 onSignRollcall: (rollcall) => _signAction(rollcall)?.call(),
@@ -1470,13 +1536,12 @@ class _LifePageState extends State<LifePage> {
                 onRefresh: () => _loadDormElectricity(force: true),
                 onLogin: _loginThenLoadDorm,
               ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
-
 
   void _openCxWork(ChaoxingWork work) {
     Navigator.of(context).push(
@@ -1501,5 +1566,58 @@ class _LifePageState extends State<LifePage> {
     s = s.replaceAll('第1学期', '1').replaceAll('第2学期', '2');
     s = s.replaceAll('第', '-').replaceAll('学期', '');
     return s;
+  }
+}
+
+/// 数字口令签到输入框。
+///
+/// 单独做成 StatefulWidget，由它自己持有并释放 `TextEditingController`。
+/// 原先的写法在 `showDialog` 返回后立刻 `controller.dispose()`，而 dialog 的
+/// 退场动画期间 `TextField` 仍然存活，会访问已释放的 controller
+/// （`TextEditingController used after being disposed`）。
+class _SignNumberDialog extends StatefulWidget {
+  const _SignNumberDialog({required this.courseName});
+
+  final String courseName;
+
+  @override
+  State<_SignNumberDialog> createState() => _SignNumberDialogState();
+}
+
+class _SignNumberDialogState extends State<_SignNumberDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    Navigator.of(context).pop(_controller.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('${widget.courseName} · 数字口令'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: TextInputType.number,
+        onSubmitted: (_) => _submit(),
+        decoration: const InputDecoration(
+          hintText: '输入老师给出的签到口令',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('签到')),
+      ],
+    );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app_theme.dart';
 import '../../../data/chaoxing/chaoxing_client.dart';
+import '../../../data/course_name.dart';
 import '../../../data/lms/todo_api.dart';
 import '../../../services/reminder_service.dart';
 
@@ -24,16 +25,11 @@ class LifeTodoCard extends StatelessWidget {
   final void Function(LmsTodo todo) onOpenTodo;
   final void Function(ChaoxingWork work) onOpenCxWork;
 
-  static String cleanCourseName(String raw) {
-    return raw
-        .replaceAll('（', '(')
-        .replaceAll('）', ')')
-        .replaceAll(RegExp(r'\(\d{4}-\d{4}-\d\)-.*$'), '')
-        .replaceAll(RegExp(r'\s+'), '')
-        .trim();
-  }
+  /// 保留这个静态入口给 `WidgetSyncService` 用，实现统一在 [CourseName]。
+  static String cleanCourseName(String raw) => CourseName.clean(raw);
 
-  static DateTime? parseTaskDeadline(String raw) {
+  static DateTime? parseTaskDeadline(String raw, {DateTime? now}) {
+    final current = now ?? DateTime.now();
     var s = raw
         .replaceAll(RegExp(r'^(?:提交)?截[止至](?:时间)?[:：]\s*'), '')
         .replaceAll(RegExp(r'^有效时间[:：]\s*'), '')
@@ -42,7 +38,14 @@ class LifeTodoCard extends StatelessWidget {
         .trim();
     if (s.isEmpty) return null;
     final direct = DateTime.tryParse(s);
-    if (direct != null) return direct;
+    if (direct != null) {
+      // 纯日期（2026-03-05）要按当天 23:59 算，否则截止日当天 00:01 就被判
+      // 「已逾期」。带时间的写法（含 T 或 HH:mm）保持不变。
+      final hasTime =
+          s.contains('T') || RegExp(r'\d{1,2}:\d{2}').hasMatch(s);
+      if (hasTime) return direct;
+      return DateTime(direct.year, direct.month, direct.day, 23, 59);
+    }
 
     // YYYY年MM月DD日 [HH:mm]
     final ymdCn = RegExp(
@@ -62,12 +65,11 @@ class LifeTodoCard extends StatelessWidget {
       r'^(\d{1,2})月(\d{1,2})日(?:\s+(\d{1,2}):(\d{2}))?',
     ).firstMatch(s);
     if (mdCn != null) {
-      final now = DateTime.now();
       final m = int.parse(mdCn.group(1)!);
       final d = int.parse(mdCn.group(2)!);
       final h = mdCn.group(3) != null ? int.parse(mdCn.group(3)!) : 23;
       final min = mdCn.group(4) != null ? int.parse(mdCn.group(4)!) : 59;
-      return DateTime(now.year, m, d, h, min);
+      return _withYearRollover(current, m, d, h, min);
     }
 
     // YYYY-MM-DD [HH:mm]
@@ -88,23 +90,42 @@ class LifeTodoCard extends StatelessWidget {
       r'^(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?',
     ).firstMatch(s);
     if (md != null) {
-      final now = DateTime.now();
       final m = int.parse(md.group(1)!);
       final d = int.parse(md.group(2)!);
       final h = md.group(3) != null ? int.parse(md.group(3)!) : 23;
       final min = md.group(4) != null ? int.parse(md.group(4)!) : 59;
-      return DateTime(now.year, m, d, h, min);
+      return _withYearRollover(current, m, d, h, min);
     }
 
     final dur = ReminderService.parseRemaining(s);
     if (dur != null) {
-      return DateTime.now().add(dur);
+      return current.add(dur);
     }
     return null;
   }
 
+  /// 只有「月日」时按最近的一次理解：12 月看到「1月5日」是明年 1 月 5 日，
+  /// 而不是今年已经过去的那个 1 月 5 日（否则会被判成「已逾期」标红）。
+  ///
+  /// 只回卷过去超过 30 天的日期：上个月的截止时间大概率是真的过期了，
+  /// 盲目 +1 年会让早已截止的作业重新变成「还有 300 天」。
+  static DateTime _withYearRollover(
+    DateTime current,
+    int month,
+    int day,
+    int hour,
+    int minute,
+  ) {
+    final thisYear = DateTime(current.year, month, day, hour, minute);
+    if (current.difference(thisYear) > const Duration(days: 30)) {
+      return DateTime(current.year + 1, month, day, hour, minute);
+    }
+    return thisYear;
+  }
+
   static String _humanRemaining(Duration diff) {
     if (diff.isNegative) return '已逾期';
+    if (diff.inMinutes < 1) return '即将截止';
     if (diff.inMinutes < 60) return '还有 ${diff.inMinutes} 分钟';
     if (diff.inHours < 24) return '还有 ${diff.inHours} 小时';
     return '还有 ${diff.inDays} 天';

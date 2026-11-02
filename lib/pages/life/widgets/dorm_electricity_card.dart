@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app_theme.dart';
+import '../../../data/date_format.dart';
 import '../../../services/dorm_electricity_service.dart';
 
 /// 宿舍电费状态与余量卡片
@@ -24,11 +25,7 @@ class DormElectricityCard extends StatelessWidget {
   final VoidCallback onRefresh;
   final VoidCallback onLogin;
 
-  String _formatDormTime(DateTime time) {
-    String two(int value) => value.toString().padLeft(2, '0');
-    return '${two(time.month)}-${two(time.day)} '
-        '${two(time.hour)}:${two(time.minute)}';
-  }
+  String _formatDormTime(DateTime time) => DateFmt.mdHm(time);
 
   @override
   Widget build(BuildContext context) {

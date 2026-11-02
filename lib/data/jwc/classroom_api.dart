@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show debugPrint;
+
 import '../auth/cas_client.dart';
 import 'classroom_data.dart';
 
@@ -370,7 +372,11 @@ class ClassroomApi {
           if (list.isNotEmpty) return list;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      // 拉不到学院字典时退回内置默认值，但别完全无声：
+      // 这里静默会掩盖「教务接口结构变了」——那才是真正要修的问题。
+      debugPrint('[classroom] 学院字典拉取失败，使用默认值: $e');
+    }
     return defaultColleges;
   }
 

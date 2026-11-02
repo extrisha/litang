@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
@@ -36,6 +36,26 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
 
   Timer? _minuteTimer;
 
+  /// 上一次刷新高亮时的时间状态。
+  ///
+  /// 定时器的目的是「跨节次/跨日自动更新高亮」，但它原来每分钟无条件
+  /// `setState(() {})`——一天白重建 1440 次整张课表（含主题色映射和每张卡片）。
+  /// 现在只有「当前节次」或「日期」真的变了才重建，一天约 30 次。
+  int? _lastActivePeriod;
+  int _lastDayStamp = 0;
+
+  /// 手动同步进行中：用于显示顶部细进度线
+  bool _syncing = false;
+
+  /// 最近一次同步是否失败（包含静默同步），用于区分「没课」和「取不到」
+  bool _syncFailed = false;
+
+  /// 主题色映射缓存：跟着 `_snapshot` + `_selectedWeek` 走，
+  /// 不再每次 build 都重算（`buildCourseThemeMap` 里有 O(n²) 的 contains）。
+  CourseSnapshot? _themeSnapshot;
+  int _themeWeek = -1;
+  Map<String, CourseTheme> _themeMap = const <String, CourseTheme>{};
+
   @override
   void initState() {
     super.initState();
@@ -43,17 +63,31 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
     JwglAuth.instance.addListener(_onAuthChanged);
     _initSchedule();
     // 每分钟自检，跨节次或跨日无需手动刷新即可实时高亮
-    _minuteTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) {
-        setState(() {});
-      }
-    });
+    _lastActivePeriod = _activePeriod();
+    _lastDayStamp = _dayStamp(DateTime.now());
+    _minuteTimer = Timer.periodic(const Duration(minutes: 1), (_) => _tickClock());
+  }
+
+  static int _dayStamp(DateTime t) => t.year * 10000 + t.month * 100 + t.day;
+
+  void _tickClock() {
+    if (!mounted) return;
+    final now = DateTime.now();
+    final period = _activePeriod();
+    final stamp = _dayStamp(now);
+    // 什么都没变就不重建，避免无谓的整页刷新
+    if (period == _lastActivePeriod && stamp == _lastDayStamp) return;
+    _lastActivePeriod = period;
+    _lastDayStamp = stamp;
+    setState(() {});
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // 从后台切回（如第二天早上解锁唤醒）：立即刷新当天和当前节次高亮
     if (state == AppLifecycleState.resumed && mounted) {
+      _lastActivePeriod = _activePeriod();
+      _lastDayStamp = _dayStamp(DateTime.now());
       setState(() {});
     }
   }
@@ -112,25 +146,35 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
       }
       return;
     }
-    if (!silent) {
+    // 手动刷新时给一条细进度线：原来这里是两个空的 `if (!silent) {}`，
+    // 点完按钮到 toast 出现之间界面毫无反应。
+    if (!silent && mounted) {
+      setState(() => _syncing = true);
     }
     try {
       final fresh = await CourseRepository.refresh(auth.client!);
       if (mounted) {
         setState(() {
           _snapshot = fresh;
-          _selectedWeek = CalendarService.instance.currentWeek ?? fresh.currentWeek ?? _selectedWeek;
+          _selectedWeek = CalendarService.instance.currentWeek ??
+              fresh.currentWeek ??
+              _selectedWeek;
+          _syncFailed = false;
+          _syncing = false;
         });
         if (!silent) {
           _showToast('课表同步完成');
         }
       }
     } catch (e) {
-      if (mounted && !silent) {
-        _showToast('课表更新失败，请重试');
-      }
-    } finally {
-      if (mounted && !silent) {
+      if (mounted) {
+        setState(() {
+          _syncFailed = true;
+          _syncing = false;
+        });
+        if (!silent) {
+          _showToast('课表更新失败，请重试');
+        }
       }
     }
   }
@@ -211,6 +255,13 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
             Column(
               children: <Widget>[
                 _appBar(),
+                // 手动同步时的细进度线（原来点击后到 toast 出现之间毫无反馈）
+                if (_syncing)
+                  const LinearProgressIndicator(
+                    minHeight: 2,
+                    color: AppColors.usstRed,
+                    backgroundColor: Color(0xFFF5F5F5),
+                  ),
                 Expanded(
                   child: !auth.isLoggedIn && _snapshot == null
                       ? _unloggedPlaceholder()
@@ -406,18 +457,28 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
   }
 
   Widget _emptyPlaceholder() {
+    // 没数据时要区分「真的没课」和「同步失败」——原来两者都显示「暂无课表数据」
+    final failed = _syncFailed;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(Icons.event_busy_outlined, size: 48, color: AppColors.textSecondary),
+          Icon(
+            failed ? Icons.cloud_off_rounded : Icons.event_busy_outlined,
+            size: 48,
+            color: AppColors.textSecondary,
+          ),
           const SizedBox(height: 12),
-          const Text('暂无课表数据', style: TextStyle(fontSize: 15, color: AppColors.textSecondary)),
+          Text(
+            failed ? '课表同步失败，请检查网络后重试' : '暂无课表数据',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 15, color: AppColors.textSecondary),
+          ),
           const SizedBox(height: 14),
           OutlinedButton.icon(
-            onPressed: () => _refresh(),
+            onPressed: _syncing ? null : () => _refresh(),
             icon: const Icon(Icons.refresh, size: 16),
-            label: const Text('重新获取'),
+            label: Text(failed ? '重新同步' : '重新获取'),
           ),
         ],
       ),
@@ -429,7 +490,7 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
     return ScheduleGrid(
       courses: courses,
       selectedWeek: _selectedWeek,
-      themeMap: buildCourseThemeMap(courses.where((c) => c.activeInWeek(_selectedWeek)).toList()),
+      themeMap: _themeMapFor(_snapshot, _selectedWeek),
       activePeriod: _activePeriod(),
       isToday: (d) => _isToday(d),
       dateForDay: (w, d) => _dateForDay(w, d),
@@ -441,8 +502,21 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
     );
   }
 
-
-
-
-
+  /// 同一份快照 + 同一个周次只算一次主题色映射。
+  ///
+  /// `buildCourseThemeMap` 内部有 O(n²) 的 `contains` 去重，原来每次 build
+  /// 都要重算一遍；配合上面「每分钟一次重建」就是白烧 CPU。
+  Map<String, CourseTheme> _themeMapFor(CourseSnapshot? snapshot, int week) {
+    if (identical(_themeSnapshot, snapshot) && _themeWeek == week) {
+      return _themeMap;
+    }
+    _themeSnapshot = snapshot;
+    _themeWeek = week;
+    _themeMap = buildCourseThemeMap(
+      (snapshot?.courses ?? const <Course>[])
+          .where((c) => c.activeInWeek(week))
+          .toList(),
+    );
+    return _themeMap;
+  }
 }

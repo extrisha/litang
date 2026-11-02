@@ -134,11 +134,16 @@ class WeatherService {
     final tempRange = '${minTemp.round()}° ~ ${maxTemp.round()}°C';
 
     // 2. 识别降水/下雪区间与最高概率
-    // 聚焦日间活跃时段 (06:00 ~ 23:00)
+    // 聚焦当前与未来时段，避免对已过去的早间降雨进行误报
+    final now = DateTime.now();
+    final currentHour = now.hour;
+
     int maxProb = 0;
-    double totalPrecip = 0.0;
-    final rainHours = <int>[];
-    bool isSnow = false;
+    int upcomingMaxProb = 0;
+    final allRainHours = <int>[];
+    final upcomingRainHours = <int>[];
+    final pastRainHours = <int>[];
+    bool upcomingIsSnow = false;
 
     for (int i = 0; i < times.length; i++) {
       final hourStr = times[i]; // e.g. "2026-11-01T14:00"
@@ -150,48 +155,60 @@ class WeatherService {
       final code = (codes.length > i) ? codes[i] : 0;
 
       if (prob > maxProb) maxProb = prob;
-      totalPrecip += precip;
 
       final isRainCode = _isRainOrSnowCode(code);
-      if (code == 71 || code == 73 || code == 75 || code == 77 || code == 85 || code == 86) {
-        isSnow = true;
-      }
+      final isSnowCode = code == 71 ||
+          code == 73 ||
+          code == 75 ||
+          code == 77 ||
+          code == 85 ||
+          code == 86;
 
       // 当降雨概率 >= 40% 或 降水量 >= 0.1mm 或 气象码为降水
       if (prob >= 40 || precip >= 0.1 || isRainCode) {
-        rainHours.add(hour);
+        allRainHours.add(hour);
+        if (hour < currentHour) {
+          pastRainHours.add(hour);
+        } else {
+          upcomingRainHours.add(hour);
+          if (prob > upcomingMaxProb) upcomingMaxProb = prob;
+          if (isSnowCode) upcomingIsSnow = true;
+        }
       }
     }
 
-    final hasRainOrSnow = rainHours.isNotEmpty || maxProb >= 50 || totalPrecip >= 0.2;
+    final hasUpcomingRainOrSnow = upcomingRainHours.isNotEmpty;
+    final isRainingNow = upcomingRainHours.contains(currentHour);
 
-    // 3. 构造降雨时间段文本与提醒
+    // 3. 构造降雨时间段文本与提醒（重点聚焦当前与未来天气）
     String rainTimeWindow;
     String umbrellaAdvice;
     String probabilityText;
     String iconType;
     String weatherStatus;
 
-    if (hasRainOrSnow) {
-      iconType = isSnow ? 'snow' : 'rain';
-      weatherStatus = isSnow ? '有降雪' : (maxProb > 70 ? '有降雨' : '可能有阵雨');
-      probabilityText = '降水概率 $maxProb%';
-      umbrellaAdvice = isSnow ? '出门防寒带伞 ❄️' : '出门记得带伞 ☔';
+    if (hasUpcomingRainOrSnow) {
+      iconType = upcomingIsSnow ? 'snow' : 'rain';
+      probabilityText = '降水概率 $upcomingMaxProb%';
 
-      if (rainHours.isNotEmpty) {
-        // 合并连续时间段
-        final ranges = _groupContinuousHours(rainHours);
-        final firstRange = ranges.first;
-        final typeName = isSnow ? '降雪' : '降雨';
+      final ranges = _groupContinuousHours(upcomingRainHours);
+      final firstRange = ranges.first;
+      final typeName = upcomingIsSnow ? '降雪' : '降雨';
+
+      if (isRainingNow) {
+        weatherStatus = upcomingIsSnow ? '正在降雪' : '正在降雨';
+        umbrellaAdvice = upcomingIsSnow ? '降雪中，注意防滑 ❄️' : '当前有雨，出门带伞 ☔';
+        rainTimeWindow = '当前有雨 (预计至${firstRange.end + 1}:00)';
+      } else {
+        weatherStatus = upcomingIsSnow ? '稍后有雪' : (upcomingMaxProb > 70 ? '稍后有雨' : '可能有阵雨');
+        umbrellaAdvice = upcomingIsSnow ? '出门防寒带伞 ❄️' : '出门记得带伞 🌂';
         rainTimeWindow = '${firstRange.start}:00~${firstRange.end + 1}:00 $typeName';
         if (ranges.length > 1) {
           rainTimeWindow += '等';
         }
-      } else {
-        rainTimeWindow = isSnow ? '今日有零星降雪' : '今日局部零星小雨';
       }
     } else {
-      // 无降水
+      // 当前与后续无降水
       final midDayCode = codes.length > 12 ? codes[12] : (codes.isNotEmpty ? codes.first : 0);
       if (midDayCode == 0) {
         iconType = 'sunny';
@@ -200,13 +217,20 @@ class WeatherService {
         iconType = 'cloudy';
         weatherStatus = '多云';
       }
-      rainTimeWindow = '今日全天无雨';
-      probabilityText = maxProb > 0 ? '降水概率 $maxProb%' : '全天干爽';
+
+      if (pastRainHours.isNotEmpty) {
+        // 早间降雨已过去，下午及晚间无雨
+        rainTimeWindow = '今日后续无雨';
+        probabilityText = '早间降水已停';
+      } else {
+        rainTimeWindow = '今日全天无雨';
+        probabilityText = maxProb > 0 ? '降水概率 $maxProb%' : '全天干爽';
+      }
       umbrellaAdvice = '无需带伞 🌤';
     }
 
     return WeatherSummary(
-      hasRainOrSnow: hasRainOrSnow,
+      hasRainOrSnow: hasUpcomingRainOrSnow,
       weatherStatus: weatherStatus,
       rainTimeWindow: rainTimeWindow,
       probabilityText: probabilityText,

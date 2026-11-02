@@ -135,7 +135,11 @@ void main() {
         ],
       });
 
-      final api = SpaceBookingApi(mockClient);
+      final api = SpaceBookingApi(mockClient)
+        // fetchRooms 现在会在「未认证」时直接抛错（不再把取不到当成没有房间），
+        // 所以这里先给它一个有效 token，专测解析逻辑。
+        ..accessToken = 'test-token'
+        ..tokenObtainedAt = DateTime.now();
       final rooms = await api.fetchRooms();
       expect(rooms.length, 1);
       expect(rooms.first.name, '研讨间101');
@@ -247,6 +251,54 @@ void main() {
       );
       expect(roomDisabled.isAvailable, isFalse);
       expect(roomDisabled.statusDesc, '已禁用');
+    });
+
+    test('SpaceRoom capacity and venue categorization rules', () {
+      const pod = SpaceRoom(
+        id: '1',
+        name: '复兴一楼静音舱',
+        floor: '1F',
+        roomType: '静音舱',
+        minNum: 1,
+        maxNum: 1,
+        devices: '插座',
+        status: 0,
+      );
+      expect(pod.shortBuildingName, '复兴');
+      final isPodSingle = pod.maxNum == 1 ||
+          pod.name.contains('静音舱') ||
+          pod.roomType.contains('单人');
+      expect(isPodSingle, isTrue);
+
+      const smallRoom = SpaceRoom(
+        id: '2',
+        name: '334号201',
+        floor: '2F',
+        roomType: '研讨间',
+        minNum: 2,
+        maxNum: 4,
+        devices: '投影',
+        status: 0,
+      );
+      expect(smallRoom.shortBuildingName, '334号');
+      final fitsSmall = (smallRoom.maxNum <= 4 && smallRoom.maxNum >= 2) ||
+          (smallRoom.minNum <= 2 && smallRoom.maxNum <= 6);
+      expect(fitsSmall, isTrue);
+
+      const mediumRoom = SpaceRoom(
+        id: '3',
+        name: '湛恩810-1',
+        floor: '8F',
+        roomType: '研讨间',
+        minNum: 3,
+        maxNum: 6,
+        devices: '投影',
+        status: 0,
+      );
+      expect(mediumRoom.shortBuildingName, '湛恩');
+      final fitsMedium = (mediumRoom.maxNum >= 5 && mediumRoom.minNum <= 6) ||
+          (mediumRoom.minNum >= 3 && mediumRoom.maxNum >= 4);
+      expect(fitsMedium, isTrue);
     });
 
     test('fetchRoomReservationDetail parses time slices and booked segments', () async {

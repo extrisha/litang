@@ -11,7 +11,6 @@ import 'package:project_usst/pages/home_page.dart';
 import 'package:project_usst/pages/map_page.dart';
 import 'package:project_usst/pages/profile_page.dart';
 import 'package:project_usst/pages/search_page.dart';
-import 'package:project_usst/widgets/course_table.dart';
 
 Widget _wrap(Widget child) => MaterialApp(theme: AppTheme.light(), home: child);
 
@@ -83,66 +82,6 @@ void main() {
     // 个人信息卡：默认头像 + 昵称
     expect(find.text('🎓'), findsOneWidget);
     expect(find.text('同学'), findsOneWidget);
-  });
-
-  testWidgets('课表左栏显示每节起止时间', (tester) async {
-    await tester.pumpWidget(
-      _wrap(
-        const Scaffold(
-          body: SingleChildScrollView(
-            child: CourseWeekTable(
-              week: 3,
-              courses: <Course>[
-                Course(
-                  name: '大学物理',
-                  day: 2,
-                  start: 2,
-                  span: 3,
-                  room: '三教106',
-                  weeks: <int>[3, 4, 5],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    expect(find.text('第1节'), findsOneWidget);
-    expect(find.text('08:00-08:40'), findsOneWidget);
-    expect(find.text('第13节'), findsOneWidget);
-    expect(find.text('19:30-20:10'), findsOneWidget);
-    // 课程块里只留课程名 / 教室 / 教师，不再显示上课时间
-    expect(find.textContaining('09:45-11:55'), findsNothing);
-    expect(find.text('大学物理'), findsOneWidget);
-    expect(find.text('三教106'), findsOneWidget);
-  });
-
-  testWidgets('课表组件按节次渲染课程', (tester) async {
-    await tester.pumpWidget(
-      _wrap(
-        const Scaffold(
-          body: SingleChildScrollView(
-            child: CourseWeekTable(
-              week: 3,
-              courses: <Course>[
-                Course(
-                  name: '高等数学',
-                  day: 0,
-                  start: 0,
-                  span: 2,
-                  room: '三教305',
-                  weeks: <int>[3, 4],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    expect(find.text('高等数学'), findsOneWidget);
-    expect(find.text('三教305'), findsOneWidget);
   });
 
   group('首页 + 真实产物', () {

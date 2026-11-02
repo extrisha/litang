@@ -4,9 +4,15 @@ import 'package:flutter/services.dart';
 import '../app_theme.dart';
 import '../data/auth/cas_client.dart';
 import '../data/auth/jwgl_auth.dart';
+import '../data/date_format.dart';
 import '../data/jwc/space_booking_api.dart';
+import '../data/jwc/space_web_url.dart';
+import '../data/request_guard.dart';
+import '../widgets/blocking_progress.dart';
 import 'simple_web_page.dart';
 import 'space_room_detail_page.dart';
+
+enum _ExpandedPanel { none, date, building }
 
 /// 空间预约原生主页面（图书馆研讨间 / 静音舱 / 研修空间系统）
 class SpaceBookingPage extends StatefulWidget {
@@ -24,17 +30,21 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
   bool _loading = false;
   String? _error;
 
+  /// 列表请求代次。`_initAndLoad`（首次/下拉刷新/重试）与 `_changeDate`（切日期）
+  /// 会并发，先发的慢响应不能覆盖后发的结果。
+  final RequestGuard _roomsGuard = RequestGuard();
+
+  /// 网页端入口是否正在打开中（防止连点叠出多个遮罩/页面）
+  bool _webBookingOpening = false;
+
   List<SpaceRoom> _rooms = const <SpaceRoom>[];
   List<SpaceReservation> _reservations = const <SpaceReservation>[];
-  SpaceUserProfile? _profile;
 
   late DateTime _selectedDate;
-  String _selectedBuilding = '全部房间';
-  String _searchKeyword = '';
-  String _selectedCapacityFilter = '全部'; // 全部, 仅看可约, 单人静音舱, 2-4人研讨, 5人以上
+  String _selectedBuilding = '全部场馆';
+  String _selectedCapacityFilter = '全部'; // 全部, 单人间, 1~4人, 3~6人
+  _ExpandedPanel _expandedPanel = _ExpandedPanel.none;
   int _reservationFilterIndex = 0; // 0: 全部, 1: 进行中, 2: 已结束
-
-  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -43,19 +53,17 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     _initAndLoad();
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _initAndLoad({bool forceRefresh = false}) async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _initAndLoad() async {
+    final requestId = _roomsGuard.begin();
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     final sessionOk = await JwglAuth.instance.ensureSession();
+    if (!mounted || !_roomsGuard.isCurrent(requestId)) return;
     final client = JwglAuth.instance.client;
     if (!sessionOk || client == null) {
       setState(() {
@@ -65,111 +73,131 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
       return;
     }
 
-    _api = SpaceBookingApi(client);
+    // 复用同一个 API 实例：每次重建都会丢掉 accessToken，导致每次都重走一遍
+    // CAS 登录（1~2 秒）。只有 CAS 会话真的换了客户端对象时才重建。
+    final existing = _api;
+    if (existing == null || !identical(existing.casClient, client)) {
+      _api = SpaceBookingApi(client);
+    }
+    final api = _api!;
 
     try {
-      if (forceRefresh || !_api!.isTokenValid) {
-        final ok = await _api!.ensureAuthenticated(force: forceRefresh);
-        if (!ok) {
-          setState(() {
-            _error = '统一身份认证（CAS）免密登录空间预约失败，请检查网络或登录 WebVPN 后重试';
-            _loading = false;
-          });
-          return;
-        }
+      // 下拉刷新只是要新数据，不需要新 token。
+      // 真正的过期由 `isTokenValid`（比例余量）和各接口的 401 重试兜底。
+      final ok = await api.ensureAuthenticated();
+      if (!mounted || !_roomsGuard.isCurrent(requestId)) return;
+      if (!ok) {
+        setState(() {
+          _error = '统一身份认证（CAS）免密登录空间预约失败，请检查网络或登录 WebVPN 后重试';
+          _loading = false;
+        });
+        return;
       }
 
-      final dateStr = _formatDate(_selectedDate);
+      final dateStr = DateFmt.ymd(_selectedDate);
       final results = await Future.wait<dynamic>(<Future<dynamic>>[
-        _api!.fetchRooms(date: dateStr),
-        _api!.fetchMyReservations(),
-        _api!.fetchUserProfile(force: forceRefresh),
+        api.fetchRooms(date: dateStr),
+        api.fetchMyReservations(),
       ]);
 
-      if (mounted) {
-        setState(() {
-          _rooms = results[0] as List<SpaceRoom>;
-          _reservations = results[1] as List<SpaceReservation>;
-          _profile = results[2] as SpaceUserProfile?;
-          _loading = false;
-        });
-      }
+      if (!mounted || !_roomsGuard.isCurrent(requestId)) return;
+      setState(() {
+        _rooms = results[0] as List<SpaceRoom>;
+        _reservations = results[1] as List<SpaceReservation>;
+        _loading = false;
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = '获取空间预约数据失败，请检查网络或登录 WebVPN 后重试';
-          _loading = false;
-        });
-      }
+      if (!mounted || !_roomsGuard.isCurrent(requestId)) return;
+      setState(() {
+        // 接口层已经把「登录失效」「HTTP 失败」「解析失败」分开了，直接透出
+        _error = e is SpaceBookingException
+            ? e.message
+            : '获取空间预约数据失败，请检查网络或登录 WebVPN 后重试';
+        _loading = false;
+      });
     }
   }
 
   Future<void> _changeDate(DateTime date) async {
+    final requestId = _roomsGuard.begin();
     setState(() {
       _selectedDate = date;
       _loading = true;
+      _error = null;
+      _expandedPanel = _ExpandedPanel.none;
     });
-    if (_api != null) {
-      try {
-        await _api!.ensureAuthenticated();
-        final dateStr = _formatDate(date);
-        final rooms = await _api!.fetchRooms(date: dateStr);
-        if (mounted) {
-          setState(() {
-            _rooms = rooms;
-            _loading = false;
-          });
-        }
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            _error = '获取空间预约数据失败，请检查网络或登录 WebVPN 后重试';
-            _loading = false;
-          });
-        }
-      }
+
+    final api = _api;
+    if (api == null) {
+      // 首次登录就没成功时 `_api` 为 null：这里必须把 loading 收掉，
+      // 否则页面会永久停在转圈，连错误提示都看不到。
+      setState(() => _loading = false);
+      return;
+    }
+
+    try {
+      await api.ensureAuthenticated();
+      if (!mounted || !_roomsGuard.isCurrent(requestId)) return;
+      final rooms = await api.fetchRooms(date: DateFmt.ymd(date));
+      if (!mounted || !_roomsGuard.isCurrent(requestId)) return;
+      setState(() {
+        _rooms = rooms;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted || !_roomsGuard.isCurrent(requestId)) return;
+      setState(() {
+        // 切日期失败时不能保留上一天的列表，否则界面会变成「新日期 + 旧房间」，
+        // 用户会照着错的可用状态去挑房间。
+        _rooms = const <SpaceRoom>[];
+        // 接口层已经把「登录失效」「HTTP 失败」「解析失败」分开了，直接透出
+        _error = e is SpaceBookingException
+            ? e.message
+            : '获取空间预约数据失败，请检查网络或登录 WebVPN 后重试';
+        _loading = false;
+      });
     }
   }
 
-  List<SpaceRoom> get _filteredRooms {
-    return _rooms.where((r) {
-      // 1. 建筑筛选
-      if (_selectedBuilding != '全部房间' && _selectedBuilding != '全部') {
-        final hit = r.shortBuildingName == _selectedBuilding ||
-            r.buildingName.contains(_selectedBuilding) ||
-            r.name.contains(_selectedBuilding);
-        if (!hit) return false;
-      }
+  /// 房间容量分档。
+  ///
+  /// 原来三个分支的判定互相重叠：6 人间同时满足「1~4人」的
+  /// `minNum <= 2 && maxNum <= 6` 和「3~6人」的 `maxNum >= 5 && minNum <= 6`，
+  /// 同一间房会同时出现在两个筛选结果里。改成单一分档、以 maxNum 为准，
+  /// 保证互斥，也让 chip 上的间数和列表对得上。
+  String _capacityBucket(SpaceRoom r) {
+    final isSingle =
+        r.maxNum == 1 || r.name.contains('静音舱') || r.roomType.contains('单人');
+    if (isSingle) return '单人间';
+    if (r.maxNum >= 5) return '3~6人';
+    return '1~4人';
+  }
 
-      // 2. 类别/容量筛选
-      if (_selectedCapacityFilter == '仅看可约') {
-        if (!r.isAvailable) return false;
-      } else if (_selectedCapacityFilter == '单人静音舱') {
-        if (r.maxNum > 1 && !r.name.contains('静音舱')) return false;
-      } else if (_selectedCapacityFilter == '2-4人研讨') {
-        if (r.maxNum < 2 || r.minNum > 4) return false;
-      } else if (_selectedCapacityFilter == '5人以上') {
-        if (r.maxNum < 5) return false;
-      }
-
-      // 3. 关键字搜索
-      if (_searchKeyword.isNotEmpty) {
-        final kw = _searchKeyword.toLowerCase();
-        final hit = r.name.toLowerCase().contains(kw) ||
-            r.buildingName.toLowerCase().contains(kw) ||
-            r.floor.toLowerCase().contains(kw) ||
-            r.devices.toLowerCase().contains(kw) ||
-            r.roomType.toLowerCase().contains(kw);
-        if (!hit) return false;
-      }
-
+  bool _matchesBuilding(SpaceRoom r, String building) {
+    if (building == '全部场馆' || building == '全部房间' || building == '全部') {
       return true;
-    }).toList();
+    }
+    return r.shortBuildingName == building ||
+        r.buildingName.contains(building) ||
+        r.name.contains(building);
+  }
+
+  bool _matchesCapacity(SpaceRoom r) {
+    if (_selectedCapacityFilter == '全部') return true;
+    return _capacityBucket(r) == _selectedCapacityFilter;
+  }
+
+  List<SpaceRoom> get _filteredRooms {
+    return _rooms
+        .where(
+          (r) => _matchesBuilding(r, _selectedBuilding) && _matchesCapacity(r),
+        )
+        .toList();
   }
 
   List<String> get _availableBuildings {
-    const canonicalOrder = <String>['全部房间', '湛恩', '334号', '复兴', '1100号'];
-    final present = <String>{'全部房间'};
+    const canonicalOrder = <String>['全部场馆', '湛恩', '334号', '复兴', '1100号'];
+    final present = <String>{'全部场馆'};
     for (final r in _rooms) {
       final s = r.shortBuildingName;
       if (s != '其他') {
@@ -191,12 +219,10 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
   }
 
   int _countForBuilding(String b) {
-    if (b == '全部房间' || b == '全部') return _rooms.length;
+    // 统计要同时应用容量筛选，否则选了「1~4人」后 chip 写着「全部场馆 (37间)」，
+    // 下面却只列出十几间。
     return _rooms
-        .where((r) =>
-            r.shortBuildingName == b ||
-            r.buildingName.contains(b) ||
-            r.name.contains(b))
+        .where((r) => _matchesBuilding(r, b) && _matchesCapacity(r))
         .length;
   }
 
@@ -244,7 +270,7 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('预约已成功取消')),
       );
-      _initAndLoad(forceRefresh: true);
+      _initAndLoad();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('取消预约失败，请稍后重试或在网页端操作')),
@@ -286,7 +312,7 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('签退成功，房间已释放')),
       );
-      _initAndLoad(forceRefresh: true);
+      _initAndLoad();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('签退失败，请重试或在门口设备刷卡')),
@@ -328,7 +354,7 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('已登记暂离，请在30分钟内返回')),
       );
-      _initAndLoad(forceRefresh: true);
+      _initAndLoad();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('登记暂离失败，请稍后重试')),
@@ -413,52 +439,6 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     );
   }
 
-  void _showCreditRulesDialog() {
-    final score = _profile?.totalScore ?? 10;
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: <Widget>[
-            const Icon(Icons.stars_rounded, color: Color(0xFFEAB308), size: 24),
-            const SizedBox(width: 8),
-            Text('空间预约信用积分 ($score分)', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              '上海理工大学图书馆研讨空间信用规则：',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-            ),
-            SizedBox(height: 8),
-            Text(
-              '1. 初始信用积分为 10 分（满分）。\n'
-              '2. 成功预约后，请在开场前20分钟至开场后20分钟内刷卡或扫码签到。\n'
-              '3. 使用完毕后请在门禁设备或手机端主动点击“签退”。\n'
-              '4. 迟到未签到、违规暂离超时（超过30分钟）等将被计为违规扣分。\n'
-              '5. 信用积分低于指定分数将被暂停研讨空间预约资格。',
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.45),
-            ),
-          ],
-        ),
-        actions: <Widget>[
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.usstRed,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('我知道了'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _openRoomDetail(SpaceRoom room) {
     if (_api == null) return;
     Navigator.of(context).push(
@@ -467,187 +447,63 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
           room: room,
           initialDate: _selectedDate,
           api: _api!,
-          onReservationCompleted: () => _initAndLoad(forceRefresh: true),
+          onReservationCompleted: () => _initAndLoad(),
         ),
       ),
     );
   }
 
   /// 官方网页端入口（免密跳转）
+  ///
+  /// 网页端和 App 各自持有一套 CAS 会话：在网页里登录一次，很可能把 App
+  /// 这边的 TGT 顶掉。所以出来之后必须重新校验一次，不能沿用网页打开前的状态。
   Future<void> _openWebBooking([SpaceRoom? room]) async {
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 18),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.usstRed),
-                SizedBox(width: 16),
-                Text('正在同步免密凭据...', style: TextStyle(fontSize: 14)),
-              ],
-            ),
+    // 连点会叠出多个遮罩、多次 push，这里直接拦住
+    if (_webBookingOpening) return;
+    _webBookingOpening = true;
+    try {
+      final api = _api;
+      final code = api == null
+          ? null
+          : await runWithBlockingProgress<String?>(
+              context,
+              '正在同步免密凭据...',
+              () => api.acquireFreshAuthCode(
+                redirectPath: room != null ? '/mStudent/room' : '/mStudent/index',
+              ),
+            );
+
+      final dateStr = DateFmt.ymd(_selectedDate);
+      // 授权码已解码，必须重新做百分号编码（含 '+'、'/'、'='）
+      final webUrl = room != null
+          ? SpaceWebUrl.room(roomId: room.id, date: dateStr, code: code)
+          : SpaceWebUrl.index(code: code);
+
+      final cookies =
+          JwglAuth.instance.client?.jar.cookies ?? const <CasCookie>[];
+
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SimpleWebPage(
+            title: room != null ? '网页预约 · ${room.name}' : '图书馆空间预约',
+            url: webUrl,
+            cookies: cookies,
           ),
         ),
-      ),
-    );
-
-    String? code;
-    if (_api != null) {
-      code = await _api!.acquireFreshAuthCode(
-        redirectPath: room != null ? '/mStudent/room' : '/mStudent/index',
       );
+
+      // 从网页回来后重新同步。
+      //
+      // 关键：网页端的登录很可能已经把服务端会话换掉了。本地这个 token 按
+      // 签发时间算还在 2 小时有效期内，但服务端已经认不出来——继续用只会一直
+      // 拿到 400。所以先作废 token，逼一次重新认证。
+      if (!mounted) return;
+      _api?.invalidateToken();
+      await _initAndLoad();
+    } finally {
+      _webBookingOpening = false;
     }
-
-    if (mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
-    }
-
-    final dateStr = _formatDate(_selectedDate);
-    final webUrl = (code != null && code.isNotEmpty)
-        ? (room != null
-            ? 'https://libspace.usst.edu.cn/mStudent/room?roomId=${room.id}&date=$dateStr&code=$code'
-            : 'https://libspace.usst.edu.cn/mStudent/index?code=$code')
-        : (room != null
-            ? 'https://libspace.usst.edu.cn/mStudent/room?roomId=${room.id}&date=$dateStr'
-            : 'https://libspace.usst.edu.cn/mStudent/index');
-
-    final cookies =
-        JwglAuth.instance.client?.jar.cookies ?? const <CasCookie>[];
-
-    if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SimpleWebPage(
-          title: room != null ? '网页预约 · ${room.name}' : '图书馆空间预约',
-          url: webUrl,
-          cookies: cookies,
-        ),
-      ),
-    );
-  }
-
-  String _formatDate(DateTime dt) {
-    final y = dt.year.toString().padLeft(4, '0');
-    final m = dt.month.toString().padLeft(2, '0');
-    final d = dt.day.toString().padLeft(2, '0');
-    return '$y-$m-$d';
-  }
-
-  void _showBuildingPicker() {
-    final buildings = _availableBuildings;
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 16, 8),
-                child: Row(
-                  children: <Widget>[
-                    const Text(
-                      '选择建筑/馆舍',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 20, color: AppColors.textSecondary),
-                      onPressed: () => Navigator.of(ctx).pop(),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1, thickness: 0.6, color: Color(0xFFEEEEEE)),
-              Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: buildings.length,
-                  separatorBuilder: (context, index) =>
-                      const Divider(height: 1, thickness: 0.5, indent: 20, endIndent: 20),
-                  itemBuilder: (ctx, i) {
-                    final b = buildings[i];
-                    final isSelected = b == _selectedBuilding;
-                    final count = _countForBuilding(b);
-
-                    String fullName = '';
-                    if (b == '湛恩') fullName = '湛恩图书馆';
-                    if (b == '334号') fullName = '南校区图书馆';
-                    if (b == '复兴') fullName = '复兴路校区图书馆';
-                    if (b == '1100号') fullName = '1100号校区图书馆';
-
-                    return ListTile(
-                      dense: true,
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-                      title: Row(
-                        children: <Widget>[
-                          Text(
-                            b,
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                              color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
-                            ),
-                          ),
-                          if (fullName.isNotEmpty) ...<Widget>[
-                            const SizedBox(width: 8),
-                            Text(
-                              fullName,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Text(
-                            '$count间',
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              color: isSelected ? AppColors.usstRed : AppColors.textSecondary,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          if (isSelected)
-                            const Icon(Icons.check_rounded, color: AppColors.usstRed, size: 20)
-                          else
-                            const SizedBox(width: 20),
-                        ],
-                      ),
-                      onTap: () {
-                        setState(() {
-                          _selectedBuilding = b;
-                        });
-                        Navigator.of(ctx).pop();
-                      },
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
-    );
   }
 
   @override
@@ -728,7 +584,7 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                   backgroundColor: AppColors.usstRed,
                   foregroundColor: Colors.white,
                 ),
-                onPressed: () => _initAndLoad(forceRefresh: true),
+                onPressed: () => _initAndLoad(),
                 child: const Text('重试'),
               ),
             ],
@@ -738,24 +594,17 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     }
 
     final filtered = _filteredRooms;
-    final totalAvail = _rooms.where((r) => r.isAvailable).length;
 
     return RefreshIndicator(
       color: AppColors.usstRed,
-      onRefresh: () => _initAndLoad(forceRefresh: true),
+      onRefresh: () => _initAndLoad(),
       child: CustomScrollView(
+        // 内容不满一屏时也要能下拉刷新
+        physics: const AlwaysScrollableScrollPhysics(),
         slivers: <Widget>[
-          // 顶部个人信用徽章栏
+          // 两行选项栏（第1行选择日期与场馆，点开原地拉出抽屉；第2行筛选 单人间 / 1~4人 / 3~6人）
           SliverToBoxAdapter(
-            child: _buildCreditBanner(),
-          ),
-          // 快捷横向日期切换条
-          SliverToBoxAdapter(
-            child: _buildDateStrip(),
-          ),
-          // 筛选与搜索栏
-          SliverToBoxAdapter(
-            child: _buildFilterBar(totalAvail, filtered.length),
+            child: _buildControlsBar(),
           ),
           if (filtered.isEmpty)
             SliverFillRemaining(
@@ -768,21 +617,18 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                         color: AppColors.textSecondary, size: 48),
                     const SizedBox(height: 12),
                     Text(
-                      _searchKeyword.isNotEmpty
-                          ? '未搜索到包含“$_searchKeyword”的空间'
-                          : _selectedBuilding == '全部房间'
-                              ? '当前筛选条件下暂无研讨间'
-                              : '【$_selectedBuilding】暂无匹配研讨间',
+                      _selectedBuilding == '全部场馆'
+                          ? '当前筛选条件下暂无研讨空间'
+                          : '【$_selectedBuilding】暂无匹配研讨空间',
                       style: const TextStyle(
                           color: AppColors.textSecondary, fontSize: 14),
                     ),
-                    if (_searchKeyword.isNotEmpty || _selectedCapacityFilter != '全部') ...<Widget>[
+                    if (_selectedBuilding != '全部场馆' || _selectedCapacityFilter != '全部') ...<Widget>[
                       const SizedBox(height: 12),
                       OutlinedButton(
                         onPressed: () {
                           setState(() {
-                            _searchKeyword = '';
-                            _searchController.clear();
+                            _selectedBuilding = '全部场馆';
                             _selectedCapacityFilter = '全部';
                           });
                         },
@@ -809,80 +655,115 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     );
   }
 
-  /// 顶部信用积分与身份横幅
-  Widget _buildCreditBanner() {
-    final name = _profile?.realName ?? _api?.realName ?? '同学';
-    final dept = _profile?.departmentName ?? '';
-    final score = _profile?.totalScore ?? 10;
-
+  /// 两行选项栏：第一行左边日期、右边场馆（点开后原地拉出一栏）；第二行容量筛选
+  Widget _buildControlsBar() {
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          // 第一行：左边选择日期，右边选择场馆
+          Row(
+            children: <Widget>[
+              // 左边：选择日期
+              Expanded(
+                child: _buildSelectorButton(
+                  icon: Icons.calendar_today_rounded,
+                  label: _dateDisplayLabel(_selectedDate),
+                  isExpanded: _expandedPanel == _ExpandedPanel.date,
+                  onTap: () {
+                    setState(() {
+                      _expandedPanel = _expandedPanel == _ExpandedPanel.date
+                          ? _ExpandedPanel.none
+                          : _ExpandedPanel.date;
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 10),
+              // 右边：选择场馆
+              Expanded(
+                child: _buildSelectorButton(
+                  icon: Icons.apartment_rounded,
+                  label: _selectedBuilding,
+                  isExpanded: _expandedPanel == _ExpandedPanel.building,
+                  onTap: () {
+                    setState(() {
+                      _expandedPanel = _expandedPanel == _ExpandedPanel.building
+                          ? _ExpandedPanel.none
+                          : _ExpandedPanel.building;
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+
+          // 原地拉出的展开抽屉
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            child: _expandedPanel == _ExpandedPanel.none
+                ? const SizedBox.shrink()
+                : _buildExpandedDrawer(),
+          ),
+
+          const SizedBox(height: 10),
+
+          // 第二行：筛选 单人间 1~4人 3~6人
+          _buildCapacityFilterRow(),
+        ],
+      ),
+    );
+  }
+
+  /// 选择器按钮（日期 / 场馆）
+  Widget _buildSelectorButton({
+    required IconData icon,
+    required String label,
+    required bool isExpanded,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
+          color: isExpanded ? const Color(0xFFFEF2F2) : const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
+          border: Border.all(
+            color: isExpanded ? AppColors.usstRed : const Color(0xFFE2E8F0),
+            width: isExpanded ? 1.2 : 0.8,
+          ),
         ),
         child: Row(
           children: <Widget>[
-            const CircleAvatar(
-              radius: 16,
-              backgroundColor: Color(0xFFFEE2E2),
-              child: Icon(Icons.school, size: 18, color: AppColors.usstRed),
+            Icon(
+              icon,
+              size: 15,
+              color: isExpanded ? AppColors.usstRed : AppColors.textSecondary,
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  if (dept.isNotEmpty)
-                    Text(
-                      dept,
-                      style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                ],
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: isExpanded ? FontWeight.bold : FontWeight.w600,
+                  color: isExpanded ? AppColors.usstRed : AppColors.textPrimary,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            InkWell(
-              onTap: _showCreditRulesDialog,
-              borderRadius: BorderRadius.circular(20),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF3C7),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFFDE68A), width: 0.8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const Icon(Icons.stars_rounded, color: Color(0xFFD97706), size: 15),
-                    const SizedBox(width: 4),
-                    Text(
-                      '信用分 $score',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF92400E),
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                    const Icon(Icons.info_outline, color: Color(0xFFB45309), size: 12),
-                  ],
-                ),
-              ),
+            Icon(
+              isExpanded ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded,
+              size: 22,
+              color: isExpanded ? AppColors.usstRed : AppColors.textSecondary,
             ),
           ],
         ),
@@ -890,242 +771,248 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     );
   }
 
-  /// 横向近3天快速切换条
-  Widget _buildDateStrip() {
+  /// 原地展开的抽屉面板
+  Widget _buildExpandedDrawer() {
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0), width: 0.8),
+      ),
+      child: _expandedPanel == _ExpandedPanel.date
+          ? _buildDateDrawerContent()
+          : _buildBuildingDrawerContent(),
+    );
+  }
+
+  /// 日期展开面板内容
+  Widget _buildDateDrawerContent() {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final candidateDates = <DateTime>[
+    final dates = <DateTime>[
       today,
       today.add(const Duration(days: 1)),
       today.add(const Duration(days: 2)),
     ];
     const labels = <String>['今天', '明天', '后天'];
 
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Row(
-        children: List<Widget>.generate(candidateDates.length, (i) {
-          final d = candidateDates[i];
-          final isSelected = d.year == _selectedDate.year &&
-              d.month == _selectedDate.month &&
-              d.day == _selectedDate.day;
-
-          return Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(
-                left: i == 0 ? 0 : 4,
-                right: i == candidateDates.length - 1 ? 0 : 4,
-              ),
-              child: InkWell(
-                onTap: () {
-                  if (!isSelected) {
-                    _changeDate(d);
-                  }
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  height: 38,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFFFEE2E2) : const Color(0xFFF4F4F5),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isSelected ? AppColors.usstRed : Colors.transparent,
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: <Widget>[
-                      Text(
-                        '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                          color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        labels[i],
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          color: isSelected ? AppColors.usstRed : AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            for (int i = 0; i < dates.length; i++) ...<Widget>[
+              Expanded(
+                child: _buildDrawerOptionChip(
+                  label: '${labels[i]} ${DateFmt.md(dates[i])}',
+                  isSelected: _selectedDate.year == dates[i].year &&
+                      _selectedDate.month == dates[i].month &&
+                      _selectedDate.day == dates[i].day,
+                  onTap: () {
+                    setState(() => _expandedPanel = _ExpandedPanel.none);
+                    if (_selectedDate.year != dates[i].year ||
+                        _selectedDate.month != dates[i].month ||
+                        _selectedDate.day != dates[i].day) {
+                      _changeDate(dates[i]);
+                    }
+                  },
                 ),
               ),
+              if (i < dates.length - 1) const SizedBox(width: 8),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: () async {
+            setState(() => _expandedPanel = _ExpandedPanel.none);
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: _selectedDate,
+              firstDate: today,
+              lastDate: today.add(const Duration(days: 14)),
+              builder: (ctx, child) {
+                return Theme(
+                  data: Theme.of(ctx).copyWith(
+                    colorScheme: const ColorScheme.light(
+                      primary: AppColors.usstRed,
+                      onPrimary: Colors.white,
+                      onSurface: AppColors.textPrimary,
+                    ),
+                  ),
+                  child: child!,
+                );
+              },
+            );
+            if (picked != null) {
+              _changeDate(picked);
+            }
+          },
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 10),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFCBD5E1), width: 0.7),
             ),
-          );
-        }),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(Icons.edit_calendar_rounded, size: 14, color: AppColors.usstRed),
+                SizedBox(width: 6),
+                Text(
+                  '在日历中挑选其他日期',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 场馆展开面板内容
+  Widget _buildBuildingDrawerContent() {
+    final buildings = _availableBuildings;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: buildings.map((b) {
+        final isSelected = b == _selectedBuilding;
+        final count = _countForBuilding(b);
+        String displayName = b;
+        if (b == '湛恩') {
+          displayName = '湛恩 ($count间)';
+        } else if (b == '334号') {
+          displayName = '334号南校区 ($count间)';
+        } else if (b == '复兴') {
+          displayName = '复兴路校区 ($count间)';
+        } else if (b == '1100号') {
+          displayName = '1100号校区 ($count间)';
+        } else if (b == '全部场馆') {
+          displayName = '全部场馆 ($count间)';
+        } else {
+          displayName = '$b ($count间)';
+        }
+
+        return _buildDrawerOptionChip(
+          label: displayName,
+          isSelected: isSelected,
+          onTap: () {
+            setState(() {
+              _selectedBuilding = b;
+              _expandedPanel = _ExpandedPanel.none;
+            });
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  /// 原地展开抽屉选项 Chip
+  Widget _buildDrawerOptionChip({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFFEE2E2) : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? AppColors.usstRed : const Color(0xFFCBD5E1),
+            width: isSelected ? 1.2 : 0.7,
+          ),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
+          ),
+        ),
       ),
     );
   }
 
-  /// 综合筛选与搜索栏
-  Widget _buildFilterBar(int totalAvail, int filteredCount) {
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          // 搜索框与建筑下拉胶囊
-          Row(
-            children: <Widget>[
-              // 建筑选择
-              InkWell(
-                onTap: _showBuildingPicker,
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  height: 38,
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFCBD5E1)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      const Icon(Icons.apartment_outlined, size: 16, color: AppColors.textSecondary),
-                      const SizedBox(width: 4),
-                      Text(
-                        _selectedBuilding,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                      const Icon(Icons.arrow_drop_down, size: 20, color: AppColors.textSecondary),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              // 关键字搜索框
-              Expanded(
-                child: SizedBox(
-                  height: 38,
-                  child: TextField(
-                    controller: _searchController,
-                    style: const TextStyle(fontSize: 13),
-                    decoration: InputDecoration(
-                      hintText: '搜索房间号/楼层/设施...',
-                      hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
-                      prefixIcon: const Icon(Icons.search, size: 18, color: Color(0xFF94A3B8)),
-                      suffixIcon: _searchKeyword.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear, size: 16),
-                              onPressed: () {
-                                setState(() {
-                                  _searchKeyword = '';
-                                  _searchController.clear();
-                                });
-                              },
-                            )
-                          : null,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                      filled: true,
-                      fillColor: const Color(0xFFF8FAFC),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: const BorderSide(color: AppColors.usstRed),
-                      ),
-                    ),
-                    onChanged: (val) {
-                      setState(() {
-                        _searchKeyword = val.trim();
-                      });
-                    },
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // 容量/类别过滤 Chip
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: <String>[
-                '全部',
-                '仅看可约',
-                '单人静音舱',
-                '2-4人研讨',
-                '5人以上',
-              ].map((category) {
-                final isSelected = _selectedCapacityFilter == category;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: FilterChip(
-                    label: Text(category),
-                    selected: isSelected,
-                    selectedColor: const Color(0xFFFEE2E2),
-                    backgroundColor: const Color(0xFFF1F5F9),
-                    labelStyle: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                      color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
-                    ),
-                    side: BorderSide(
-                      color: isSelected ? AppColors.usstRed : Colors.transparent,
-                      width: 0.8,
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
-                    visualDensity: VisualDensity.compact,
-                    onSelected: (val) {
-                      setState(() {
-                        _selectedCapacityFilter = category;
-                      });
-                    },
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          const SizedBox(height: 6),
-          // 实时可约数量统计
-          Row(
-            children: <Widget>[
-              Text(
-                '已筛选 $filteredCount 间空间',
-                style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+  /// 第二行容量筛选选项条
+  Widget _buildCapacityFilterRow() {
+    const options = <String>['全部', '单人间', '1~4人', '3~6人'];
+    return Row(
+      children: options.map((opt) {
+        final isSelected = _selectedCapacityFilter == opt;
+        return Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 3),
+            child: InkWell(
+              onTap: () {
+                setState(() {
+                  _selectedCapacityFilter = opt;
+                });
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                height: 34,
+                alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFDCFCE7),
-                  borderRadius: BorderRadius.circular(4),
+                  color: isSelected ? const Color(0xFFFEE2E2) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isSelected ? AppColors.usstRed : Colors.transparent,
+                    width: 1,
+                  ),
                 ),
                 child: Text(
-                  '当前共 $totalAvail 间可约',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF15803D),
+                  opt,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                    color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
                   ),
                 ),
               ),
-            ],
+            ),
           ),
-        ],
-      ),
+        );
+      }).toList(),
     );
+  }
+
+  /// 日期显示文本格式化（今天 MM-dd / 明天 MM-dd / 后天 MM-dd / MM-dd 周X）
+  String _dateDisplayLabel(DateTime dt) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(dt.year, dt.month, dt.day);
+    final diff = target.difference(today).inDays;
+
+    final md = DateFmt.md(dt);
+
+    if (diff == 0) {
+      return '今天 $md';
+    } else if (diff == 1) {
+      return '明天 $md';
+    } else if (diff == 2) {
+      return '后天 $md';
+    } else {
+      const weekdays = <String>['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+      final weekdayStr = weekdays[dt.weekday - 1];
+      return '$md $weekdayStr';
+    }
   }
 
   Widget _buildRoomCard(SpaceRoom room) {
@@ -1343,13 +1230,46 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
       );
     }
 
+    // 之前这个 tab 完全不看 _error：登录失败或断网时显示「当前没有预约记录」，
+    // 等于告诉用户"你的预约没了"。
+    if (_error != null && _reservations.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              const Icon(Icons.error_outline,
+                  color: AppColors.textSecondary, size: 48),
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    color: AppColors.textSecondary, fontSize: 13.5),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.usstRed,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => _initAndLoad(),
+                child: const Text('重试'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final filtered = _filteredReservations;
     final activeCount = _reservations.where((r) => r.isUpcoming || r.isInProgress).length;
     final pastCount = _reservations.where((r) => r.isFinished || r.isCancelled).length;
 
     return RefreshIndicator(
       color: AppColors.usstRed,
-      onRefresh: () => _initAndLoad(forceRefresh: true),
+      onRefresh: () => _initAndLoad(),
       child: Column(
         children: <Widget>[
           // 分类子标签
@@ -1369,35 +1289,47 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
           const Divider(height: 1, thickness: 0.6, color: Color(0xFFEEEEEE)),
           Expanded(
             child: filtered.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: <Widget>[
-                        const Icon(Icons.event_busy_outlined,
-                            color: AppColors.textSecondary, size: 52),
-                        const SizedBox(height: 12),
-                        Text(
-                          _reservationFilterIndex == 1
-                              ? '当前没有进行中或待使用的预约'
-                              : _reservationFilterIndex == 2
-                                  ? '当前没有历史预约记录'
-                                  : '当前没有进行中或近期的预约记录',
-                          style: const TextStyle(
-                              color: AppColors.textSecondary, fontSize: 14),
+                // 空态也要可滚动，否则 RefreshIndicator 收不到滚动通知、拉不动
+                ? LayoutBuilder(
+                    builder: (ctx, constraints) => SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight,
                         ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.usstRed,
-                            foregroundColor: Colors.white,
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: <Widget>[
+                              const Icon(Icons.event_busy_outlined,
+                                  color: AppColors.textSecondary, size: 52),
+                              const SizedBox(height: 12),
+                              Text(
+                                _reservationFilterIndex == 1
+                                    ? '当前没有进行中或待使用的预约'
+                                    : _reservationFilterIndex == 2
+                                        ? '当前没有历史预约记录'
+                                        : '当前没有进行中或近期的预约记录',
+                                style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 14),
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.usstRed,
+                                  foregroundColor: Colors.white,
+                                ),
+                                icon: const Icon(Icons.search, size: 16),
+                                label: const Text('去挑选研修空间'),
+                                onPressed: () {
+                                  DefaultTabController.of(context).animateTo(0);
+                                },
+                              ),
+                            ],
                           ),
-                          icon: const Icon(Icons.search, size: 16),
-                          label: const Text('去挑选研修空间'),
-                          onPressed: () {
-                            DefaultTabController.of(context).animateTo(0);
-                          },
                         ),
-                      ],
+                      ),
                     ),
                   )
                 : ListView.builder(

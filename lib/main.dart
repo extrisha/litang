@@ -53,6 +53,15 @@ class CampusApp extends StatelessWidget {
 }
 
 /// 底部五 Tab 骨架：信息 / 校园 / 今日 / 理评 / 我的
+/// 小组件静默后台刷新回调（由 Android HomeWidgetBackgroundWorker / WorkManager 调用）
+@pragma('vm:entry-point')
+Future<void> backgroundWidgetCallback(Uri? uri) async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (uri?.host == 'refresh' || uri?.toString().contains('refresh') == true) {
+    await WidgetSyncService.instance.syncTodayWidget(forceWeather: true);
+  }
+}
+
 class RootScaffold extends StatefulWidget {
   const RootScaffold({super.key});
 
@@ -74,6 +83,7 @@ class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver
     ReminderService.pendingTarget.addListener(_onReminderTap);
     HomeWidget.initiallyLaunchedFromHomeWidget().then(_handleWidgetUri);
     _widgetSubscription = HomeWidget.widgetClicked.listen(_handleWidgetUri);
+    HomeWidget.registerInteractivityCallback(backgroundWidgetCallback);
     // App 是被通知点开的：首帧之后补一次跳转
     if (ReminderService.pendingTarget.value != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _onReminderTap());
@@ -167,6 +177,8 @@ class _RootScaffoldState extends State<RootScaffold> with WidgetsBindingObserver
         if (_index != 2 && mounted) {
           setState(() => _index = 2);
         }
+      } else if (uri.host == 'refresh') {
+        unawaited(WidgetSyncService.instance.syncTodayWidget(forceWeather: true));
       }
     }
   }

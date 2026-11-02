@@ -137,4 +137,74 @@ void main() {
       expect(QrPayload.parse('   '), isNull);
     });
   });
+
+  group('RollcallApi.parseSignResult', () {
+    test('成功签到响应', () {
+      final res = RollcallApi.parseSignResult(200, '{"status_name":"已签到"}');
+      expect(res.success, isTrue);
+      expect(res.statusName, '已签到');
+    });
+
+    test('200 响应但跟随到登录页判定为失效', () {
+      final res = RollcallApi.parseSignResult(
+        200,
+        '<html>login</html>',
+        realUrl: 'https://1906.usst.edu.cn/auth/login',
+      );
+      expect(res.success, isFalse);
+      expect(res.message, contains('登录状态已失效'));
+    });
+
+    test('errorCode 触发友好提示', () {
+      final res = RollcallApi.parseSignResult(
+        400,
+        '{"errorCode":"ROLLCALL_RADAR_OUT_OF_SCOPE"}',
+      );
+      expect(res.success, isFalse);
+      expect(res.message, '定位超出签到范围，请靠近上课教室后重试');
+    });
+
+    test('error_code（下划线风格）兼容映射', () {
+      final res = RollcallApi.parseSignResult(
+        400,
+        '{"error_code":"ROLLCALL_RADAR_OUT_OF_SCOPE"}',
+      );
+      expect(res.success, isFalse);
+      expect(res.message, '定位超出签到范围，请靠近上课教室后重试');
+    });
+
+    test('英文 message/error（如 out of roll scope）转为友好中文', () {
+      final res1 = RollcallApi.parseSignResult(
+        400,
+        '{"message":"out of roll scope"}',
+      );
+      expect(res1.success, isFalse);
+      expect(res1.message, '定位超出签到范围，请靠近上课教室后重试');
+
+      final res2 = RollcallApi.parseSignResult(
+        400,
+        '{"error":"Position out of scope"}',
+      );
+      expect(res2.success, isFalse);
+      expect(res2.message, '定位超出签到范围，请靠近上课教室后重试');
+    });
+
+    test('蓝牙信标缺失错误映射', () {
+      final res = RollcallApi.parseSignResult(
+        400,
+        '{"errorCode":"RADAR_SIGNAL_INVALID_NO_SIGNAL"}',
+      );
+      expect(res.success, isFalse);
+      expect(res.message, '本堂课需要教室蓝牙信标，请在教室内重试');
+    });
+
+    test('设备重复签到错误映射', () {
+      final res = RollcallApi.parseSignResult(
+        400,
+        '{"error_code":"ROLLCALL_DEVICE_ALREADY_IN_USE"}',
+      );
+      expect(res.success, isFalse);
+      expect(res.message, '这台设备已经给其他账号签过到了');
+    });
+  });
 }

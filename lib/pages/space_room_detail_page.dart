@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import '../app_theme.dart';
 import '../data/auth/cas_client.dart';
 import '../data/auth/jwgl_auth.dart';
+import '../data/date_format.dart';
 import '../data/jwc/space_booking_api.dart';
+import '../data/jwc/space_web_url.dart';
+import '../data/request_guard.dart';
+import '../widgets/blocking_progress.dart';
 import 'simple_web_page.dart';
 
 /// 研讨间详情与时段查看/预约内页
@@ -32,6 +36,20 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
   SpaceRoomDetail? _detail;
   List<SpacePurpose> _purposes = const <SpacePurpose>[];
 
+  /// [_detail] 对应的是哪一天（YYYY-MM-DD）。
+  /// 用来区分「切换日期」和「刷新同一天」——前者要重置选中时段，后者不该清掉用户的选择。
+  String? _detailDate;
+
+  /// [_detail] 的整点时段，加载成功时算一次缓存住。
+  ///
+  /// `SpaceRoomDetail.hourSlots` 是个重算 getter，直接在 `GridView.itemBuilder`
+  /// 里访问会变成「每个格子重算一遍整表」，13 个时段就是每帧十几次全量分配。
+  List<SpaceHourSlot> _hourSlots = const <SpaceHourSlot>[];
+
+  /// 详情请求代次。切日期时会有多个请求同时在飞，先发的可能后到，
+  /// 只允许「最新一次」的结果落到界面上，否则会出现「选中后天、显示明天」。
+  final RequestGuard _detailGuard = RequestGuard();
+
   // 选中的时段
   String? _selectedStartTime;
   String? _selectedEndTime;
@@ -44,13 +62,6 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
     _loadPurposes();
   }
 
-  String _formatDate(DateTime dt) {
-    final y = dt.year.toString().padLeft(4, '0');
-    final m = dt.month.toString().padLeft(2, '0');
-    final d = dt.day.toString().padLeft(2, '0');
-    return '$y-$m-$d';
-  }
-
   Future<void> _loadPurposes() async {
     try {
       final pList = await widget.api.fetchPurposes();
@@ -59,46 +70,78 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
           _purposes = pList;
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      // 用途字典拉不到时不阻塞页面，但也不该完全无声：
+      // 抽屉里会提示「将按系统默认用途提交」，避免静默用错 dictId。
+      debugPrint('[space] 拉取预约用途失败: $e');
+    }
   }
 
   Future<void> _loadDetail() async {
+    final requestId = _detailGuard.begin();
     setState(() {
       _loading = true;
       _error = null;
     });
 
-    final dateStr = _formatDate(_selectedDate);
+    final dateStr = DateFmt.ymd(_selectedDate);
     try {
-      await widget.api.ensureAuthenticated();
+      final authed = await widget.api.ensureAuthenticated();
+      if (!mounted || !_detailGuard.isCurrent(requestId)) return;
+      // 登录失败和「当天没时段」在界面上必须能区分开，
+      // 否则用户会以为房间真的没有空位。
+      if (!authed) {
+        setState(() {
+          _error = '空间预约系统登录失败，请检查教务登录态后重试';
+          _loading = false;
+        });
+        return;
+      }
       final detail = await widget.api.fetchRoomReservationDetail(
         roomId: widget.room.id,
         date: dateStr,
       );
 
-      if (mounted) {
-        setState(() {
-          _detail = detail;
-          _loading = false;
-          _initDefaultTimeSlot(detail?.room ?? widget.room);
-        });
-      }
+      // 晚到的旧响应必须丢掉，不能覆盖当前选中日期的数据
+      if (!mounted || !_detailGuard.isCurrent(requestId)) return;
+
+      final dateChanged = _detailDate != dateStr;
+      setState(() {
+        _detail = detail;
+        _detailDate = dateStr;
+        _hourSlots = detail?.hourSlots ?? const <SpaceHourSlot>[];
+        _loading = false;
+        if (dateChanged) {
+          _initDefaultTimeSlot();
+        } else if (_selectedStartTime != null &&
+            _selectedEndTime != null &&
+            (!_isSlotBookable(_selectedStartTime!) ||
+                _hasTimeConflict(_selectedStartTime!, _selectedEndTime!))) {
+          // 刷新同一天时保留用户的选择，但选中的区间如果已被别人占掉就得重置
+          _initDefaultTimeSlot();
+        }
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = '获取房间时段详情失败，请检查网络或登录 WebVPN 后重试';
-          _loading = false;
-        });
-      }
+      if (!mounted || !_detailGuard.isCurrent(requestId)) return;
+      setState(() {
+        _error = '获取房间时段详情失败，请检查网络或登录 WebVPN 后重试';
+        _loading = false;
+      });
     }
   }
 
-  /// 自动初始化一个合理的默认时间段（例如当前时间之后最近的一个1小时空闲时段）
-  void _initDefaultTimeSlot(SpaceRoom room) {
-    final slots = _detail?.hourSlots ?? <SpaceHourSlot>[];
-    if (slots.isEmpty) return;
+  /// 这个整点是否还能选（存在、未被占、未过时）。
+  bool _isSlotBookable(String startHour) {
+    for (final slot in _hourSlots) {
+      if (slot.startHour != startHour) continue;
+      return !slot.isOccupied && !slot.isPastFor(_selectedDate);
+    }
+    return false;
+  }
 
-    for (final slot in slots) {
+  /// 自动初始化一个合理的默认时间段（例如当前时间之后最近的一个1小时空闲时段）
+  void _initDefaultTimeSlot() {
+    for (final slot in _hourSlots) {
       if (slot.isOccupied || slot.isPastFor(_selectedDate)) continue;
       _selectedStartTime = slot.startHour;
       _selectedEndTime = slot.endHour;
@@ -161,38 +204,20 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
 
   /// 免密跳转官方网页端直接预约该研讨间
   Future<void> _openWebBooking() async {
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 18),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.usstRed),
-                SizedBox(width: 16),
-                Text('正在同步免密凭据...', style: TextStyle(fontSize: 14)),
-              ],
-            ),
-          ),
-        ),
-      ),
+    // 遮罩交给 runWithBlockingProgress：任务无论成功、失败还是抛异常都会关掉，
+    // 不会留下一个点不动的全屏挡住页面退不出去。
+    final code = await runWithBlockingProgress<String?>(
+      context,
+      '正在同步免密凭据...',
+      () => widget.api.acquireFreshAuthCode(redirectPath: '/mStudent/room'),
     );
 
-    final code = await widget.api.acquireFreshAuthCode(
-      redirectPath: '/mStudent/room',
+    // 授权码已解码，必须重新做百分号编码（含 '+'、'/'、'='）
+    final webUrl = SpaceWebUrl.room(
+      roomId: widget.room.id,
+      date: DateFmt.ymd(_selectedDate),
+      code: code,
     );
-
-    if (mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
-    }
-
-    final dateStr = _formatDate(_selectedDate);
-    final webUrl = (code != null && code.isNotEmpty)
-        ? 'https://libspace.usst.edu.cn/mStudent/room?roomId=${widget.room.id}&date=$dateStr&code=$code'
-        : 'https://libspace.usst.edu.cn/mStudent/room?roomId=${widget.room.id}&date=$dateStr';
 
     final cookies =
         JwglAuth.instance.client?.jar.cookies ?? const <CasCookie>[];
@@ -260,7 +285,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              '日期：${_formatDate(_selectedDate)}\n时段：${_selectedStartTime ?? ''} - ${_selectedEndTime ?? ''}',
+              '日期：${DateFmt.ymd(_selectedDate)}\n时段：${_selectedStartTime ?? ''} - ${_selectedEndTime ?? ''}',
               style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.4),
             ),
             const SizedBox(height: 12),
@@ -407,7 +432,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
                       Text(
-                        '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
+                        DateFmt.md(d),
                         style: TextStyle(
                           fontSize: 12.5,
                           fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
@@ -793,7 +818,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 ],
               ),
             )
-          else if (_detail != null && _detail!.hourSlots.isNotEmpty) ...<Widget>[
+          else if (_detail != null && _hourSlots.isNotEmpty) ...<Widget>[
             // 1小时整点颗粒度时段网格
             GridView.builder(
               shrinkWrap: true,
@@ -804,9 +829,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 crossAxisSpacing: 8,
                 childAspectRatio: 2.7,
               ),
-              itemCount: _detail!.hourSlots.length,
+              itemCount: _hourSlots.length,
               itemBuilder: (ctx, idx) {
-                final slot = _detail!.hourSlots[idx];
+                final slot = _hourSlots[idx];
                 final occupied = slot.isOccupied;
                 final isPast = slot.isPastFor(_selectedDate);
                 final isSelected = (_selectedStartTime != null && _selectedEndTime != null) &&
@@ -1038,7 +1063,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  _formatDate(_selectedDate),
+                  DateFmt.ymd(_selectedDate),
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
@@ -1125,7 +1150,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
   bool _submitting = false;
   String? _formError;
 
-  List<String> get _availableStartHours {
+  List<String> get _openHours {
     final startH = int.tryParse(widget.room.openStartTime.split(':').first) ?? 8;
     final endH = int.tryParse(widget.room.openEndTime.split(':').first) ?? 21;
     final list = <String>[];
@@ -1133,6 +1158,34 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
       list.add('${h.toString().padLeft(2, '0')}:00');
     }
     return list;
+  }
+
+  /// 可选的开始时间：今天要滤掉已经过去的整点。
+  ///
+  /// 网格那边已经用 `isPastFor` 把过期时段置灰了，抽屉如果还全天可选，
+  /// 就会出现「网格灰着、下拉能选、提交被服务端拒绝」。
+  /// 判定口径与 `SpaceHourSlot.isPastFor` 保持一致（整点后 10 分钟算过期）。
+  List<String> get _availableStartHours {
+    final now = DateTime.now();
+    final d = widget.selectedDate;
+    final isToday =
+        d.year == now.year && d.month == now.month && d.day == now.day;
+    if (!isToday) return _openHours;
+    return _openHours.where((hour) {
+      final h = int.tryParse(hour.split(':').first) ?? 0;
+      if (h < now.hour) return false;
+      if (h == now.hour && now.minute >= 10) return false;
+      return true;
+    }).toList();
+  }
+
+  /// 下拉框候选项。`_startHour` 正常一定在 [_availableStartHours] 里，
+  /// 但面板若停留跨过整点 10 分的边界就会失效；
+  /// `DropdownButton` 要求 value 必须存在于 items 中，这里兜一层防止断言崩溃。
+  List<String> get _startHourItems {
+    final hours = _availableStartHours;
+    if (hours.contains(_startHour)) return hours;
+    return <String>[...hours, _startHour]..sort();
   }
 
   List<int> get _allowedDurations {
@@ -1152,10 +1205,20 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
     return '${eH.toString().padLeft(2, '0')}:00';
   }
 
+  /// 与页面网格口径一致：占用既可能来自 `bookedSegments`，
+  /// 也可能来自 `dateTimeSlicesList` 解析出的 `timeSlices`，两个都必须查。
+  /// 只查前者会让「网格显示不可约、抽屉里却是绿的」这种情况漏过去。
   bool get _hasConflict {
     final end = _endHour;
     for (final b in widget.bookedSegments) {
       if (_startHour.compareTo(b.endTime) < 0 && end.compareTo(b.startTime) > 0) {
+        return true;
+      }
+    }
+    for (final slice in widget.timeSlices) {
+      if (!slice.isOccupied) continue;
+      if (_startHour.compareTo(slice.endTime) < 0 &&
+          end.compareTo(slice.startTime) > 0) {
         return true;
       }
     }
@@ -1165,22 +1228,27 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
   @override
   void initState() {
     super.initState();
+
+    // 先定开始时间，后面算时长候选时要用
+    final initialStart = widget.initialStartTime;
+    if (initialStart != null && initialStart.isNotEmpty) {
+      final sH = int.tryParse(initialStart.split(':').first) ?? 8;
+      _startHour = '${sH.toString().padLeft(2, '0')}:00';
+    } else {
+      final hours = _availableStartHours;
+      _startHour = hours.isNotEmpty ? hours.first : '08:00';
+    }
+
     final allowed = _allowedDurations;
     final minH = allowed.first;
     final maxH = allowed.last;
 
-    if (widget.initialStartTime != null && widget.initialStartTime!.isNotEmpty) {
-      final sH = int.tryParse(widget.initialStartTime!.split(':').first) ?? 8;
-      _startHour = '${sH.toString().padLeft(2, '0')}:00';
-      if (widget.initialEndTime != null && widget.initialEndTime!.isNotEmpty) {
-        final eH = int.tryParse(widget.initialEndTime!.split(':').first) ?? (sH + minH);
-        _durationHours = (eH - sH).clamp(minH, maxH);
-      } else {
-        _durationHours = minH;
-      }
+    final initialEnd = widget.initialEndTime;
+    if (initialEnd != null && initialEnd.isNotEmpty) {
+      final sH = int.tryParse(_startHour.split(':').first) ?? 8;
+      final eH = int.tryParse(initialEnd.split(':').first) ?? (sH + minH);
+      _durationHours = (eH - sH).clamp(minH, maxH);
     } else {
-      final hours = _availableStartHours;
-      _startHour = hours.isNotEmpty ? hours.first : '08:00';
       _durationHours = minH;
     }
 
@@ -1210,13 +1278,6 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
     _mobileCtrl.dispose();
     _remarkCtrl.dispose();
     super.dispose();
-  }
-
-  String _formatDate(DateTime dt) {
-    final y = dt.year.toString().padLeft(4, '0');
-    final m = dt.month.toString().padLeft(2, '0');
-    final d = dt.day.toString().padLeft(2, '0');
-    return '$y-$m-$d';
   }
 
   Future<void> _addMember() async {
@@ -1259,6 +1320,12 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
       _formError = null;
     });
 
+    // 面板可能停留很久，或从网格带进来的开始时间在打开面板后已经过期
+    if (!_availableStartHours.contains(_startHour)) {
+      setState(() => _formError = '所选开始时间已过，请重新选择时段');
+      return;
+    }
+
     final end = _endHour;
     if (_hasConflict) {
       setState(() => _formError = '所选时间段 ($_startHour - $end) 与已有预约冲突，请重新选择');
@@ -1277,7 +1344,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
       _submitting = true;
     });
 
-    final dateStr = _formatDate(widget.selectedDate);
+    final dateStr = DateFmt.ymd(widget.selectedDate);
     final fullStart = '$dateStr $_startHour:00';
     final fullEnd = '$dateStr $end:00';
     final dictId = _selectedPurpose?.id ?? 1;
@@ -1341,7 +1408,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${_formatDate(widget.selectedDate)} · ${widget.room.shortBuildingName} ${widget.room.floor}',
+                    '${DateFmt.ymd(widget.selectedDate)} · ${widget.room.shortBuildingName} ${widget.room.floor}',
                     style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                   ),
                 ],
@@ -1388,6 +1455,30 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                       );
                     }).toList(),
                   ),
+                  // 用途字典没拉到时不阻塞预约，但要明确告诉用户会用默认用途，
+                  // 而不是静默按 dictId=1 提交（可能用错用途被拒且提示莫名）。
+                  if (widget.purposes.isEmpty) ...<Widget>[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Row(
+                        children: <Widget>[
+                          Icon(Icons.info_outline, size: 15, color: Color(0xFFD97706)),
+                          SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '未能加载预约用途列表，将按系统默认用途提交',
+                              style: TextStyle(fontSize: 11.5, color: Color(0xFF92400E)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 14),
 
                   // 2. 时段选择（整点小时）
@@ -1416,7 +1507,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                                   value: _startHour,
                                   isExpanded: true,
                                   icon: const Icon(Icons.keyboard_arrow_down, size: 20, color: AppColors.textSecondary),
-                                  items: _availableStartHours.map((h) {
+                                  items: _startHourItems.map((h) {
                                     return DropdownMenuItem<String>(
                                       value: h,
                                       child: Text(

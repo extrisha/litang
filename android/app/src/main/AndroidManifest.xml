@@ -60,6 +60,15 @@
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
             </intent-filter>
         </receiver>
+        <!-- 小组件后台静默更新广播接收器 (支持通过 WorkManager 在后台静默刷新天气与待办) -->
+        <receiver
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.BACKGROUND" />
+            </intent-filter>
+        </receiver>
+
         <!-- 桌面小组件：今日课表与天气决策 -->
         <receiver
             android:name=".TodayScheduleWidgetProvider"

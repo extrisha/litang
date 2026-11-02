@@ -1,9 +1,28 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../auth/cas_client.dart';
 import '../auth/jwgl_auth.dart';
+import '../date_format.dart';
+
+/// 空间预约接口失败。
+///
+/// 存在的意义是让「取不到」和「没有」区分开：涉及列表的接口以前一律
+/// `catch (_) { return []; }`，页面就会把登录失败/网络失败显示成
+/// 「暂无研讨空间」，用户完全无从判断该重试还是该重新登录。
+class SpaceBookingException implements Exception {
+  SpaceBookingException(this.message, {this.authRelated = false});
+
+  final String message;
+
+  /// 是否属于「登录态失效」这类问题（页面可以据此提示重新登录）。
+  final bool authRelated;
+
+  @override
+  String toString() => message;
+}
 
 /// 图书馆研修间/研讨室模型
 class SpaceRoom {
@@ -357,20 +376,38 @@ class SpaceBookingApi {
   SpaceUserProfile? userProfile;
   List<SpacePurpose>? cachedPurposes;
 
-  /// 检查 Token 是否仍在有效期内（预留 10 分钟缓冲期防边缘失效）
+  /// 提前刷新的安全余量上下限（秒）。
+  static const int _minRefreshMarginSeconds = 15;
+  static const int _maxRefreshMarginSeconds = 120;
+
+  /// 按 token 寿命比例算出的提前刷新余量。
+  ///
+  /// 原来固定留 600 秒。服务端 `expires` 只有 900 秒左右时，扣掉 600 秒只剩
+  /// 300 秒（5 分钟）可用，挂机一会儿就失效；`expires` 若 ≤ 600 秒则「签发即
+  /// 过期」，每次调用都会重走 CAS 登录。改成取寿命的 20%，并夹在 15~120 秒：
+  /// 短寿命 token 能真正用掉大部分时间，长寿命 token 的刷新也不会拖太久。
+  int get _refreshMarginSeconds {
+    final scaled = (tokenExpiresInSeconds * 0.2).round();
+    if (scaled < _minRefreshMarginSeconds) return _minRefreshMarginSeconds;
+    if (scaled > _maxRefreshMarginSeconds) return _maxRefreshMarginSeconds;
+    return scaled;
+  }
+
+  /// 检查 Token 是否仍在有效期内（按寿命比例预留缓冲，防边缘失效）
   bool get isTokenValid {
     if (accessToken == null || accessToken!.isEmpty) return false;
+    final margin = _refreshMarginSeconds;
 
     // 优先检查 JWT 内部自带的 exp 真实过期秒数时间戳
     final exp = _extractExpFromJwt(accessToken!);
     if (exp != null) {
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      if (nowSec >= exp - 600) return false;
+      if (nowSec >= exp - margin) return false;
     }
 
     if (tokenObtainedAt == null) return false;
     final elapsed = DateTime.now().difference(tokenObtainedAt!).inSeconds;
-    return elapsed < (tokenExpiresInSeconds - 600);
+    return elapsed < (tokenExpiresInSeconds - margin);
   }
 
   /// 确保已认证；若未登录或 Token 即将过期，自动静默通过 CAS SSO 重新获取
@@ -494,6 +531,11 @@ class SpaceBookingApi {
           if (data['expires'] is num) {
             tokenExpiresInSeconds = (data['expires'] as num).toInt();
           }
+          // 便于排查「token 多久失效」：只在 debug 构建里输出
+          debugPrint(
+            '[space] token 有效期 ${tokenExpiresInSeconds}s，'
+            '提前刷新余量 ${_refreshMarginSeconds}s',
+          );
 
           // /api/oauth/v1/user 接口需使用 POST 请求，GET 会报 500
           final userUri = Uri.parse('$_libspaceBase/api/oauth/v1/user').replace(
@@ -667,9 +709,36 @@ class SpaceBookingApi {
     return fallbackPurposes;
   }
 
+  /// 让本地缓存的 token 立即失效，把下一次调用逼回 CAS 重新取 token。
+  ///
+  /// 用在两种场景：① 从网页端返回（网页登录可能已经把服务端会话换掉了）；
+  /// ② 接口明确拒绝了当前 token（400/401/403）——不主动清掉的话，
+  /// `isTokenValid` 还按签发时间认为它有效，用户点「重试」会拿同一个死 token
+  /// 再撞一次，永远好不了。
+  void invalidateToken() {
+    accessToken = null;
+    tokenObtainedAt = null;
+    authCode = null;
+  }
+
+  /// 服务端对「Token 过期/无效」有时返回 400 而不是 401（网关判成「格式错误」）。
+  ///
+  /// 只用于**只读**接口：写接口（提交/取消/签退）上把 400 当认证问题会导致
+  /// 重登后重试一次，万一第一次其实已经生效就是重复提交。
+  static bool _isAuthRejectedForRead(Response<String> resp) {
+    if (_isUnauthorized(resp)) return true;
+    return resp.statusCode == 400;
+  }
+
   /// 获取研讨间列表 (mRooms)
+  ///
+  /// 失败会抛 [SpaceBookingException]，不再返回空列表——否则页面会把
+  /// 「取不到」显示成「没有房间」。
   Future<List<SpaceRoom>> fetchRooms({String? date}) async {
-    await ensureAuthenticated();
+    final authed = await ensureAuthenticated();
+    if (!authed) {
+      throw SpaceBookingException('空间预约登录失败，请重新登录统一身份认证后重试');
+    }
 
     final queryDate = date ?? _formatDate(DateTime.now());
     final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/room/mRooms').replace(
@@ -678,8 +747,9 @@ class SpaceBookingApi {
       },
     );
 
+    Response<String> resp;
     try {
-      var resp = await casClient.getApi(
+      resp = await casClient.getApi(
         uri,
         headers: <String, String>{
           'Authorization': accessToken ?? '',
@@ -687,43 +757,69 @@ class SpaceBookingApi {
         },
       );
 
-      // 遇到 Token 失效/401 自动重新静默登录并重试一次
-      if (_isUnauthorized(resp)) {
+      // 遇到 Token 失效（401/403，或网关把过期 token 判成 400）
+      // 自动重新登录并重试一次
+      if (_isAuthRejectedForRead(resp)) {
+        invalidateToken();
         final reAuthOk = await login();
-        if (reAuthOk) {
-          resp = await casClient.getApi(
-            uri,
-            headers: <String, String>{
-              'Authorization': accessToken ?? '',
-              'Accept': 'application/json;charset=UTF-8',
-            },
+        if (!reAuthOk) {
+          throw SpaceBookingException(
+            '空间预约登录已失效，请重新登录后重试',
+            authRelated: true,
           );
         }
+        resp = await casClient.getApi(
+          uri,
+          headers: <String, String>{
+            'Authorization': accessToken ?? '',
+            'Accept': 'application/json;charset=UTF-8',
+          },
+        );
       }
+    } on SpaceBookingException {
+      rethrow;
+    } catch (e) {
+      throw SpaceBookingException('获取房间列表失败：$e');
+    }
 
-      if (resp.statusCode == 200 && resp.data != null) {
-        final dynamic raw = jsonDecode(resp.data!);
-        final dynamic data = (raw is Map) ? (raw['data'] ?? raw) : raw;
-        final list = <SpaceRoom>[];
-        if (data is List) {
-          for (final group in data) {
-            if (group is! Map) continue;
-            final buildingName = (group['name'] ?? '').toString();
-            final rooms = group['rooms'];
-            if (rooms is List) {
-              for (final r in rooms) {
-                if (r is! Map) continue;
-                list.add(_parseRoom(r.cast<String, dynamic>(), buildingName));
-              }
-            } else {
-              list.add(_parseRoom(group.cast<String, dynamic>(), buildingName));
+    if (resp.statusCode != 200 || resp.data == null) {
+      final authLike = resp.statusCode == 400 ||
+          resp.statusCode == 401 ||
+          resp.statusCode == 403;
+      if (authLike) {
+        // 重登之后还是被拒：把 token 彻底作废，让下次「重试」必定重新认证
+        invalidateToken();
+        throw SpaceBookingException(
+          '空间预约登录已失效，请重新登录后重试',
+          authRelated: true,
+        );
+      }
+      throw SpaceBookingException('获取房间列表失败（HTTP ${resp.statusCode}）');
+    }
+
+    final list = <SpaceRoom>[];
+    try {
+      final dynamic raw = jsonDecode(resp.data!);
+      final dynamic data = (raw is Map) ? (raw['data'] ?? raw) : raw;
+      if (data is List) {
+        for (final group in data) {
+          if (group is! Map) continue;
+          final buildingName = (group['name'] ?? '').toString();
+          final rooms = group['rooms'];
+          if (rooms is List) {
+            for (final r in rooms) {
+              if (r is! Map) continue;
+              list.add(_parseRoom(r.cast<String, dynamic>(), buildingName));
             }
+          } else {
+            list.add(_parseRoom(group.cast<String, dynamic>(), buildingName));
           }
         }
-        return list;
       }
-    } catch (_) {}
-    return const <SpaceRoom>[];
+    } catch (e) {
+      throw SpaceBookingException('房间列表解析失败：$e');
+    }
+    return list;
   }
 
   /// 获取指定房间在某日期的实时预约与时间切片详情
@@ -749,7 +845,9 @@ class SpaceBookingApi {
         },
       );
 
-      if (_isUnauthorized(resp)) {
+      if (_isAuthRejectedForRead(resp)) {
+        // 只读接口：400 也当成 token 失效，作废后重登一次
+        invalidateToken();
         if (await login()) {
           resp = await casClient.getApi(
             uri,
@@ -1399,11 +1497,15 @@ class SpaceBookingApi {
       return str.substring(0, 10);
     }
     if (timeOnly && str.contains(':')) {
-      final parts = str.split(' ');
+      // 兼容 "2026-11-02T09:00" 这种带 T 的 ISO 写法
+      final parts = str.replaceAll('T', ' ').split(' ');
       final timePart = parts.length > 1 ? parts.last : parts.first;
       final tParts = timePart.split(':');
       if (tParts.length >= 2) {
-        return '${tParts[0]}:${tParts[1]}';
+        // 统一补零成 HH:mm：占用判定用的是字符串比较，'9:00' 与 '09:00' 混用会漏判
+        final hh = tParts[0].trim().padLeft(2, '0');
+        final mm = tParts[1].trim().padLeft(2, '0');
+        return '$hh:$mm';
       }
     }
     return str;
@@ -1454,10 +1556,5 @@ class SpaceBookingApi {
     return int.tryParse(val.toString().trim()) ?? fallback;
   }
 
-  static String _formatDate(DateTime dt) {
-    final y = dt.year.toString().padLeft(4, '0');
-    final m = dt.month.toString().padLeft(2, '0');
-    final d = dt.day.toString().padLeft(2, '0');
-    return '$y-$m-$d';
-  }
+  static String _formatDate(DateTime dt) => DateFmt.ymd(dt);
 }

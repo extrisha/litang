@@ -21,6 +21,9 @@ class JwglAuth extends ChangeNotifier {
   bool _restored = false;
   DateTime? _sessionCheckedAt;
 
+  /// 在途的 [ensureSession] 调用，用来把并发请求合并成一次。
+  Future<bool>? _sessionInFlight;
+
   /// 同一个页面刷新会多次调用 ensureSession；15 秒内不重复打教务首页。
   /// 真正的半失效仍由业务请求失败后的 reauthenticate 兜底。
   static const Duration _sessionTtl = Duration(seconds: 15);
@@ -168,7 +171,17 @@ class JwglAuth extends ChangeNotifier {
   }
 
   /// 数据页调用：过期时自动恢复，尽量不让用户手动登录。
-  Future<bool> ensureSession() async {
+  ///
+  /// 同一时刻只允许一次校验/重登。多个页面同时调本方法时，如果各自都去
+  /// checkSession / silentLogin / 密码登录，就会同时向 CAS 发起多次登录，
+  /// 互相把对方的会话顶掉——「到处乱点之后 CAS 就废了」有这一份功劳。
+  Future<bool> ensureSession() {
+    return _sessionInFlight ??= _ensureSessionInner().whenComplete(() {
+      _sessionInFlight = null;
+    });
+  }
+
+  Future<bool> _ensureSessionInner() async {
     final client = _client;
     if (client == null) {
       return _tryAutoLogin();
@@ -195,7 +208,15 @@ class JwglAuth extends ChangeNotifier {
     return _tryAutoLogin();
   }
 
-  /// 用本地保存的学号密码后台登录（失败会清掉已保存凭据，避免反复触发风控）。
+  /// 用本地保存的学号密码后台登录。
+  ///
+  /// 失败**不一定**是凭据错了：网络抖动、CAS 风控要求验证码、页面结构变化、
+  /// 以及「网页端另开一个会话把 App 顶掉」都会让这里失败。
+  ///
+  /// 原来的写法是任何异常都走 `_savedPassword = null; _clearAll();`，
+  /// 于是一次临时失败就把学号、密码、会话全部抹掉，之后所有页面都只能报
+  /// 「请先登录」——用户表现为「突然 CAS 登录失败，怎么进都不行」。
+  /// 现在只有服务端**明确拒绝凭据**时才清。
   Future<bool> _tryAutoLogin() async {
     final username = _savedUsername;
     final password = _savedPassword;
@@ -209,12 +230,25 @@ class JwglAuth extends ChangeNotifier {
       await _store.save(client, username: username, password: password);
       notifyListeners();
       return true;
+    } on CasCaptchaRequired {
+      // 需要验证码 ≠ 凭据失效：保留密码，让用户手动登录一次即可
+      return false;
+    } on CasLoginException catch (e) {
+      if (_isCredentialRejection(e.message)) {
+        _savedPassword = null;
+        await _clearAll();
+      }
+      return false;
     } catch (_) {
-      // 密码失效/风控验证码等：清掉密码，下次让用户手动登录
-      _savedPassword = null;
-      await _clearAll();
+      // 网络 / 解析 / 未知错误：保留凭据，下次再试
       return false;
     }
+  }
+
+  /// 服务端是否在明确表示「学号或密码不对 / 账号不可用」。
+  static bool _isCredentialRejection(String message) {
+    const markers = <String>['密码', '账号', '用户名', '锁定', '禁用', '不存在'];
+    return markers.any(message.contains);
   }
 
   Future<void> logout() async {

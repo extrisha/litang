@@ -4,6 +4,7 @@ import 'package:open_filex/open_filex.dart';
 import '../app_theme.dart';
 import '../data/auth/jwgl_auth.dart';
 import '../data/attachment_cache.dart';
+import '../data/date_format.dart';
 import '../data/lms/homework_api.dart';
 import '../data/lms/todo_api.dart';
 import '../data/lms/tronclass_auth.dart';
@@ -701,11 +702,5 @@ class _HomeworkPageState extends State<HomeworkPage> {
     }
   }
 
-  String _formatTime(DateTime time) {
-    final m = time.month.toString().padLeft(2, '0');
-    final d = time.day.toString().padLeft(2, '0');
-    final h = time.hour.toString().padLeft(2, '0');
-    final min = time.minute.toString().padLeft(2, '0');
-    return '$m-$d $h:$min';
-  }
+  String _formatTime(DateTime time) => DateFmt.mdHm(time);
 }

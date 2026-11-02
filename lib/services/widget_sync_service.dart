@@ -6,6 +6,7 @@ import 'package:home_widget/home_widget.dart';
 import '../data/auth/jwgl_auth.dart';
 import '../data/calendar/calendar_service.dart';
 import '../data/chaoxing/chaoxing_cache.dart';
+import '../data/date_format.dart';
 import '../data/jwc/course_repository.dart';
 import '../data/jwc/jwgl_schedule.dart';
 import '../data/life_cache.dart';
@@ -45,8 +46,7 @@ class WidgetSyncService {
 
       // 2. 计算日期与周次文本
       final weekText = '第 $currentWeek 周';
-      final dateText =
-          '${now.month.toString().padLeft(2, '0')}月${now.day.toString().padLeft(2, '0')}日';
+      final dateText = DateFmt.mdCn(now);
       final weekdayIndex = now.weekday - 1; // 0 = 周一 ... 6 = 周日
       final weekdayText = _weekdays[weekdayIndex.clamp(0, 6)];
 
@@ -60,29 +60,36 @@ class WidgetSyncService {
       }).toList()
         ..sort((a, b) => a.start.compareTo(b.start));
 
-      // 4. 智能判断：今天没课（或晚上全部结课）时，自动转为展示明天课程
-      bool isTomorrow = false;
+      // 4. 智能判断：今天没课（或今天课程全部已结束）时，自动转为展示下一次上课那天的课程
+      int daysAhead = 0;
       List<Course> displayCourses = todayCourses;
 
       final allPastToday = todayCourses.isNotEmpty &&
           todayCourses.every((c) => _computeStatus(now, c.start, c.span).status == 'past');
 
       if (todayCourses.isEmpty || allPastToday) {
-        final tomorrow = now.add(const Duration(days: 1));
-        final tomorrowWeekdayIndex = tomorrow.weekday - 1; // 0..6
-        final tomorrowWeek =
-            (tomorrowWeekdayIndex == 0) ? currentWeek + 1 : currentWeek;
+        for (int offset = 1; offset <= 14; offset++) {
+          final targetDate = now.add(Duration(days: offset));
+          final targetWeekdayIndex = targetDate.weekday - 1; // 0..6
+          final targetWeek = CalendarService.instance.calendar?.currentTerm?.weekFor(targetDate) ??
+              (currentWeek + ((targetDate.difference(now).inDays + now.weekday - 1) ~/ 7));
 
-        final tomorrowCourses = allCourses.where((c) {
-          return c.day == tomorrowWeekdayIndex && c.activeInWeek(tomorrowWeek);
-        }).toList()
-          ..sort((a, b) => a.start.compareTo(b.start));
+          final targetCourses = allCourses.where((c) {
+            return c.day == targetWeekdayIndex && c.activeInWeek(targetWeek);
+          }).toList()
+            ..sort((a, b) => a.start.compareTo(b.start));
 
-        if (tomorrowCourses.isNotEmpty) {
-          isTomorrow = true;
-          displayCourses = tomorrowCourses;
+          if (targetCourses.isNotEmpty) {
+            daysAhead = offset;
+            displayCourses = targetCourses;
+            break;
+          }
         }
       }
+
+      final scheduleTitle = daysAhead == 0
+          ? '今日课表'
+          : (daysAhead == 1 ? '明日' : '$daysAhead天后');
 
       // 5. 解析课程状态与时间区间
       final courseListJson = <Map<String, dynamic>>[];
@@ -96,7 +103,7 @@ class WidgetSyncService {
         String status;
         String statusTag;
 
-        if (isTomorrow) {
+        if (daysAhead > 0) {
           status = 'upcoming';
           statusTag = '';
         } else {
@@ -239,10 +246,48 @@ class WidgetSyncService {
       await HomeWidget.saveWidgetData<String>('weather_temp_range', weather.tempRange);
       await HomeWidget.saveWidgetData<String>('weather_icon_type', weather.iconType);
 
-      // 课表与明日预告
-      await HomeWidget.saveWidgetData<bool>('schedule_is_tomorrow', isTomorrow);
+      // 准备全学期课程数据供 Android 原生层离线跨天推演
+      final currentTerm = CalendarService.instance.calendar?.currentTerm;
+      final week1MondayStr =
+          currentTerm != null ? DateFmt.ymd(currentTerm.week1Monday) : '';
+      final totalWeeks = currentTerm?.totalWeeks ?? 20;
+
+      final semesterAllCoursesList = <Map<String, dynamic>>[];
+      for (final c in allCourses) {
+        final theme = themeMap[c.name] ?? themeForCourse(c.name);
+        semesterAllCoursesList.add(<String, dynamic>{
+          'name': c.name,
+          'day': c.day,
+          'start': c.start,
+          'span': c.span,
+          'room': c.room,
+          'teacher': c.teacher ?? '',
+          'weeks': c.weeks,
+          'accentColor':
+              '#${theme.accent.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
+          'bgColor':
+              '#${theme.bg.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
+          'textColor':
+              '#${theme.text.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
+        });
+      }
+
+      // 课表与下一次上课预告
+      await HomeWidget.saveWidgetData<bool>('schedule_is_tomorrow', daysAhead == 1);
+      await HomeWidget.saveWidgetData<int>('schedule_days_ahead', daysAhead);
+      await HomeWidget.saveWidgetData<String>('schedule_title_text', scheduleTitle);
       await HomeWidget.saveWidgetData<int>('schedule_count', displayCourses.length);
       await HomeWidget.saveWidgetData<String>('courses_json', jsonEncode(courseListJson));
+
+      // 原生离线跨天推演数据
+      if (week1MondayStr.isNotEmpty) {
+        await HomeWidget.saveWidgetData<String>('semester_week1_monday', week1MondayStr);
+        await HomeWidget.saveWidgetData<int>('semester_total_weeks', totalWeeks);
+        await HomeWidget.saveWidgetData<String>(
+          'semester_all_courses_json',
+          jsonEncode(semesterAllCoursesList),
+        );
+      }
 
       // 待办作业
       await HomeWidget.saveWidgetData<int>('todo_count', todoListJson.length);
@@ -255,7 +300,7 @@ class WidgetSyncService {
       );
 
       debugPrint(
-        '[WidgetSyncService] 桌面小组件已同步刷新 (课表数: ${displayCourses.length}, 明日: $isTomorrow, 待办数: ${todoListJson.length})',
+        '[WidgetSyncService] 桌面小组件已同步刷新 (课表数: ${displayCourses.length}, 标题: $scheduleTitle, 待办数: ${todoListJson.length})',
       );
     } catch (e, stack) {
       debugPrint('[WidgetSyncService] 刷新小组件失败: $e\n$stack');

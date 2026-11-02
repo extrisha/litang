@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
 import '../data/auth/jwgl_auth.dart';
+import '../data/date_format.dart';
 import '../data/jwc/rank_api.dart';
 import '../data/jwc/rank_repository.dart';
+import '../widgets/async_state.dart';
 
 /// 专业排名：从教务「专业排名证明」PDF 里解析出的名次。
 class RankPage extends StatefulWidget {
@@ -16,6 +18,9 @@ class RankPage extends StatefulWidget {
 class _RankPageState extends State<RankPage> {
   RankInfo? _info;
   bool _loading = false;
+
+  /// 失败原因。之前没有这个字段，请求失败会和「还没有排名数据」长得一模一样。
+  String? _error;
 
   @override
   void initState() {
@@ -54,13 +59,19 @@ class _RankPageState extends State<RankPage> {
       }
       return;
     }
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final ok = await auth.ensureSession();
       if (!ok) {
         if (mounted) {
-          _toast('登录已过期，请回「我的」重新登录');
-          setState(() {});
+          const message = '登录已过期，请回「我的」重新登录';
+          setState(() => _error = message);
+          if (!silent) {
+            _toast(message);
+          }
         }
         return;
       }
@@ -68,14 +79,25 @@ class _RankPageState extends State<RankPage> {
       if (!mounted) {
         return;
       }
-      setState(() => _info = info);
+      setState(() {
+        _info = info;
+        _error = null;
+      });
     } on RankException catch (error) {
-      if (mounted && !silent) {
-        _toast(error.message);
+      if (mounted) {
+        // 静默刷新失败也必须留下错误状态，否则界面会显示成「还没有排名数据」
+        setState(() => _error = error.message);
+        if (!silent) {
+          _toast(error.message);
+        }
       }
     } catch (_) {
-      if (mounted && !silent) {
-        _toast('获取排名失败，请稍后重试');
+      if (mounted) {
+        const message = '获取排名失败，请稍后重试';
+        setState(() => _error = message);
+        if (!silent) {
+          _toast(message);
+        }
       }
     } finally {
       if (mounted) {
@@ -121,18 +143,13 @@ class _RankPageState extends State<RankPage> {
       ),
       body: info == null
           ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  JwglAuth.instance.isLoggedIn
-                      ? (_loading ? '正在生成排名证明…' : '还没有排名数据，点右上角刷新')
-                      : '登录后自动同步排名',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
+              child: AsyncStateView(
+                loading: _loading,
+                error: _error,
+                emptyText: JwglAuth.instance.isLoggedIn
+                    ? '还没有排名数据，点右上角刷新'
+                    : '登录后自动同步排名',
+                onRetry: () => _refresh(),
               ),
             )
           : ListView(
@@ -240,11 +257,5 @@ class _RankPageState extends State<RankPage> {
     );
   }
 
-  String _formatTime(DateTime time) {
-    final m = time.month.toString().padLeft(2, '0');
-    final d = time.day.toString().padLeft(2, '0');
-    final h = time.hour.toString().padLeft(2, '0');
-    final min = time.minute.toString().padLeft(2, '0');
-    return '$m-$d $h:$min';
-  }
+  String _formatTime(DateTime time) => DateFmt.mdHm(time);
 }

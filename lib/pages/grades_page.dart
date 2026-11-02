@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
 import '../data/auth/jwgl_auth.dart';
+import '../data/date_format.dart';
 import '../data/jwc/grade_api.dart';
 import '../data/jwc/grade_repository.dart';
+import '../widgets/async_state.dart';
 
 /// 成绩总览：按学期筛选、绩点配色、平时/期末分项。
 class GradesPage extends StatefulWidget {
@@ -16,6 +18,9 @@ class GradesPage extends StatefulWidget {
 class _GradesPageState extends State<GradesPage> {
   GradeSnapshot? _snapshot;
   bool _loading = false;
+
+  /// 失败原因。之前没有这个字段，请求失败会和「还没有成绩数据」长得一模一样。
+  String? _error;
 
   /// null = 全部学期。
   String? _term;
@@ -57,13 +62,19 @@ class _GradesPageState extends State<GradesPage> {
       }
       return;
     }
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final ok = await auth.ensureSession();
       if (!ok) {
         if (mounted) {
-          _toast('登录已过期，请回「我的」重新登录');
-          setState(() {});
+          const message = '登录已过期，请回「我的」重新登录';
+          setState(() => _error = message);
+          if (!silent) {
+            _toast(message);
+          }
         }
         return;
       }
@@ -73,13 +84,19 @@ class _GradesPageState extends State<GradesPage> {
       }
       setState(() {
         _snapshot = snapshot;
+        _error = null;
         if (_term != null && !snapshot.terms.contains(_term)) {
           _term = null;
         }
       });
     } catch (_) {
-      if (mounted && !silent) {
-        _toast('成绩更新失败，请稍后重试');
+      if (mounted) {
+        // 静默刷新失败也要留下错误状态，否则界面会显示成「还没有成绩数据」
+        const message = '成绩更新失败，请稍后重试';
+        setState(() => _error = message);
+        if (!silent) {
+          _toast(message);
+        }
       }
     } finally {
       if (mounted) {
@@ -415,23 +432,15 @@ class _GradesPageState extends State<GradesPage> {
   );
 
   Widget _empty() => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Text(
-        JwglAuth.instance.isLoggedIn
-            ? (_loading ? '正在加载成绩…' : '还没有成绩数据，点右上角刷新')
-            : '登录后自动同步成绩',
-        textAlign: TextAlign.center,
-        style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-      ),
+    child: AsyncStateView(
+      loading: _loading,
+      error: _error,
+      emptyText: JwglAuth.instance.isLoggedIn
+          ? '还没有成绩数据，点右上角刷新'
+          : '登录后自动同步成绩',
+      onRetry: () => _refresh(),
     ),
   );
 
-  String _formatTime(DateTime time) {
-    final m = time.month.toString().padLeft(2, '0');
-    final d = time.day.toString().padLeft(2, '0');
-    final h = time.hour.toString().padLeft(2, '0');
-    final min = time.minute.toString().padLeft(2, '0');
-    return '$m-$d $h:$min';
-  }
+  String _formatTime(DateTime time) => DateFmt.mdHm(time);
 }

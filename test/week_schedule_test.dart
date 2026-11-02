@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:project_usst/data/jwc/jwgl_schedule.dart';
 import 'package:project_usst/data/models.dart';
-import 'package:project_usst/widgets/course_table.dart';
 
 void main() {
   group('parseCourseWeeks', () {
@@ -95,33 +94,8 @@ void main() {
     });
   });
 
-  group('CourseWeekTable', () {
-    test('只显示选中教学周的课程', () {
-      const table = CourseWeekTable(
-        week: 4,
-        courses: <Course>[
-          Course(
-            name: 'A',
-            day: 0,
-            start: 0,
-            span: 2,
-            room: '1',
-            weeks: <int>[3, 4],
-          ),
-          Course(
-            name: 'B',
-            day: 1,
-            start: 2,
-            span: 2,
-            room: '2',
-            weeks: <int>[5, 6],
-          ),
-          Course(name: 'C', day: 2, start: 4, span: 2, room: '3'),
-        ],
-      );
-      final names = table.visibleCourses.map((c) => c.name).toList();
-      expect(names, containsAll(<String>['A', 'C']));
-      expect(names, isNot(contains('B')));
-    });
-  });
+  // 原 `CourseWeekTable` 组已随该组件删除：
+  // 它只被测试引用、没有任何页面使用，实际渲染逻辑由
+  // `test/schedule_grid_test.dart` 覆盖。`Course.activeInWeek` 的过滤语义
+  // 上面已有独立用例，无需通过组件间接测。
 }

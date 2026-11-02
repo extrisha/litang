@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -494,9 +495,11 @@ class GridPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant GridPainter oldDelegate) {
+    // `visibleDays` 每次 build 都是新 List，用 `!=` 比的是引用 → 恒为 true，
+    // 等于这个 shouldRepaint 完全没生效。必须按内容比。
     return oldDelegate.periods != periods ||
         oldDelegate.activePeriod != activePeriod ||
-        oldDelegate.visibleDays != visibleDays ||
+        !listEquals(oldDelegate.visibleDays, visibleDays) ||
         oldDelegate.dayWidth != dayWidth ||
         oldDelegate.rowHeight != rowHeight;
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
 import '../data/auth/jwgl_auth.dart';
+import '../data/date_format.dart';
 import '../data/jwc/academic_api.dart';
 import '../data/jwc/academic_repository.dart';
 
@@ -525,11 +526,5 @@ class _AcademicPageState extends State<AcademicPage> {
     ),
   );
 
-  String _formatTime(DateTime time) {
-    final m = time.month.toString().padLeft(2, '0');
-    final d = time.day.toString().padLeft(2, '0');
-    final h = time.hour.toString().padLeft(2, '0');
-    final min = time.minute.toString().padLeft(2, '0');
-    return '$m-$d $h:$min';
-  }
+  String _formatTime(DateTime time) => DateFmt.mdHm(time);
 }

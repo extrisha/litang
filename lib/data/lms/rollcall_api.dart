@@ -475,8 +475,19 @@ class RollcallApi {
   }
 
   SignResult _result(Response<String> resp) {
-    final code = resp.statusCode ?? 0;
-    final body = resp.data ?? '';
+    return parseSignResult(
+      resp.statusCode ?? 0,
+      resp.data ?? '',
+      realUrl: resp.realUri.toString(),
+    );
+  }
+
+  /// 解析签到提交的 HTTP 响应（公开供单元测试与调试）
+  static SignResult parseSignResult(
+    int code,
+    String body, {
+    String realUrl = '',
+  }) {
     Map<String, dynamic>? map;
     try {
       final decoded = jsonDecode(body);
@@ -487,11 +498,11 @@ class RollcallApi {
       // 有些成功响应是空 body / HTML
     }
     if (code >= 200 && code < 300) {
-      final realUrl = resp.realUri.toString().toLowerCase();
+      final lowerUrl = realUrl.toLowerCase();
       final looksLikeLogin =
-          realUrl.contains('/auth/') ||
-          realUrl.contains('passport') ||
-          realUrl.endsWith('/login');
+          lowerUrl.contains('/auth/') ||
+          lowerUrl.contains('passport') ||
+          lowerUrl.endsWith('/login');
       // 会话失效时 Dio 会跟到登录页并拿到 200 HTML，不能当成签到成功
       if (looksLikeLogin) {
         return const SignResult(success: false, message: '登录状态已失效，请重新登录教务系统');
@@ -502,7 +513,12 @@ class RollcallApi {
       }
     }
     var message = '签到失败（HTTP $code）';
-    final errorCode = map?['errorCode']?.toString() ?? '';
+    final errorCode =
+        (map?['errorCode'] ?? map?['error_code'] ?? map?['code'])
+            ?.toString()
+            .trim()
+            .toUpperCase() ??
+        '';
     const radarErrors = <String, String>{
       'ROLLCALL_RADAR_OUT_OF_SCOPE': '定位超出签到范围，请靠近上课教室后重试',
       'RADAR_ROLLCALL_POSITION_INVALID': '定位坐标无效，请重新定位后重试',
@@ -512,9 +528,42 @@ class RollcallApi {
     if (radarErrors.containsKey(errorCode)) {
       return SignResult(success: false, message: radarErrors[errorCode]);
     }
-    final msg = map?['message'] ?? map?['error'] ?? map?['msg'];
-    if (msg != null && msg.toString().trim().isNotEmpty) {
-      message = msg.toString();
+    final rawMsg =
+        (map?['message'] ?? map?['error'] ?? map?['msg'])
+            ?.toString()
+            .trim() ??
+        '';
+    final lowerMsg = rawMsg.toLowerCase();
+    if (lowerMsg.contains('out of roll scope') ||
+        lowerMsg.contains('out of scope') ||
+        lowerMsg.contains('out of rollcall scope')) {
+      return const SignResult(
+        success: false,
+        message: '定位超出签到范围，请靠近上课教室后重试',
+      );
+    }
+    if (lowerMsg.contains('position invalid') ||
+        lowerMsg.contains('invalid position')) {
+      return const SignResult(
+        success: false,
+        message: '定位坐标无效，请重新定位后重试',
+      );
+    }
+    if (lowerMsg.contains('device already in use') ||
+        lowerMsg.contains('device_already_in_use')) {
+      return const SignResult(
+        success: false,
+        message: '这台设备已经给其他账号签过到了',
+      );
+    }
+    if (lowerMsg.contains('no signal') || lowerMsg.contains('radar signal')) {
+      return const SignResult(
+        success: false,
+        message: '本堂课需要教室蓝牙信标，请在教室内重试',
+      );
+    }
+    if (rawMsg.isNotEmpty) {
+      message = rawMsg;
     }
     return SignResult(success: false, message: message);
   }
