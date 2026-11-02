@@ -53,21 +53,33 @@ class _HomeworkPageState extends State<HomeworkPage> {
 
   Future<void> _toggleReminder(bool value) async {
     setState(() => _reminderOn = value);
-    await ReminderService.instance.setReminderEnabled(
-      'tron:${widget.todo.id}',
-      value,
-    );
-    if (value) {
-      await ReminderService.instance.scheduleHomeworkOne(
-        LmsTodo(
-          id: widget.todo.id,
-          courseId: widget.todo.courseId,
-          title: widget.todo.title,
-          courseName: widget.todo.courseName,
-          type: widget.todo.type,
-          deadline: _deadline,
-        ),
+    try {
+      await ReminderService.instance.setReminderEnabled(
+        'tron:${widget.todo.id}',
+        value,
       );
+      if (value) {
+        await ReminderService.instance.scheduleHomeworkOne(
+          LmsTodo(
+            id: widget.todo.id,
+            courseId: widget.todo.courseId,
+            title: widget.todo.title,
+            courseName: widget.todo.courseName,
+            type: widget.todo.type,
+            deadline: _deadline,
+          ),
+        );
+      }
+    } catch (e) {
+      // 通知插件在各平台都可能抛（权限被拒、渠道不存在…）。
+      // 失败时必须把开关切回去，否则界面显示「已开启」但实际没排提醒。
+      debugPrint('[homework] 提醒设置失败: $e');
+      if (!mounted) return;
+      setState(() => _reminderOn = !value);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('提醒设置失败，请检查通知权限后重试')),
+      );
+      return;
     }
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -96,6 +108,15 @@ class _HomeworkPageState extends State<HomeworkPage> {
   }
 
   Future<void> _load() async {
+    // 重新加载时必须清掉上一次的错误并进入加载态。
+    // 不清 `_error` 的话：失败 → 点重试 → 这次成功 → `_detail` 有值但 `_error`
+    // 仍是旧值，而 build 里错误分支优先，结果就是「重试永远无效」。
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     final ok = await TronclassAuth.instance.ensureLoggedIn();
     final client = JwglAuth.instance.client;
     if (!ok || client == null) {
@@ -126,6 +147,7 @@ class _HomeworkPageState extends State<HomeworkPage> {
         _detail = detail;
         _submissions = submissions;
         _loading = false;
+        _error = null;
       });
     } catch (e) {
       // 容错：有些选择题/客观题测试在接口里可能被当作测试/考试处理，尝试查考试接口
@@ -469,6 +491,9 @@ class _HomeworkPageState extends State<HomeworkPage> {
   Future<void> _submit() async {
     final client = JwglAuth.instance.client;
     if (client == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先登录教务系统')),
+      );
       return;
     }
     final ok = await Navigator.of(context).push<bool>(
