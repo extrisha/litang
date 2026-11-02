@@ -5,6 +5,7 @@ import '../data/auth/jwgl_auth.dart';
 import '../data/date_format.dart';
 import '../data/jwc/academic_api.dart';
 import '../data/jwc/academic_repository.dart';
+import '../widgets/async_state.dart';
 
 /// 学业情况：培养计划（占位）+ 学分要求完成情况。
 class AcademicPage extends StatefulWidget {
@@ -17,6 +18,9 @@ class AcademicPage extends StatefulWidget {
 class _AcademicPageState extends State<AcademicPage> {
   AcademicProgress? _progress;
   bool _loading = false;
+
+  /// 失败原因。之前没有这个字段，请求失败会和「还没有数据」长得一模一样。
+  String? _error;
   final Map<String, List<AcademicCourse>> _courses =
       <String, List<AcademicCourse>>{};
   final Set<String> _expanded = <String>{};
@@ -60,13 +64,19 @@ class _AcademicPageState extends State<AcademicPage> {
       }
       return;
     }
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final ok = await auth.ensureSession();
       if (!ok) {
         if (mounted) {
-          _toast('登录已过期，请回「我的」重新登录');
-          setState(() {});
+          const message = '登录已过期，请回「我的」重新登录';
+          setState(() => _error = message);
+          if (!silent) {
+            _toast(message);
+          }
         }
         return;
       }
@@ -74,10 +84,18 @@ class _AcademicPageState extends State<AcademicPage> {
       if (!mounted) {
         return;
       }
-      setState(() => _progress = progress);
+      setState(() {
+        _progress = progress;
+        _error = null;
+      });
     } catch (_) {
-      if (mounted && !silent) {
-        _toast('学业情况更新失败，请稍后重试');
+      if (mounted) {
+        // 静默刷新失败也要留下错误状态，否则界面会显示成「还没有数据」
+        const message = '学业情况更新失败，请稍后重试';
+        setState(() => _error = message);
+        if (!silent) {
+          _toast(message);
+        }
       }
     } finally {
       if (mounted) {
@@ -127,11 +145,18 @@ class _AcademicPageState extends State<AcademicPage> {
           _planCard(),
           const SizedBox(height: 12),
           if (progress == null)
-            _hintCard(
-              JwglAuth.instance.isLoggedIn
-                  ? (_loading ? '正在同步学业情况…' : '还没有数据，点右上角刷新')
-                  : '登录后自动同步学业情况',
-            )
+            _error != null || _loading
+                ? AsyncStateView(
+                    loading: _loading,
+                    error: _error,
+                    onRetry: () => _refresh(),
+                    compact: true,
+                  )
+                : _hintCard(
+                    JwglAuth.instance.isLoggedIn
+                        ? '还没有数据，点右上角刷新'
+                        : '登录后自动同步学业情况',
+                  )
           else ...<Widget>[
             _overallCard(progress),
             const SizedBox(height: 12),
