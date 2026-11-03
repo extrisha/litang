@@ -1,9 +1,9 @@
 {
-  "version": "0.6.0",
-  "versionCode": 35,
+  "version": "0.6.1",
+  "versionCode": 36,
   "minVersionCode": 0,
-  "notes": "升级 0.6.0：新增桌面今日课表与天气小组件支持、优化空间预约与教室详情、轻量化打包（暂时禁用离线地图底图与瓦片）、强化校内认证与缓存机制。",
+  "notes": "升级 0.6.1：修复空间预约偶发「登录失效」、网页端重复登录（CAS 会话 cookie 未正确注入）；修复学习通 SSO 网关被误判为已登录导致登录失败；全面统一错误提示，失败不再显示成「暂无数据」，并支持一键重试。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.6.0/app-release.apk",
-  "sha256": "382e3c0c48a3af5affd7a9918065f13a1d42b6b36cab4ddf3a8419b9a18fe795"
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.6.1/app-release.apk",
+  "sha256": "7dbfe43832d91b4e0b2163ec112b181c87342850b951383b18a730dcf19c991f"
 }
