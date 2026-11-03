@@ -5,8 +5,10 @@ import '../data/auth/cas_client.dart';
 import '../data/auth/jwgl_auth.dart';
 import '../data/date_format.dart';
 import '../data/jwc/space_booking_api.dart';
+import '../data/jwc/space_booking_rules.dart';
 import '../data/jwc/space_web_url.dart';
 import '../data/request_guard.dart';
+import '../widgets/async_state.dart';
 import '../widgets/blocking_progress.dart';
 import 'simple_web_page.dart';
 
@@ -40,11 +42,11 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
   /// 用来区分「切换日期」和「刷新同一天」——前者要重置选中时段，后者不该清掉用户的选择。
   String? _detailDate;
 
-  /// [_detail] 的整点时段，加载成功时算一次缓存住。
-  ///
-  /// `SpaceRoomDetail.hourSlots` 是个重算 getter，直接在 `GridView.itemBuilder`
-  /// 里访问会变成「每个格子重算一遍整表」，13 个时段就是每帧十几次全量分配。
+  /// 当前日期的整点时段（来自 `SpaceRoomDetail.hourSlots`，模型层已缓存）。
   List<SpaceHourSlot> _hourSlots = const <SpaceHourSlot>[];
+
+  /// 时段表位置：底部「去选时段」用它把用户滚到时段表。
+  final GlobalKey _slotsKey = GlobalKey();
 
   /// 详情请求代次。切日期时会有多个请求同时在飞，先发的可能后到，
   /// 只允许「最新一次」的结果落到界面上，否则会出现「选中后天、显示明天」。
@@ -53,6 +55,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
   // 选中的时段
   String? _selectedStartTime;
   String? _selectedEndTime;
+
+  /// 网页端入口是否正在打开（防止连点叠出多个遮罩/页面）
+  bool _webBookingOpening = false;
 
   @override
   void initState() {
@@ -86,17 +91,8 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
 
     final dateStr = DateFmt.ymd(_selectedDate);
     try {
-      final authed = await widget.api.ensureAuthenticated();
-      if (!mounted || !_detailGuard.isCurrent(requestId)) return;
-      // 登录失败和「当天没时段」在界面上必须能区分开，
-      // 否则用户会以为房间真的没有空位。
-      if (!authed) {
-        setState(() {
-          _error = '空间预约系统登录失败，请检查教务登录态后重试';
-          _loading = false;
-        });
-        return;
-      }
+      // fetchRoomReservationDetail 失败时会抛（不再吞成 null），
+      // 所以「登录失败 / 网络失败」和「当天确实没有时段」能区分开。
       final detail = await widget.api.fetchRoomReservationDetail(
         roomId: widget.room.id,
         date: dateStr,
@@ -105,136 +101,250 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
       // 晚到的旧响应必须丢掉，不能覆盖当前选中日期的数据
       if (!mounted || !_detailGuard.isCurrent(requestId)) return;
 
+      if (detail == null) {
+        setState(() {
+          _detail = null;
+          _detailDate = null;
+          _hourSlots = const <SpaceHourSlot>[];
+          _selectedStartTime = null;
+          _selectedEndTime = null;
+          _error = '未取到该空间 $dateStr 的时段数据，请点重试';
+          _loading = false;
+        });
+        return;
+      }
+
       final dateChanged = _detailDate != dateStr;
       setState(() {
         _detail = detail;
         _detailDate = dateStr;
-        _hourSlots = detail?.hourSlots ?? const <SpaceHourSlot>[];
+        _hourSlots = detail.hourSlots;
         _loading = false;
-        if (dateChanged) {
-          _initDefaultTimeSlot();
-        } else if (_selectedStartTime != null &&
-            _selectedEndTime != null &&
-            (!_isSlotBookable(_selectedStartTime!) ||
-                _hasTimeConflict(_selectedStartTime!, _selectedEndTime!))) {
-          // 刷新同一天时保留用户的选择，但选中的区间如果已被别人占掉就得重置
-          _initDefaultTimeSlot();
+        // 默认不选中任何时段：用户点哪个整点就选哪个，再点一次取消。
+        // 刷新同一天时保留仍然有效的选择，被占掉/过时了才清空。
+        final current = _selection;
+        if (dateChanged ||
+            (current != null &&
+                !_isRangeFree(current.startHour, current.endHour))) {
+          _selectedStartTime = null;
+          _selectedEndTime = null;
         }
       });
     } catch (e) {
       if (!mounted || !_detailGuard.isCurrent(requestId)) return;
       setState(() {
-        _error = '获取房间时段详情失败，请检查网络或登录 WebVPN 后重试';
+        _detail = null;
+        _detailDate = null;
+        _hourSlots = const <SpaceHourSlot>[];
+        _selectedStartTime = null;
+        _selectedEndTime = null;
+        _error = e is SpaceBookingException
+            ? e.message
+            : '获取房间时段详情失败，请检查网络或登录 WebVPN 后重试';
         _loading = false;
       });
     }
   }
 
-  /// 这个整点是否还能选（存在、未被占、未过时）。
-  bool _isSlotBookable(String startHour) {
-    for (final slot in _hourSlots) {
-      if (slot.startHour != startHour) continue;
-      return !slot.isOccupied && !slot.isPastFor(_selectedDate);
-    }
-    return false;
+  /// 当前选中的区间；未选或数据不完整时返回 null。
+  SpaceSlotSelection? get _selection {
+    final start = _selectedStartTime;
+    final end = _selectedEndTime;
+    if (start == null || end == null) return null;
+    final startH = int.tryParse(start.split(':').first);
+    final endH = int.tryParse(end.split(':').first);
+    if (startH == null || endH == null || endH <= startH) return null;
+    return SpaceSlotSelection(startHour: startH, endHour: endH);
   }
 
-  /// 自动初始化一个合理的默认时间段（例如当前时间之后最近的一个1小时空闲时段）
-  void _initDefaultTimeSlot() {
-    for (final slot in _hourSlots) {
-      if (slot.isOccupied || slot.isPastFor(_selectedDate)) continue;
-      _selectedStartTime = slot.startHour;
-      _selectedEndTime = slot.endHour;
-      return;
-    }
+  /// 当天实际生效的房间数据：详情接口返回的比列表快照更新。
+  SpaceRoom get _room => _detail?.room ?? widget.room;
 
-    _selectedStartTime = null;
-    _selectedEndTime = null;
-  }
+  int get _openEndHour =>
+      int.tryParse(_room.openEndTime.split(':').first) ?? 21;
 
-  /// 点击选择整点时段
-  void _onTapHourSlot(SpaceHourSlot slot) {
-    if (slot.isOccupied || slot.isPastFor(_selectedDate)) return;
-
+  void _applySelection(SpaceSlotSelection? selection) {
     setState(() {
-      if (_selectedStartTime == null ||
-          _selectedEndTime == null ||
-          slot.startHour.compareTo(_selectedStartTime!) <= 0) {
-        // 点击当前起始或更早的时段，重置为当前选中1小时
-        _selectedStartTime = slot.startHour;
-        _selectedEndTime = slot.endHour;
-        return;
-      }
-
-      // 点击较晚的时段：尝试扩展
-      final startH = int.tryParse(_selectedStartTime!.split(':').first) ?? 8;
-      final endH = int.tryParse(slot.endHour.split(':').first) ?? 9;
-      final durationHours = endH - startH;
-      final maxAllowedHours = (widget.room.reservationMaxTime / 60).round();
-
-      if (durationHours > maxAllowedHours) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('单次预约最多允许 $maxAllowedHours 小时')));
-        return;
-      }
-
-      if (_hasTimeConflict(_selectedStartTime!, slot.endHour)) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('所选区间包含已占用时段，无法选择')));
-        return;
-      }
-
-      _selectedEndTime = slot.endHour;
+      _selectedStartTime = selection?.startLabel;
+      _selectedEndTime = selection?.endLabel;
     });
   }
 
-  /// 检查所选时间段是否与已被占用的时段冲突
-  bool _hasTimeConflict(String start, String end) {
-    final booked = _detail?.bookedSegments ?? <SpaceBookedSegment>[];
-    for (final b in booked) {
-      // 若 [start, end) 与 [b.startTime, b.endTime) 有重叠
-      if (start.compareTo(b.endTime) < 0 && end.compareTo(b.startTime) > 0) {
-        return true;
+  /// 区间内每个整点都能约（存在、未被占、未过时、未超出闭馆时间）。
+  bool _isRangeFree(int startHour, int endHour) {
+    if (endHour <= startHour || endHour > _openEndHour) return false;
+    for (var h = startHour; h < endHour; h++) {
+      SpaceHourSlot? found;
+      for (final slot in _hourSlots) {
+        if (slot.startHour == SpaceSlotSelection.labelOf(h)) {
+          found = slot;
+          break;
+        }
+      }
+      if (found == null || found.isOccupied || found.isPastFor(_selectedDate)) {
+        return false;
       }
     }
+    return true;
+  }
+
+  /// 当前日期是否还有至少一个「满足最短时长」的可约起点。
+  bool get _hasBookableSlot {
+    final minH = SpaceBookingRules.minHoursFromMinutes(
+      _room.reservationMinTime,
+    );
+    for (final slot in _hourSlots) {
+      if (slot.isOccupied || slot.isPastFor(_selectedDate)) continue;
+      final h = int.tryParse(slot.startHour.split(':').first);
+      if (h == null) continue;
+      if (_isRangeFree(h, h + minH)) return true;
+    }
     return false;
+  }
+
+  int get _freeHourCount => _hourSlots
+      .where((s) => !s.isOccupied && !s.isPastFor(_selectedDate))
+      .length;
+
+  /// 房间状态以「当天真实时段」为准。
+  ///
+  /// 详情接口返回的房间对象里没有 `spaceTime`（被解析成 0），直接读
+  /// `statusDesc` 会永远显示「已约满」——这就是右上角那个莫名其妙的状态。
+  ({String text, Color bg, Color fg}) _statusStyle(SpaceRoom room) {
+    if (room.status == 1) {
+      return (
+        text: '已禁用',
+        bg: AppColors.surfaceMuted,
+        fg: AppColors.textSecondary,
+      );
+    }
+    if (room.status == 2) {
+      return (
+        text: '维护中',
+        bg: AppColors.surfaceMuted,
+        fg: AppColors.textSecondary,
+      );
+    }
+    if (_loading) {
+      return (
+        text: '加载中',
+        bg: AppColors.surfaceMuted,
+        fg: AppColors.textSecondary,
+      );
+    }
+    if (_detail == null) {
+      return (
+        text: '数据未取到',
+        bg: AppColors.surfaceMuted,
+        fg: AppColors.textSecondary,
+      );
+    }
+    if (_hasBookableSlot) {
+      return (text: '可预约', bg: AppColors.successBg, fg: AppColors.successText);
+    }
+    return (
+      text: '当天无可约时段',
+      bg: AppColors.warningBg,
+      fg: AppColors.warningText,
+    );
+  }
+
+  /// 点击一个整点：选中 / 延长 / 再点开始时段取消。
+  void _onTapHourSlot(SpaceHourSlot slot) {
+    if (slot.isOccupied || slot.isPastFor(_selectedDate)) return;
+
+    final hour = int.tryParse(slot.startHour.split(':').first);
+    if (hour == null) return;
+
+    final room = _room;
+    final result = SpaceSlotSelection.tap(
+      current: _selection,
+      tappedHour: hour,
+      openEndHour: _openEndHour,
+      minDurationHours: SpaceBookingRules.minHoursFromMinutes(
+        room.reservationMinTime,
+      ),
+      maxDurationHours: SpaceBookingRules.maxHoursFromMinutes(
+        room.reservationMaxTime,
+      ),
+      isRangeFree: _isRangeFree,
+    );
+
+    if (result.error != null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(result.error!)));
+      return;
+    }
+
+    _applySelection(result.selection);
+  }
+
+  /// 把页面滚动到时段表（底部「去选时段」用）。
+  void _scrollToSlots() {
+    final ctx = _slotsKey.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+      alignment: 0.05,
+    );
   }
 
   /// 免密跳转官方网页端直接预约该研讨间
   Future<void> _openWebBooking() async {
-    // 遮罩交给 runWithBlockingProgress：任务无论成功、失败还是抛异常都会关掉，
-    // 不会留下一个点不动的全屏挡住页面退不出去。
-    final code = await runWithBlockingProgress<String?>(
-      context,
-      '正在同步免密凭据...',
-      () => widget.api.acquireFreshAuthCode(redirectPath: '/mStudent/room'),
-    );
+    if (_webBookingOpening) return;
+    _webBookingOpening = true;
+    try {
+      // 遮罩交给 runWithBlockingProgress：任务无论成功、失败还是抛异常都会关掉，
+      // 不会留下一个点不动的全屏挡住页面退不出去。
+      final code = await runWithBlockingProgress<String?>(
+        context,
+        '正在同步免密凭据...',
+        () => widget.api.acquireFreshAuthCode(redirectPath: '/mStudent/room'),
+      );
 
-    // 授权码已解码，必须重新做百分号编码（含 '+'、'/'、'='）
-    final webUrl = SpaceWebUrl.room(
-      roomId: widget.room.id,
-      date: DateFmt.ymd(_selectedDate),
-      code: code,
-    );
+      // 授权码已解码，必须重新做百分号编码（含 '+'、'/'、'='）
+      final webUrl = SpaceWebUrl.room(
+        roomId: widget.room.id,
+        date: DateFmt.ymd(_selectedDate),
+        code: code,
+      );
 
-    final cookies =
-        JwglAuth.instance.client?.jar.cookies ?? const <CasCookie>[];
+      final cookies =
+          JwglAuth.instance.client?.jar.cookies ?? const <CasCookie>[];
 
-    if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => SimpleWebPage(
-          title: '网页端预约 · ${widget.room.name}',
-          url: webUrl,
-          cookies: cookies,
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SimpleWebPage(
+            title: '网页端预约 · ${widget.room.name}',
+            url: webUrl,
+            cookies: cookies,
+          ),
         ),
-      ),
-    );
+      );
+
+      // 网页端可能已经占用/释放了时段，回来必须重新拉一次，
+      // 否则用户看到的是进网页之前的旧时段状态。
+      if (!mounted) return;
+      await _loadDetail();
+    } finally {
+      _webBookingOpening = false;
+    }
   }
 
   /// 弹出原生预约配置表单底部抽屉
   void _openNativeBookingSheet(SpaceRoom room) {
+    final selection = _selection;
+    if (selection == null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('请先在上方时段表中选择预约时间')));
+      return;
+    }
+
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -242,17 +352,16 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
       builder: (ctx) => _NativeBookingBottomSheet(
         room: room,
         selectedDate: _selectedDate,
-        initialStartTime: _selectedStartTime,
-        initialEndTime: _selectedEndTime,
+        selection: selection,
         purposes: _purposes,
         bookedSegments: _detail?.bookedSegments ?? const <SpaceBookedSegment>[],
         timeSlices: _detail?.timeSlices ?? const <SpaceTimeSlice>[],
         api: widget.api,
-        onSuccess: () {
+        onSuccess: (start, end) {
           Navigator.of(ctx).pop();
           _loadDetail();
           widget.onReservationCompleted?.call();
-          _showBookingSuccessDialog(room);
+          _showBookingSuccessDialog(room, start: start, end: end);
         },
         onFallbackWeb: () {
           Navigator.of(ctx).pop();
@@ -262,7 +371,11 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
     );
   }
 
-  void _showBookingSuccessDialog(SpaceRoom room) {
+  void _showBookingSuccessDialog(
+    SpaceRoom room, {
+    required String start,
+    required String end,
+  }) {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -271,7 +384,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
           children: <Widget>[
             Icon(
               Icons.check_circle_rounded,
-              color: Color(0xFF16A34A),
+              color: AppColors.success,
               size: 28,
             ),
             SizedBox(width: 10),
@@ -295,7 +408,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              '日期：${DateFmt.ymd(_selectedDate)}\n时段：${_selectedStartTime ?? ''} - ${_selectedEndTime ?? ''}',
+              '日期：${DateFmt.ymd(_selectedDate)}\n时段：$start - $end',
               style: const TextStyle(
                 fontSize: 13,
                 color: AppColors.textSecondary,
@@ -306,14 +419,14 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFFFEF3C7),
+                color: AppColors.warningBg,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Row(
                 children: <Widget>[
                   Icon(
                     Icons.access_time_filled,
-                    color: Color(0xFFD97706),
+                    color: AppColors.warning,
                     size: 16,
                   ),
                   SizedBox(width: 8),
@@ -322,7 +435,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                       '请务必在开场前20分钟至开场后20分钟内在门口刷卡或扫码签到，以免影响信用积分。',
                       style: TextStyle(
                         fontSize: 11.5,
-                        color: Color(0xFF92400E),
+                        color: AppColors.warningText,
                       ),
                     ),
                   ),
@@ -382,13 +495,17 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                   children: <Widget>[
                     _buildOverviewCard(currentRoom),
                     const SizedBox(height: 12),
+                    // 时段选择是主操作，放在设施/规则之前，避免用户先滚一屏才看到。
+                    KeyedSubtree(
+                      key: _slotsKey,
+                      child: _buildSlicesCard(currentRoom),
+                    ),
+                    const SizedBox(height: 12),
                     if (currentRoom.deviceList.isNotEmpty) ...<Widget>[
                       _buildDevicesCard(currentRoom),
                       const SizedBox(height: 12),
                     ],
                     _buildRulesCard(currentRoom),
-                    const SizedBox(height: 12),
-                    _buildSlicesCard(currentRoom),
                   ],
                 ),
               ),
@@ -401,119 +518,155 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
   }
 
   // =========================================================================
-  // 日期快捷切换条（今天 / 明天 / 后天，共 3 天）
+  // 日期快捷切换条（今天 / 明天 / 后天 + 日历）
   // =========================================================================
+
   Widget _buildDateSelector() {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final candidateDates = <DateTime>[
+    final quickDates = <DateTime>[
       today,
       today.add(const Duration(days: 1)),
       today.add(const Duration(days: 2)),
     ];
-
     const labels = <String>['今天', '明天', '后天'];
+    final selectedIsQuick = quickDates.any((d) => _isSameDay(d, _selectedDate));
 
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
-        children: List<Widget>.generate(candidateDates.length, (i) {
-          final d = candidateDates[i];
-          final isSelected =
-              d.year == _selectedDate.year &&
-              d.month == _selectedDate.month &&
-              d.day == _selectedDate.day;
-
-          return Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(
-                left: i == 0 ? 0 : 4,
-                right: i == candidateDates.length - 1 ? 0 : 4,
-              ),
-              child: InkWell(
-                onTap: () {
-                  if (!isSelected) {
-                    setState(() {
-                      _selectedDate = d;
-                    });
-                    _loadDetail();
-                  }
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  height: 38,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? const Color(0xFFFDE8E8)
-                        : const Color(0xFFF4F4F5),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isSelected
-                          ? AppColors.usstRed
-                          : Colors.transparent,
-                      width: 1,
+        children: <Widget>[
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: <Widget>[
+                  for (int i = 0; i < quickDates.length; i++) ...<Widget>[
+                    _buildDateChip(
+                      date: quickDates[i],
+                      label: labels[i],
+                      isSelected: _isSameDay(quickDates[i], _selectedDate),
                     ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: <Widget>[
-                      Text(
-                        DateFmt.md(d),
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: isSelected
-                              ? FontWeight.bold
-                              : FontWeight.w500,
-                          color: isSelected
-                              ? AppColors.usstRed
-                              : AppColors.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        labels[i],
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: isSelected
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                          color: isSelected
-                              ? AppColors.usstRed
-                              : AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                    const SizedBox(width: 8),
+                  ],
+                  // 日历可选未来 14 天，选到快捷项之外时补一个 chip；
+                  // 否则三个快捷项全不高亮，用户看不出当前看的是哪天。
+                  if (!selectedIsQuick)
+                    _buildDateChip(
+                      date: _selectedDate,
+                      label: '已选',
+                      isSelected: true,
+                    ),
+                ],
               ),
             ),
-          );
-        }),
+          ),
+          IconButton(
+            tooltip: '选择其他日期',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(
+              Icons.edit_calendar_rounded,
+              size: 20,
+              color: AppColors.usstRed,
+            ),
+            onPressed: _pickDate,
+          ),
+        ],
       ),
     );
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  Widget _buildDateChip({
+    required DateTime date,
+    required String label,
+    required bool isSelected,
+  }) {
+    return InkWell(
+      onTap: isSelected
+          ? null
+          : () {
+              setState(() => _selectedDate = date);
+              _loadDetail();
+            },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.dangerBg : AppColors.surfaceMuted,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? AppColors.usstRed : Colors.transparent,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              DateFmt.md(date),
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                color: isSelected ? AppColors.usstRed : AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? AppColors.usstRed : AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: today,
+      lastDate: today.add(const Duration(days: 14)),
+      builder: (ctx, child) {
+        return Theme(
+          data: Theme.of(ctx).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: AppColors.usstRed,
+              onPrimary: Colors.white,
+              onSurface: AppColors.textPrimary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+    if (_isSameDay(picked, _selectedDate)) return;
+    setState(() {
+      _selectedDate = picked;
+      _selectedStartTime = null;
+      _selectedEndTime = null;
+    });
+    await _loadDetail();
   }
 
   // =========================================================================
   // 卡片 1: 房间概览卡片
   // =========================================================================
   Widget _buildOverviewCard(SpaceRoom room) {
-    Color badgeBg;
-    Color badgeText;
-    if (room.isAvailable) {
-      badgeBg = const Color(0xFFDCFCE7);
-      badgeText = AppColors.successText;
-    } else if (room.status == 2) {
-      badgeBg = AppColors.surfaceMuted;
-      badgeText = const Color(0xFF6B7280);
-    } else if (room.status == 1) {
-      badgeBg = AppColors.surfaceMuted;
-      badgeText = const Color(0xFF6B7280);
-    } else {
-      badgeBg = const Color(0xFFFEF3C7);
-      badgeText = const Color(0xFFB45309);
-    }
+    // 不再读 `room.statusDesc`：详情接口的房间对象没有 `spaceTime`，
+    // 会被解析成 0 并误判成「已约满」。状态一律按当天时段算。
+    final status = _statusStyle(room);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -561,22 +714,22 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: badgeBg,
+                  color: status.bg,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  room.statusDesc,
+                  status.text,
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color: badgeText,
+                    color: status.fg,
                   ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
-          const Divider(height: 1, thickness: 0.6, color: Color(0xFFEEEEEE)),
+          const Divider(height: 1, thickness: 0.6, color: AppColors.divider),
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
@@ -590,8 +743,13 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                     : Icons.lock_open_outlined,
                 room.verify == 1 ? '须审核' : '免审核',
               ),
-              if (room.spaceTime > 0)
-                _buildMetaTag(Icons.timelapse_outlined, room.freeTimeDesc),
+              if (_detail != null && !_loading)
+                _buildMetaTag(
+                  Icons.timelapse_outlined,
+                  _freeHourCount > 0 ? '当天可约 $_freeHourCount 小时' : '当天无可约时段',
+                )
+              else if (_loading)
+                _buildMetaTag(Icons.hourglass_empty, '时段加载中'),
             ],
           ),
         ],
@@ -603,9 +761,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8F9FA),
+        color: AppColors.surfaceSubtle,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFFE9ECEF), width: 0.6),
+        border: Border.all(color: AppColors.border, width: 0.6),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -673,7 +831,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                   dev,
                   style: const TextStyle(
                     fontSize: 12,
-                    color: Color(0xFF374151),
+                    color: AppColors.textPrimary,
                   ),
                 ),
               );
@@ -750,9 +908,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFFBEB),
+                color: AppColors.warningFaint,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFFDE68A), width: 0.8),
+                border: Border.all(color: AppColors.warningBorder, width: 0.8),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -760,7 +918,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                   const Icon(
                     Icons.info_outline,
                     size: 15,
-                    color: Color(0xFFD97706),
+                    color: AppColors.warning,
                   ),
                   SizedBox(width: 6),
                   Expanded(
@@ -768,7 +926,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                       room.label.isNotEmpty ? room.label : room.remark,
                       style: const TextStyle(
                         fontSize: 12,
-                        color: Color(0xFF92400E),
+                        color: AppColors.warningText,
                       ),
                     ),
                   ),
@@ -811,13 +969,6 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
     );
   }
 
-  String _calculateDurationText(String start, String end) {
-    final s = int.tryParse(start.split(':').first) ?? 0;
-    final e = int.tryParse(end.split(':').first) ?? 0;
-    final h = e - s;
-    return h > 0 ? '共 $h 小时' : '';
-  }
-
   // =========================================================================
   // 卡片 4: 实时时段分布卡片（按小时整点颗粒度）
   // =========================================================================
@@ -850,11 +1001,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 ),
               ),
               const Spacer(),
-              _buildLegend(
-                const Color(0xFFDCFCE7),
-                AppColors.successText,
-                '可预约',
-              ),
+              _buildLegend(AppColors.successBg, AppColors.successText, '可预约'),
               const SizedBox(width: 8),
               _buildLegend(AppColors.dangerBg, AppColors.usstRed, '已选'),
               const SizedBox(width: 8),
@@ -863,41 +1010,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
           ),
           const SizedBox(height: 12),
           if (_loading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.2,
-                    color: AppColors.usstRed,
-                  ),
-                ),
-              ),
-            )
+            const AsyncStateView(loading: true, compact: true)
           else if (_error != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Column(
-                children: <Widget>[
-                  Text(
-                    _error!,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textSecondary,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: _loadDetail,
-                    icon: const Icon(Icons.refresh, size: 16),
-                    label: const Text('重试', style: TextStyle(fontSize: 12)),
-                  ),
-                ],
-              ),
-            )
+            AsyncStateView(error: _error, onRetry: _loadDetail, compact: true)
           else if (_detail != null && _hourSlots.isNotEmpty) ...<Widget>[
             // 1小时整点颗粒度时段网格
             GridView.builder(
@@ -941,14 +1056,14 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                       : '已被约';
                   icon = Icons.lock_outline;
                 } else if (isPast) {
-                  bg = const Color(0xFFF9FAFB);
+                  bg = AppColors.surfaceSubtle;
                   border = AppColors.border;
                   textColor = AppColors.textMuted;
                   statusText = '已过时';
                   icon = Icons.history;
                 } else {
-                  bg = const Color(0xFFF0FDF4);
-                  border = const Color(0xFFBBF7D0);
+                  bg = AppColors.successFaint;
+                  border = AppColors.successBorderSoft;
                   textColor = AppColors.successText;
                   statusText = '可预约';
                   icon = Icons.radio_button_unchecked;
@@ -1008,8 +1123,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 );
               },
             ),
-            if (_selectedStartTime != null &&
-                _selectedEndTime != null) ...<Widget>[
+            if (_selection != null) ...<Widget>[
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -1017,9 +1131,9 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
+                  color: AppColors.surfaceSubtle,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  border: Border.all(color: AppColors.border),
                 ),
                 child: Row(
                   children: <Widget>[
@@ -1031,7 +1145,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        '已选：$_selectedStartTime - $_selectedEndTime (${_calculateDurationText(_selectedStartTime!, _selectedEndTime!)})',
+                        '已选：${_selection!.startLabel} - ${_selection!.endLabel}（共 ${_selection!.durationHours} 小时）',
                         style: const TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.bold,
@@ -1045,12 +1159,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                         minimumSize: const Size(40, 24),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      onPressed: () {
-                        setState(() {
-                          _selectedStartTime = null;
-                          _selectedEndTime = null;
-                        });
-                      },
+                      onPressed: () => _applySelection(null),
                       child: const Text(
                         '重置',
                         style: TextStyle(
@@ -1061,6 +1170,27 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                     ),
                   ],
                 ),
+              ),
+            ] else ...<Widget>[
+              const SizedBox(height: 10),
+              const Row(
+                children: <Widget>[
+                  Icon(
+                    Icons.touch_app_outlined,
+                    size: 14,
+                    color: AppColors.textSecondary,
+                  ),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '点选时段开始预约；再点一次已选中的时段可取消',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
             // 已占用明细
@@ -1084,7 +1214,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFAFAFA),
+                      color: AppColors.surfaceFaint,
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(color: AppColors.border, width: 0.6),
                     ),
@@ -1093,7 +1223,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                         const Icon(
                           Icons.event_busy,
                           size: 14,
-                          color: Color(0xFFEF4444),
+                          color: AppColors.danger,
                         ),
                         const SizedBox(width: 6),
                         Text(
@@ -1117,7 +1247,7 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                             seg.statusDesc,
                             style: const TextStyle(
                               fontSize: 10.5,
-                              color: Color(0xFFB91C1C),
+                              color: AppColors.danger,
                             ),
                           ),
                         ),
@@ -1168,7 +1298,53 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
   // 底部固定操作栏
   // =========================================================================
   Widget _buildBottomBar(SpaceRoom room) {
-    final available = room.isAvailable;
+    final selection = _selection;
+    // 列表页拿到的 `spaceTime` 只代表进页面那一刻；切到别的日期后并不可信。
+    // 真正能不能约要看当前日期拉到的整点时段。
+    final canBook =
+        room.status == 0 && !_loading && _detail != null && _hasBookableSlot;
+
+    final String hint;
+    final Color hintColor;
+    if (_loading) {
+      hint = '正在加载当天时段...';
+      hintColor = AppColors.textSecondary;
+    } else if (!canBook) {
+      hint = _detail == null
+          ? '未取到当天时段，请下拉刷新或点重试'
+          : room.status != 0
+          ? _statusStyle(room).text
+          : '当天已无可约时段，可到网页端查看';
+      hintColor = AppColors.danger;
+    } else if (selection == null) {
+      hint = '先在下方时段表里点选预约时间（再点一次可取消）';
+      hintColor = AppColors.textSecondary;
+    } else {
+      hint =
+          '已选：${selection.startLabel} - ${selection.endLabel}（共 ${selection.durationHours} 小时）';
+      hintColor = AppColors.successText;
+    }
+
+    // 没选时段时按钮改成「去选时段」并把页面滚到时段表，
+    // 而不是给一个点不动的禁用按钮。
+    final String buttonLabel;
+    final IconData buttonIcon;
+    final VoidCallback? onPressed;
+    if (canBook) {
+      if (selection == null) {
+        buttonLabel = '去选时段';
+        buttonIcon = Icons.touch_app_outlined;
+        onPressed = _scrollToSlots;
+      } else {
+        buttonLabel = '去预约';
+        buttonIcon = Icons.event_available;
+        onPressed = () => _openNativeBookingSheet(room);
+      }
+    } else {
+      buttonLabel = '网页端查看';
+      buttonIcon = Icons.open_in_new;
+      onPressed = _openWebBooking;
+    }
 
     return Container(
       color: Colors.white,
@@ -1199,40 +1375,39 @@ class _SpaceRoomDetailPageState extends State<SpaceRoomDetailPage> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  _selectedStartTime != null && _selectedEndTime != null
-                      ? '已选：$_selectedStartTime - $_selectedEndTime (${_calculateDurationText(_selectedStartTime!, _selectedEndTime!)})'
-                      : available
-                      ? '点击上方时段卡片选择'
-                      : room.statusDesc,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: available ? AppColors.successText : AppColors.danger,
-                  ),
+                  hint,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11.5, color: hintColor),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.usstRed,
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              disabledBackgroundColor: AppColors.surfaceMuted,
+              disabledForegroundColor: AppColors.textMuted,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
               elevation: 0,
             ),
-            icon: const Icon(Icons.event_available, size: 16),
+            icon: Icon(buttonIcon, size: 16),
             label: Text(
-              available ? '立即预约' : '查看预约规则',
+              // 标签必须和真实动作一致：
+              // - 可约但未选时段 → 禁用（表单只接受已选时段）
+              // - 当天没有可约时段 → 网页端查看
+              buttonLabel,
               style: const TextStyle(
                 fontSize: 13.5,
                 fontWeight: FontWeight.bold,
               ),
             ),
-            onPressed: available
-                ? () => _openNativeBookingSheet(room)
-                : _openWebBooking,
+            onPressed: onPressed,
           ),
         ],
       ),
@@ -1245,8 +1420,7 @@ class _NativeBookingBottomSheet extends StatefulWidget {
   const _NativeBookingBottomSheet({
     required this.room,
     required this.selectedDate,
-    required this.initialStartTime,
-    required this.initialEndTime,
+    required this.selection,
     required this.purposes,
     required this.bookedSegments,
     required this.timeSlices,
@@ -1257,13 +1431,17 @@ class _NativeBookingBottomSheet extends StatefulWidget {
 
   final SpaceRoom room;
   final DateTime selectedDate;
-  final String? initialStartTime;
-  final String? initialEndTime;
+
+  /// 用户在时段表上选好的区间。表单不再自带开始时间/时长控件——
+  /// 那套控件与网格各算各的，会出现「选中了 10:00-12:00，表单里却是别的时段」。
+  final SpaceSlotSelection selection;
   final List<SpacePurpose> purposes;
   final List<SpaceBookedSegment> bookedSegments;
   final List<SpaceTimeSlice> timeSlices;
   final SpaceBookingApi api;
-  final VoidCallback onSuccess;
+
+  /// 预约成功回调，带上**实际提交**的开始/结束时间。
+  final void Function(String start, String end) onSuccess;
   final VoidCallback onFallbackWeb;
 
   @override
@@ -1272,10 +1450,11 @@ class _NativeBookingBottomSheet extends StatefulWidget {
 }
 
 class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
-  late String _startHour;
-  late int _durationHours;
   SpacePurpose? _selectedPurpose;
   final List<String> _memberIds = <String>[];
+
+  /// 同行成员学号 → 姓名（查到时展示「张三 (2312xxx)」，查不到只显示学号）
+  final Map<String, String> _memberNames = <String, String>{};
   final TextEditingController _memberInputCtrl = TextEditingController();
   final TextEditingController _mobileCtrl = TextEditingController();
   final TextEditingController _remarkCtrl = TextEditingController();
@@ -1283,77 +1462,31 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
   bool _submitting = false;
   String? _formError;
 
-  List<String> get _openHours {
-    final startH =
-        int.tryParse(widget.room.openStartTime.split(':').first) ?? 8;
-    final endH = int.tryParse(widget.room.openEndTime.split(':').first) ?? 21;
-    final list = <String>[];
-    for (var h = startH; h < endH; h++) {
-      list.add('${h.toString().padLeft(2, '0')}:00');
-    }
-    return list;
+  /// 当前用途允许的最长整点小时数；null 表示不限。
+  int? get _purposeMaxHours {
+    final maxTime = _selectedPurpose?.maxTime;
+    if (maxTime == null || maxTime <= 0) return null;
+    return SpaceBookingRules.maxHoursFromMinutes(maxTime);
   }
 
-  /// 可选的开始时间：今天要滤掉已经过去的整点。
-  ///
-  /// 网格那边已经用 `isPastFor` 把过期时段置灰了，抽屉如果还全天可选，
-  /// 就会出现「网格灰着、下拉能选、提交被服务端拒绝」。
-  /// 判定口径与 `SpaceHourSlot.isPastFor` 保持一致（整点后 10 分钟算过期）。
-  List<String> get _availableStartHours {
-    final now = DateTime.now();
-    final d = widget.selectedDate;
-    final isToday =
-        d.year == now.year && d.month == now.month && d.day == now.day;
-    if (!isToday) return _openHours;
-    return _openHours.where((hour) {
-      final h = int.tryParse(hour.split(':').first) ?? 0;
-      if (h < now.hour) return false;
-      if (h == now.hour && now.minute >= 10) return false;
-      return true;
-    }).toList();
-  }
-
-  /// 下拉框候选项。`_startHour` 正常一定在 [_availableStartHours] 里，
-  /// 但面板若停留跨过整点 10 分的边界就会失效；
-  /// `DropdownButton` 要求 value 必须存在于 items 中，这里兜一层防止断言崩溃。
-  List<String> get _startHourItems {
-    final hours = _availableStartHours;
-    if (hours.contains(_startHour)) return hours;
-    return <String>[...hours, _startHour]..sort();
-  }
-
-  List<int> get _allowedDurations {
-    final minH = (widget.room.reservationMinTime / 60).round().clamp(1, 4);
-    final maxH = (widget.room.reservationMaxTime / 60).round().clamp(minH, 4);
-    final list = <int>[];
-    for (var d = minH; d <= maxH; d++) {
-      list.add(d);
-    }
-    return list;
-  }
-
-  String get _endHour {
-    final sH = int.tryParse(_startHour.split(':').first) ?? 8;
-    final openEndH =
-        int.tryParse(widget.room.openEndTime.split(':').first) ?? 21;
-    final eH = (sH + _durationHours).clamp(sH + 1, openEndH);
-    return '${eH.toString().padLeft(2, '0')}:00';
+  bool get _exceedsPurposeMax {
+    final maxH = _purposeMaxHours;
+    return maxH != null && widget.selection.durationHours > maxH;
   }
 
   /// 与页面网格口径一致：占用既可能来自 `bookedSegments`，
   /// 也可能来自 `dateTimeSlicesList` 解析出的 `timeSlices`，两个都必须查。
-  /// 只查前者会让「网格显示不可约、抽屉里却是绿的」这种情况漏过去。
   bool get _hasConflict {
-    final end = _endHour;
+    final start = widget.selection.startLabel;
+    final end = widget.selection.endLabel;
     for (final b in widget.bookedSegments) {
-      if (_startHour.compareTo(b.endTime) < 0 &&
-          end.compareTo(b.startTime) > 0) {
+      if (start.compareTo(b.endTime) < 0 && end.compareTo(b.startTime) > 0) {
         return true;
       }
     }
     for (final slice in widget.timeSlices) {
       if (!slice.isOccupied) continue;
-      if (_startHour.compareTo(slice.endTime) < 0 &&
+      if (start.compareTo(slice.endTime) < 0 &&
           end.compareTo(slice.startTime) > 0) {
         return true;
       }
@@ -1365,30 +1498,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
   void initState() {
     super.initState();
 
-    // 先定开始时间，后面算时长候选时要用
-    final initialStart = widget.initialStartTime;
-    if (initialStart != null && initialStart.isNotEmpty) {
-      final sH = int.tryParse(initialStart.split(':').first) ?? 8;
-      _startHour = '${sH.toString().padLeft(2, '0')}:00';
-    } else {
-      final hours = _availableStartHours;
-      _startHour = hours.isNotEmpty ? hours.first : '08:00';
-    }
-
-    final allowed = _allowedDurations;
-    final minH = allowed.first;
-    final maxH = allowed.last;
-
-    final initialEnd = widget.initialEndTime;
-    if (initialEnd != null && initialEnd.isNotEmpty) {
-      final sH = int.tryParse(_startHour.split(':').first) ?? 8;
-      final eH = int.tryParse(initialEnd.split(':').first) ?? (sH + minH);
-      _durationHours = (eH - sH).clamp(minH, maxH);
-    } else {
-      _durationHours = minH;
-    }
-
-    // 默认用途
+    // 默认用途：静音舱等单人间优先「单人研习」，其余优先「研讨交流」。
     if (widget.purposes.isNotEmpty) {
       if (widget.room.maxNum == 1) {
         _selectedPurpose = widget.purposes.firstWhere(
@@ -1400,6 +1510,22 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
           (p) => p.label.contains('研讨'),
           orElse: () => widget.purposes.first,
         );
+      }
+
+      // 用户可能在时段表上选了 4 小时，而默认用途最长只有 2 小时。
+      // 换成一个放得下的用途（取最长），避免一打开表单就是错误状态。
+      if (_exceedsPurposeMax) {
+        final fitting = widget.purposes.where((p) {
+          final maxTime = p.maxTime;
+          return maxTime <= 0 ||
+              SpaceBookingRules.maxHoursFromMinutes(maxTime) >=
+                  widget.selection.durationHours;
+        }).toList();
+        if (fitting.isNotEmpty) {
+          _selectedPurpose = fitting.reduce(
+            (a, b) => a.maxTime >= b.maxTime ? a : b,
+          );
+        }
       }
     }
 
@@ -1418,6 +1544,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
   }
 
   Future<void> _addMember() async {
+    if (_submitting) return;
     final input = _memberInputCtrl.text.trim();
     if (input.isEmpty) return;
 
@@ -1431,25 +1558,55 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
       return;
     }
 
-    // 验证学号是否存在
-    final u = await widget.api.searchUser(input);
-    if (!mounted) return;
-
-    if (u == null) {
-      // 容错：允许手动添加学号
-      setState(() {
-        _memberIds.add(input);
-        _memberInputCtrl.clear();
-        _formError = null;
-      });
+    // 人数上限：服务端会拒绝超额预约，这里提前拦住，
+    // 避免用户填完一串信息、提交后才看到报错。
+    final maxNum = widget.room.maxNum;
+    if (maxNum > 0 && 1 + _memberIds.length >= maxNum) {
+      setState(() => _formError = '该空间最多 $maxNum 人，无法再添加同行成员');
       return;
     }
 
+    // 查学号：null = 查无此人；异常 = 查询失败。两种情况必须分开提示，
+    // 原来「查不到也照样加进去」会把手误学号带进提交，被服务端整单拒绝。
+    Map<String, dynamic>? user;
+    try {
+      user = await widget.api.searchUser(input);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _formError = e is SpaceBookingException ? e.message : '查询同学信息失败，请稍后重试';
+      });
+      return;
+    }
+    if (!mounted) return;
+
+    if (user == null) {
+      setState(() => _formError = '未找到学号 $input 的同学，请核对后重试');
+      return;
+    }
+
+    final name =
+        (user['realName'] ?? user['userName'] ?? user['nickName'] ?? '')
+            .toString()
+            .trim();
     setState(() {
       _memberIds.add(input);
+      if (name.isNotEmpty) _memberNames[input] = name;
       _memberInputCtrl.clear();
       _formError = null;
     });
+  }
+
+  /// 表单错误：同时写进错误条 + 弹一条 SnackBar。
+  ///
+  /// 抽屉内容可能被滚到顶部，底部错误条不一定在视野里；只写错误条时
+  /// 用户会觉得「点了提交没反应」。
+  void _showFormError(String message) {
+    if (!mounted) return;
+    setState(() => _formError = message);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _submit() async {
@@ -1457,15 +1614,29 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
       _formError = null;
     });
 
-    // 面板可能停留很久，或从网格带进来的开始时间在打开面板后已经过期
-    if (!_availableStartHours.contains(_startHour)) {
-      setState(() => _formError = '所选开始时间已过，请重新选择时段');
+    final selection = widget.selection;
+
+    // 面板可能停留很久：选中的开始时间可能已经过了。
+    if (SpaceBookingRules.isPastHour(
+      selection.startHour,
+      widget.selectedDate,
+      DateTime.now(),
+    )) {
+      _showFormError('所选开始时间已过，请关闭本页重新选择时段');
       return;
     }
 
-    final end = _endHour;
     if (_hasConflict) {
-      setState(() => _formError = '所选时间段 ($_startHour - $end) 与已有预约冲突，请重新选择');
+      _showFormError(
+        '所选时段 (${selection.startLabel} - ${selection.endLabel}) 已被占用，请关闭本页刷新后重选',
+      );
+      return;
+    }
+
+    if (_exceedsPurposeMax) {
+      _showFormError(
+        '【${_selectedPurpose?.label ?? '当前用途'}】最长 $_purposeMaxHours 小时，当前选择 ${selection.durationHours} 小时，请返回重选时段',
+      );
       return;
     }
 
@@ -1473,10 +1644,20 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
     final requiredMin = _selectedPurpose?.minNum ?? widget.room.minNum;
     final totalMembers = 1 + _memberIds.length;
     if (totalMembers < requiredMin) {
-      setState(
-        () => _formError =
-            '【${_selectedPurpose?.label ?? '研讨'}】要求至少 $requiredMin 人同时预约（含本人还需添加 ${requiredMin - totalMembers} 名同行人）',
+      _showFormError(
+        '【${_selectedPurpose?.label ?? '研讨'}】要求至少 $requiredMin 人同时预约（含本人还需添加 ${requiredMin - totalMembers} 名同行人）',
       );
+      return;
+    }
+    if (widget.room.maxNum > 0 && totalMembers > widget.room.maxNum) {
+      _showFormError('该空间最多 ${widget.room.maxNum} 人，当前已选 $totalMembers 人');
+      return;
+    }
+
+    // 联系电话：选填，但填了就要是合法手机号，避免服务端静默丢弃通知。
+    final mobile = _mobileCtrl.text.trim();
+    if (mobile.isNotEmpty && !RegExp(r'^1\d{10}$').hasMatch(mobile)) {
+      _showFormError('联系电话格式不正确，请填写 11 位手机号');
       return;
     }
 
@@ -1485,8 +1666,8 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
     });
 
     final dateStr = DateFmt.ymd(widget.selectedDate);
-    final fullStart = '$dateStr $_startHour:00';
-    final fullEnd = '$dateStr $end:00';
+    final fullStart = '$dateStr ${selection.startLabel}:00';
+    final fullEnd = '$dateStr ${selection.endLabel}:00';
     final dictId = _selectedPurpose?.id ?? 1;
 
     final result = await widget.api.submitReservation(
@@ -1495,7 +1676,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
       endTime: fullEnd,
       dictId: dictId,
       memberIds: _memberIds,
-      mobile: _mobileCtrl.text.trim(),
+      mobile: mobile,
       remark: _remarkCtrl.text.trim(),
     );
 
@@ -1505,11 +1686,9 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
     });
 
     if (result.success) {
-      widget.onSuccess();
+      widget.onSuccess(selection.startLabel, selection.endLabel);
     } else {
-      setState(() {
-        _formError = result.message;
-      });
+      _showFormError(result.message);
     }
   }
 
@@ -1535,28 +1714,33 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
           // 顶部栏
           Row(
             children: <Widget>[
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    '预约空间 · ${widget.room.name}',
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      '预约空间 · ${widget.room.name}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${DateFmt.ymd(widget.selectedDate)} · ${widget.room.shortBuildingName} ${widget.room.floor}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textSecondary,
+                    const SizedBox(height: 2),
+                    Text(
+                      '${DateFmt.ymd(widget.selectedDate)} · ${widget.room.shortBuildingName} ${widget.room.floor}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              const Spacer(),
               IconButton(
                 icon: const Icon(
                   Icons.close,
@@ -1573,6 +1757,71 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
+                  // 0. 已选时段（来自时段表，表单里只读）
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _hasConflict
+                          ? AppColors.redTintBg
+                          : AppColors.surfaceSubtle,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: _hasConflict
+                            ? AppColors.dangerBorder
+                            : AppColors.border,
+                      ),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Icon(
+                          _hasConflict
+                              ? Icons.error_outline
+                              : Icons.event_available,
+                          size: 18,
+                          color: _hasConflict
+                              ? AppColors.danger
+                              : AppColors.usstRed,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                '预约时段：${widget.selection.startLabel} - ${widget.selection.endLabel}',
+                                style: const TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _hasConflict
+                                    ? '该时段刚刚被占用，请关闭本页刷新后重选'
+                                    : '共 ${widget.selection.durationHours} 小时 · 需调整请关闭本页在时段表上重选',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: _hasConflict
+                                      ? AppColors.danger
+                                      : AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text(
+                            '重选',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
                   // 1. 用途选择
                   const Text(
                     '预约用途',
@@ -1608,9 +1857,8 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                               : Colors.transparent,
                         ),
                         onSelected: (val) {
-                          if (val) {
-                            setState(() => _selectedPurpose = p);
-                          }
+                          if (!val) return;
+                          setState(() => _selectedPurpose = p);
                         },
                       );
                     }).toList(),
@@ -1622,7 +1870,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFEF3C7),
+                        color: AppColors.warningBg,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: const Row(
@@ -1630,7 +1878,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                           Icon(
                             Icons.info_outline,
                             size: 15,
-                            color: Color(0xFFD97706),
+                            color: AppColors.warning,
                           ),
                           SizedBox(width: 6),
                           Expanded(
@@ -1638,7 +1886,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                               '未能加载预约用途列表，将按系统默认用途提交',
                               style: TextStyle(
                                 fontSize: 11.5,
-                                color: Color(0xFF92400E),
+                                color: AppColors.warningText,
                               ),
                             ),
                           ),
@@ -1648,180 +1896,37 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                   ],
                   const SizedBox(height: 14),
 
-                  // 2. 时段选择（整点小时）
-                  const Text(
-                    '预约时段（按小时整点预约）',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        flex: 5,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            const Text(
-                              '开始时间',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Container(
-                              height: 40,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: AppColors.borderStrong,
-                                ),
-                                color: const Color(0xFFFAFAFA),
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  value: _startHour,
-                                  isExpanded: true,
-                                  icon: const Icon(
-                                    Icons.keyboard_arrow_down,
-                                    size: 20,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                  items: _startHourItems.map((h) {
-                                    return DropdownMenuItem<String>(
-                                      value: h,
-                                      child: Text(
-                                        h,
-                                        style: const TextStyle(
-                                          fontSize: 13.5,
-                                          fontWeight: FontWeight.bold,
-                                          color: AppColors.textPrimary,
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                  onChanged: (newStart) {
-                                    if (newStart != null) {
-                                      setState(() {
-                                        _startHour = newStart;
-                                      });
-                                    }
-                                  },
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                  // 2. 用途时长校验（时间在时段表上选，表单不再重复提供控件）
+                  if (_exceedsPurposeMax) ...<Widget>[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.dangerBg,
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        flex: 6,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            const Text(
-                              '预约时长',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textSecondary,
+                      child: Row(
+                        children: <Widget>[
+                          const Icon(
+                            Icons.error_outline,
+                            size: 15,
+                            color: AppColors.danger,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '【${_selectedPurpose?.label ?? '当前用途'}】最长 $_purposeMaxHours 小时，当前选择 ${widget.selection.durationHours} 小时。请换用途或返回重选时段。',
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                color: AppColors.danger,
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            Wrap(
-                              spacing: 6,
-                              children: _allowedDurations.map((d) {
-                                final isSelected = _durationHours == d;
-                                return ChoiceChip(
-                                  label: Text('$d小时'),
-                                  selected: isSelected,
-                                  selectedColor: AppColors.dangerBg,
-                                  backgroundColor: AppColors.surfaceMuted,
-                                  labelStyle: TextStyle(
-                                    fontSize: 12,
-                                    color: isSelected
-                                        ? AppColors.usstRed
-                                        : AppColors.textPrimary,
-                                    fontWeight: isSelected
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                  ),
-                                  side: BorderSide(
-                                    color: isSelected
-                                        ? AppColors.usstRed
-                                        : Colors.transparent,
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 2,
-                                  ),
-                                  visualDensity: VisualDensity.compact,
-                                  onSelected: (val) {
-                                    if (val) {
-                                      setState(() => _durationHours = d);
-                                    }
-                                  },
-                                );
-                              }).toList(),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _hasConflict
-                          ? const Color(0xFFFEF2F2)
-                          : const Color(0xFFF0FDF4),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: _hasConflict
-                            ? const Color(0xFFFECACA)
-                            : const Color(0xFFBBF7D0),
-                      ),
-                    ),
-                    child: Row(
-                      children: <Widget>[
-                        Icon(
-                          _hasConflict
-                              ? Icons.error_outline
-                              : Icons.check_circle_outline,
-                          size: 16,
-                          color: _hasConflict
-                              ? AppColors.danger
-                              : const Color(0xFF16A34A),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _hasConflict
-                                ? '所选时段 $_startHour 至 $_endHour 已被占用，请更改'
-                                : '预约时段：$_startHour 至 $_endHour (共 $_durationHours 小时)',
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                              color: _hasConflict
-                                  ? AppColors.danger
-                                  : AppColors.successText,
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 14),
+                    const SizedBox(height: 14),
+                  ],
 
                   // 3. 同行成员（若需要）
                   if (requiredMin > 1) ...<Widget>[
@@ -1836,14 +1941,16 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          '最少 $requiredMin 人（已选 $totalCount 人）',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: totalCount >= requiredMin
-                                ? const Color(0xFF16A34A)
-                                : AppColors.usstRed,
-                            fontWeight: FontWeight.w500,
+                        Expanded(
+                          child: Text(
+                            '最少 $requiredMin 人，最多 ${widget.room.maxNum} 人（已选 $totalCount 人）',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: totalCount >= requiredMin
+                                  ? AppColors.success
+                                  : AppColors.usstRed,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
                       ],
@@ -1921,12 +2028,20 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                           padding: EdgeInsets.zero,
                         ),
                         ..._memberIds.map((mId) {
+                          final name = _memberNames[mId];
                           return Chip(
-                            label: Text(mId),
+                            label: Text(
+                              name == null || name.isEmpty
+                                  ? mId
+                                  : '$name ($mId)',
+                            ),
                             backgroundColor: AppColors.surfaceMuted,
                             deleteIcon: const Icon(Icons.close, size: 14),
                             onDeleted: () {
-                              setState(() => _memberIds.remove(mId));
+                              setState(() {
+                                _memberIds.remove(mId);
+                                _memberNames.remove(mId);
+                              });
                             },
                             visualDensity: VisualDensity.compact,
                             padding: EdgeInsets.zero,

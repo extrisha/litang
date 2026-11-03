@@ -17,7 +17,7 @@ class QuickToolsRow extends StatelessWidget {
             context: context,
             icon: Icons.event_seat_outlined,
             title: '空间预约',
-            desc: '图书馆 · 自习室座席',
+            desc: '图书馆 · 研讨间/静音舱',
             color: const Color(0xFF1E88E5),
             bgColor: const Color(0xFFE8F3FC),
             onTap: () {

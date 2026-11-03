@@ -41,15 +41,20 @@ class AppColors {
   static const Color successText = Color(0xFF15803D);
   static const Color successBg = Color(0xFFDCFCE7);
   static const Color successBorder = Color(0xFFB7EB8F);
+  static const Color successFaint = Color(0xFFF0FDF4);
+  static const Color successBorderSoft = Color(0xFFBBF7D0);
 
   /// 警告（须审核 / 即将截止 / 暂离）
   static const Color warning = Color(0xFFD97706);
   static const Color warningText = Color(0xFF92400E);
   static const Color warningBg = Color(0xFFFEF3C7);
+  static const Color warningFaint = Color(0xFFFFFBEB);
+  static const Color warningBorder = Color(0xFFFDE68A);
 
   /// 危险 / 错误 / 欠费 / 已截止
   static const Color danger = Color(0xFFDC2626);
   static const Color dangerBg = Color(0xFFFEE2E2);
+  static const Color dangerBorder = Color(0xFFFECACA);
 
   /// 信息 / 中性强调（非上理红的入口色）
   static const Color info = Color(0xFF3B5BDB);

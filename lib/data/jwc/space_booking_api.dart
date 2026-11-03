@@ -7,6 +7,7 @@ import '../app_exception.dart';
 import '../auth/cas_client.dart';
 import '../auth/jwgl_auth.dart';
 import '../date_format.dart';
+import 'space_booking_rules.dart';
 
 /// 空间预约接口失败。
 ///
@@ -91,7 +92,7 @@ class SpaceRoom {
   String get statusDesc {
     if (status == 1) return '已禁用';
     if (status == 2) return '维护中';
-    if (spaceTime == 0 && allTime != 1) return '已约满';
+    if (spaceTime == 0 && allTime != 1) return '当天已约满';
     return '可预约';
   }
 
@@ -162,20 +163,29 @@ class SpaceBookedSegment {
 
 /// 房间详细信息模型（含当天时段切片与预约占用）
 class SpaceRoomDetail {
-  const SpaceRoomDetail({
+  SpaceRoomDetail({
     required this.room,
     required this.timeSlices,
     required this.existingReservations,
     this.bookedSegments = const <SpaceBookedSegment>[],
-  });
+  }) : hourSlots = _buildHourSlots(room, timeSlices, bookedSegments);
 
   final SpaceRoom room;
   final List<SpaceTimeSlice> timeSlices;
   final List<Map<String, dynamic>> existingReservations;
   final List<SpaceBookedSegment> bookedSegments;
 
-  /// 将原始分钟切片聚合为 1 小时整点颗粒度时段列表
-  List<SpaceHourSlot> get hourSlots {
+  /// 全天按 1 小时整点聚合后的时段列表。
+  ///
+  /// 在构造时算一次并缓存：原先是重算 getter，而两个页面都在
+  /// `GridView.itemBuilder` 里访问它，等于每个格子都重算一遍整表。
+  final List<SpaceHourSlot> hourSlots;
+
+  static List<SpaceHourSlot> _buildHourSlots(
+    SpaceRoom room,
+    List<SpaceTimeSlice> timeSlices,
+    List<SpaceBookedSegment> bookedSegments,
+  ) {
     final slots = <SpaceHourSlot>[];
     final openStartParts = room.openStartTime.split(':');
     final openEndParts = room.openEndTime.split(':');
@@ -242,15 +252,8 @@ class SpaceHourSlot {
 
   /// 判断该时段对于指定日期是否已经过期
   bool isPastFor(DateTime date) {
-    final now = DateTime.now();
-    if (date.year == now.year &&
-        date.month == now.month &&
-        date.day == now.day) {
-      final startH = int.tryParse(startHour.split(':').first) ?? 0;
-      if (startH < now.hour) return true;
-      if (startH == now.hour && now.minute >= 10) return true;
-    }
-    return false;
+    final startH = int.tryParse(startHour.split(':').first) ?? 0;
+    return SpaceBookingRules.isPastHour(startH, date, DateTime.now());
   }
 }
 
@@ -386,6 +389,15 @@ class SpaceBookingApi {
   SpaceUserProfile? userProfile;
   List<SpacePurpose>? cachedPurposes;
 
+  /// 登录单飞：并发调用共享同一个 Future。
+  Future<bool>? _loginInFlight;
+
+  /// 登录失败后的冷却截止时间，避免连续失败时反复捶 CAS / 令牌接口。
+  DateTime? _loginCooldownUntil;
+
+  /// [String] 登录失败冷却时长。
+  static const Duration _loginCooldown = Duration(seconds: 3);
+
   /// 提前刷新的安全余量上下限（秒）。
   static const int _minRefreshMarginSeconds = 15;
   static const int _maxRefreshMarginSeconds = 120;
@@ -423,7 +435,8 @@ class SpaceBookingApi {
   /// 确保已认证；若未登录或 Token 即将过期，自动静默通过 CAS SSO 重新获取
   Future<bool> ensureAuthenticated({bool force = false}) async {
     if (!force && isTokenValid) return true;
-    return await login();
+    // force 表示「用户主动重试」，要能绕过登录失败后的冷却
+    return await login(force: force);
   }
 
   /// 获取一个新鲜、未经使用的 authCode（用于免密跳转官方网页端）
@@ -472,12 +485,45 @@ class SpaceBookingApi {
       }
 
       return code;
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[space] 获取 authCode 失败: $e');
+    }
     return null;
   }
 
-  /// 自动走 CAS SSO 流程完成授权并获取 accessToken
-  Future<bool> login() async {
+  /// 自动走 CAS SSO 流程完成授权并获取 accessToken。
+  ///
+  /// **必须单飞**：房间列表和「我的预约」是并发拉取的，token 一旦被服务端判
+  /// 无效，两边会**同时**触发重登。没有单飞就会同时发起两轮 CAS 授权 + 两次
+  /// 换 token，互相覆盖 `accessToken`；如果服务端在签发新 token 时让旧 token
+  /// 失效，两边最终都拿着已被顶掉的 token，表现就是
+  /// 「明明刚登录成功，却一直提示登录失效」——重试几次又偶尔好一次。
+  ///
+  /// 失败后再加 [3 秒冷却]：避免 token 长期不可用时，每个并发请求都触发一轮
+  /// 登录，把 CAS 和令牌接口打成风暴。
+  Future<bool> login({bool force = false}) {
+    final inFlight = _loginInFlight;
+    if (inFlight != null) return inFlight;
+
+    final cooldownUntil = _loginCooldownUntil;
+    if (!force &&
+        cooldownUntil != null &&
+        DateTime.now().isBefore(cooldownUntil)) {
+      debugPrint('[space] 登录冷却中，跳过本次重登');
+      return Future<bool>.value(false);
+    }
+
+    final future = _loginOnce()
+        .then((ok) {
+          _loginCooldownUntil = ok ? null : DateTime.now().add(_loginCooldown);
+          return ok;
+        })
+        .whenComplete(() => _loginInFlight = null);
+    _loginInFlight = future;
+    return future;
+  }
+
+  Future<bool> _loginOnce() async {
     try {
       final authorizeUri = Uri.parse(
         '$_libspaceBase/api/oauth/v1/authorize?redirectURI=${Uri.encodeComponent('$_libspaceBase/student/studentIndex')}',
@@ -521,6 +567,11 @@ class SpaceBookingApi {
       }
 
       if (code == null || code.isEmpty) {
+        // 拿不到授权码：CAS 没放行，也不像登录页（否则上面会尝试恢复会话）
+        debugPrint(
+          '[space] 登录失败：没拿到 code'
+          '（realUri=${realUri.path}，status=${resp.statusCode}）',
+        );
         return false;
       }
 
@@ -530,6 +581,15 @@ class SpaceBookingApi {
         '$_libspaceBase/api/studyroom/v1/userAccount/accessToken',
       ).replace(queryParameters: <String, String>{'code': code});
       final tokenResp = await casClient.getApi(tokenUri);
+
+      if (tokenResp.statusCode != 200 || tokenResp.data == null) {
+        // 用 code 换 token 失败：CAS 票据可能已被用过/过期（有效期很短）
+        final body = (tokenResp.data ?? '').trim();
+        debugPrint(
+          '[space] 登录失败：换 token 返回 ${tokenResp.statusCode}'
+          '（code 长度 ${code.length}，body=${body.length > 160 ? '${body.substring(0, 160)}…' : body}）',
+        );
+      }
 
       if (tokenResp.statusCode == 200 && tokenResp.data != null) {
         final Map<String, dynamic> json =
@@ -583,8 +643,12 @@ class SpaceBookingApi {
 
           return true;
         }
+        // 200 但没拿到 accessToken：多半是 code 被复用或已过期
+        debugPrint('[space] 登录失败：令牌响应里没有 accessToken');
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[space] 登录异常: $e');
+    }
     return false;
   }
 
@@ -744,7 +808,13 @@ class SpaceBookingApi {
   /// 重登后重试一次，万一第一次其实已经生效就是重复提交。
   static bool _isAuthRejectedForRead(Response<String> resp) {
     if (_isUnauthorized(resp)) return true;
-    return resp.statusCode == 400;
+    if (resp.statusCode != 400) return false;
+    // 400 至少有两种来源：
+    // ① 网关把「token 过期/无效」判成 400 —— 需要重登；
+    // ② 请求参数确实不对（日期格式、房间 id…）—— 重登一万次也没用。
+    // body 里有明确内容时按内容判断（_isUnauthorized 已覆盖常见措辞），
+    // 只有 body 为空、拿不到原因时才保守地当成认证问题。
+    return (resp.data ?? '').trim().isEmpty;
   }
 
   /// 获取研讨间列表 (mRooms)
@@ -794,16 +864,19 @@ class SpaceBookingApi {
     }
 
     if (resp.statusCode != 200 || resp.data == null) {
-      final authLike =
-          resp.statusCode == 400 ||
-          resp.statusCode == 401 ||
-          resp.statusCode == 403;
+      final authLike = _isAuthRejectedForRead(resp);
       if (authLike) {
         // 重登之后还是被拒：把 token 彻底作废，让下次「重试」必定重新认证
         invalidateToken();
         throw SpaceBookingException('空间预约登录已失效，请重新登录后重试', authRelated: true);
       }
-      throw SpaceBookingException('获取房间列表失败（HTTP ${resp.statusCode}）');
+      // 400 但不像认证问题：把服务端原话带出来，别再一律说成「登录失效」
+      final body = (resp.data ?? '').trim();
+      final detail = body.isEmpty
+          ? ''
+          : '：${body.length > 120 ? '${body.substring(0, 120)}…' : body}';
+      debugPrint('[space] mRooms 返回 ${resp.statusCode}$detail');
+      throw SpaceBookingException('获取房间列表失败（HTTP ${resp.statusCode}$detail）');
     }
 
     final list = <SpaceRoom>[];
@@ -831,20 +904,32 @@ class SpaceBookingApi {
     return list;
   }
 
-  /// 获取指定房间在某日期的实时预约与时间切片详情
+  /// 获取指定房间在某日期的实时预约与时间切片详情。
+  ///
+  /// 返回 `null` 只代表「服务端没有这个房间当天的详情」；网络、HTTP、解析
+  /// 失败一律抛 [SpaceBookingException]。原来所有失败都被吞成 `null`，
+  /// 页面无法把「没取到」和「当天没有时段」区分开。
   Future<SpaceRoomDetail?> fetchRoomReservationDetail({
     required String roomId,
     required String date,
   }) async {
+    // 与 fetchRooms 不同，这里不把 `ensureAuthenticated() == false` 直接当成
+    // 失败：本地按签发时间判过期未必等于服务端已失效（时钟偏差、网页端换
+    // 会话都会出现）。保留旧 token 继续请求，真失效时下面的 401 重试兜底；
+    // 完全没有 token 才直接报登录失败。
     await ensureAuthenticated();
+    if (accessToken == null || accessToken!.isEmpty) {
+      throw SpaceBookingException('空间预约登录失败，请重新登录统一身份认证后重试', authRelated: true);
+    }
 
     final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/room/reservation')
         .replace(
           queryParameters: <String, String>{'roomId': roomId, 'date': date},
         );
 
+    Response<String> resp;
     try {
-      var resp = await casClient.getApi(
+      resp = await casClient.getApi(
         uri,
         headers: <String, String>{
           'Authorization': accessToken ?? '',
@@ -864,53 +949,48 @@ class SpaceBookingApi {
             },
           );
         }
+        if (_isAuthRejectedForRead(resp)) {
+          invalidateToken();
+          throw SpaceBookingException('空间预约登录已失效，请重新登录后重试', authRelated: true);
+        }
       }
+    } on SpaceBookingException {
+      rethrow;
+    } catch (e) {
+      throw SpaceBookingException('获取房间时段失败：$e');
+    }
 
-      if (resp.statusCode == 200 && resp.data != null) {
-        final dynamic rawJson = jsonDecode(resp.data!);
-        if (rawJson is Map) {
-          final dynamic data =
-              rawJson.containsKey('data') && rawJson['data'] is Map
-              ? rawJson['data']
-              : rawJson;
-          final m = (data as Map).cast<String, dynamic>();
-          final room = _parseRoom(m);
+    if (resp.statusCode != 200 || resp.data == null) {
+      throw SpaceBookingException('获取房间时段失败（HTTP ${resp.statusCode}）');
+    }
 
-          final timeSlices = <SpaceTimeSlice>[];
-          final rawSlices = m['dateTimeSlicesList'];
-          if (rawSlices is List) {
-            for (final group in rawSlices) {
-              if (group is List) {
-                for (final slice in group) {
-                  if (slice is Map) {
-                    final start = _formatTimestampOrString(
-                      slice['startTime'],
-                      timeOnly: true,
-                    );
-                    final end = _formatTimestampOrString(
-                      slice['endTime'],
-                      timeOnly: true,
-                    );
-                    final status = _parseInt(slice['reservationStatus'], 0);
-                    timeSlices.add(
-                      SpaceTimeSlice(
-                        startTime: start,
-                        endTime: end,
-                        isOccupied: status != 0,
-                      ),
-                    );
-                  }
-                }
-              } else if (group is Map) {
+    try {
+      final dynamic rawJson = jsonDecode(resp.data!);
+      if (rawJson is! Map) {
+        throw SpaceBookingException('房间时段数据格式异常');
+      }
+      final dynamic data = rawJson.containsKey('data') && rawJson['data'] is Map
+          ? rawJson['data']
+          : rawJson;
+      final m = (data as Map).cast<String, dynamic>();
+      final room = _parseRoom(m);
+
+      final timeSlices = <SpaceTimeSlice>[];
+      final rawSlices = m['dateTimeSlicesList'];
+      if (rawSlices is List) {
+        for (final group in rawSlices) {
+          if (group is List) {
+            for (final slice in group) {
+              if (slice is Map) {
                 final start = _formatTimestampOrString(
-                  group['startTime'],
+                  slice['startTime'],
                   timeOnly: true,
                 );
                 final end = _formatTimestampOrString(
-                  group['endTime'],
+                  slice['endTime'],
                   timeOnly: true,
                 );
-                final status = _parseInt(group['reservationStatus'], 0);
+                final status = _parseInt(slice['reservationStatus'], 0);
                 timeSlices.add(
                   SpaceTimeSlice(
                     startTime: start,
@@ -920,52 +1000,77 @@ class SpaceBookingApi {
                 );
               }
             }
+          } else if (group is Map) {
+            final start = _formatTimestampOrString(
+              group['startTime'],
+              timeOnly: true,
+            );
+            final end = _formatTimestampOrString(
+              group['endTime'],
+              timeOnly: true,
+            );
+            final status = _parseInt(group['reservationStatus'], 0);
+            timeSlices.add(
+              SpaceTimeSlice(
+                startTime: start,
+                endTime: end,
+                isOccupied: status != 0,
+              ),
+            );
           }
-
-          final existingList = <Map<String, dynamic>>[];
-          final bookedSegments = <SpaceBookedSegment>[];
-          final reservations = m['reservations'];
-          if (reservations is List) {
-            for (final res in reservations) {
-              if (res is Map) {
-                final rMap = res.cast<String, dynamic>();
-                existingList.add(rMap);
-                final sTime = _formatTimestampOrString(
-                  rMap['startTime'] ?? rMap['beginTime'],
-                  timeOnly: true,
-                );
-                final eTime = _formatTimestampOrString(
-                  rMap['endTime'],
-                  timeOnly: true,
-                );
-                final sDesc = (rMap['stateName'] ?? rMap['statusName'] ?? '已预约')
-                    .toString();
-                if (sTime.isNotEmpty && eTime.isNotEmpty) {
-                  bookedSegments.add(
-                    SpaceBookedSegment(
-                      startTime: sTime,
-                      endTime: eTime,
-                      statusDesc: sDesc,
-                    ),
-                  );
-                }
-              }
-            }
-          }
-
-          return SpaceRoomDetail(
-            room: room,
-            timeSlices: timeSlices,
-            existingReservations: existingList,
-            bookedSegments: bookedSegments,
-          );
         }
       }
-    } catch (_) {}
-    return null;
+
+      final existingList = <Map<String, dynamic>>[];
+      final bookedSegments = <SpaceBookedSegment>[];
+      final reservations = m['reservations'];
+      if (reservations is List) {
+        for (final res in reservations) {
+          if (res is Map) {
+            final rMap = res.cast<String, dynamic>();
+            existingList.add(rMap);
+            final sTime = _formatTimestampOrString(
+              rMap['startTime'] ?? rMap['beginTime'],
+              timeOnly: true,
+            );
+            final eTime = _formatTimestampOrString(
+              rMap['endTime'],
+              timeOnly: true,
+            );
+            final sDesc = (rMap['stateName'] ?? rMap['statusName'] ?? '已预约')
+                .toString();
+            if (sTime.isNotEmpty && eTime.isNotEmpty) {
+              bookedSegments.add(
+                SpaceBookedSegment(
+                  startTime: sTime,
+                  endTime: eTime,
+                  statusDesc: sDesc,
+                ),
+              );
+            }
+          }
+        }
+      }
+
+      return SpaceRoomDetail(
+        room: room,
+        timeSlices: timeSlices,
+        existingReservations: existingList,
+        bookedSegments: bookedSegments,
+      );
+    } on SpaceBookingException {
+      rethrow;
+    } catch (e) {
+      throw SpaceBookingException('房间时段数据解析失败：$e');
+    }
   }
 
-  /// 获取当前预约与历史预约
+  /// 获取当前预约与历史预约。
+  ///
+  /// 「当前预约」和「历史分页」是两个独立接口，任一失败不该让另一边的数据
+  /// 凭空消失：只要有一个成功就返回拿到的部分并记日志；两个都失败才抛
+  /// [SpaceBookingException]。原先整段 `catch (_) {}` 会把失败伪装成
+  /// 「你没有预约」。
   Future<List<SpaceReservation>> fetchMyReservations() async {
     await ensureAuthenticated();
 
@@ -980,9 +1085,11 @@ class SpaceBookingApi {
     };
 
     final list = <SpaceReservation>[];
+    var succeeded = 0;
+    SpaceBookingException? firstError;
 
+    // 1. 当前生效的预约 (reservationByUserId)
     try {
-      // 1. 当前生效的预约 (reservationByUserId)
       final currentUri = Uri.parse(
         '$_libspaceBase/api/studyroom/v1/reservation/reservationByUserId',
       ).replace(queryParameters: <String, String>{'userId': userId!});
@@ -994,10 +1101,13 @@ class SpaceBookingApi {
         }
       }
 
-      if (cResp.statusCode == 200 &&
-          cResp.data != null &&
-          cResp.data!.trim().isNotEmpty) {
-        final dynamic raw = jsonDecode(cResp.data!);
+      if (cResp.statusCode != 200) {
+        throw SpaceBookingException('获取当前预约失败（HTTP ${cResp.statusCode}）');
+      }
+
+      final body = cResp.data?.trim() ?? '';
+      if (body.isNotEmpty) {
+        final dynamic raw = jsonDecode(body);
         final dynamic data = (raw is Map && raw.containsKey('data'))
             ? raw['data']
             : raw;
@@ -1011,8 +1121,19 @@ class SpaceBookingApi {
           }
         }
       }
+      // 解析成功才算这一路成功：只有 HTTP 200 但 body 不是 JSON 时，
+      // 不能悄悄当成「没有预约」。
+      succeeded++;
+    } on SpaceBookingException catch (e) {
+      firstError ??= e;
+      debugPrint('[space] 当前预约拉取失败：${e.message}');
+    } catch (e) {
+      firstError ??= SpaceBookingException('获取当前预约失败：$e');
+      debugPrint('[space] 当前预约拉取失败：$e');
+    }
 
-      // 2. 历史预约分页 (pageByUserId，必须使用 POST 提交 JSON body: {userId})
+    // 2. 历史预约分页 (pageByUserId，必须使用 POST 提交 JSON body: {userId})
+    try {
       final pageUri = Uri.parse(
         '$_libspaceBase/api/studyroom/v1/reservation/pageByUserId',
       ).replace(queryParameters: <String, String>{'page': '1', 'size': '20'});
@@ -1032,7 +1153,11 @@ class SpaceBookingApi {
         }
       }
 
-      if (pResp.statusCode == 200 && pResp.data != null) {
+      if (pResp.statusCode != 200) {
+        throw SpaceBookingException('获取历史预约失败（HTTP ${pResp.statusCode}）');
+      }
+
+      if (pResp.data != null) {
         final dynamic raw = jsonDecode(pResp.data!);
         final dynamic pData = (raw is Map && raw.containsKey('data'))
             ? raw['data']
@@ -1050,7 +1175,18 @@ class SpaceBookingApi {
           }
         }
       }
-    } catch (_) {}
+      succeeded++;
+    } on SpaceBookingException catch (e) {
+      firstError ??= e;
+      debugPrint('[space] 历史预约拉取失败：${e.message}');
+    } catch (e) {
+      firstError ??= SpaceBookingException('获取历史预约失败：$e');
+      debugPrint('[space] 历史预约拉取失败：$e');
+    }
+
+    if (succeeded == 0) {
+      throw firstError ?? SpaceBookingException('获取预约记录失败，请稍后重试');
+    }
 
     return list;
   }
@@ -1213,10 +1349,18 @@ class SpaceBookingApi {
     return const <Map<String, dynamic>>[];
   }
 
-  /// 根据学号精确查询同学信息（用于研讨交流添加同行成员）
+  /// 根据学号精确查询同学信息（用于研讨交流添加同行成员）。
+  ///
+  /// 返回 `null` 表示**服务端确实没有这个人**；网络、HTTP、解析失败抛
+  /// [SpaceBookingException]。原先所有失败都返回 `null`，调用方只能把
+  /// 「查无此人」和「查询失败」当成同一件事，静默把学号塞进同行名单。
   Future<Map<String, dynamic>?> searchUser(String studentIdOrName) async {
+    // 同 fetchRoomReservationDetail：保留旧 token 继续请求，
+    // 真失效时由下面的 401 重试兜底。
     await ensureAuthenticated();
-    if (accessToken == null) return null;
+    if (accessToken == null || accessToken!.isEmpty) {
+      throw SpaceBookingException('空间预约登录已失效，请重新登录后重试', authRelated: true);
+    }
 
     final uri = Uri.parse('$_libspaceBase/api/studyroom/v1/user/pageUser')
         .replace(
@@ -1227,26 +1371,52 @@ class SpaceBookingApi {
           },
         );
 
+    Response<String> resp;
     try {
-      final resp = await casClient.getApi(
+      resp = await casClient.getApi(
         uri,
         headers: <String, String>{
           'Authorization': accessToken!,
           'Accept': 'application/json;charset=UTF-8',
         },
       );
-      if (resp.statusCode == 200 && resp.data != null) {
-        final dynamic raw = jsonDecode(resp.data!);
-        final records = (raw is Map && raw['records'] is List)
-            ? (raw['records'] as List)
-            : null;
-        if (records != null && records.isNotEmpty) {
-          final first = records.first;
-          if (first is Map) return first.cast<String, dynamic>();
+      if (_isAuthRejectedForRead(resp)) {
+        invalidateToken();
+        if (await login()) {
+          resp = await casClient.getApi(
+            uri,
+            headers: <String, String>{
+              'Authorization': accessToken!,
+              'Accept': 'application/json;charset=UTF-8',
+            },
+          );
+        }
+        if (_isAuthRejectedForRead(resp)) {
+          invalidateToken();
+          throw SpaceBookingException('空间预约登录已失效，请重新登录后重试', authRelated: true);
         }
       }
-    } catch (_) {}
-    return null;
+    } on SpaceBookingException {
+      rethrow;
+    } catch (e) {
+      throw SpaceBookingException('查询同学信息失败：$e');
+    }
+
+    if (resp.statusCode != 200 || resp.data == null) {
+      throw SpaceBookingException('查询同学信息失败（HTTP ${resp.statusCode}）');
+    }
+
+    try {
+      final dynamic raw = jsonDecode(resp.data!);
+      final records = (raw is Map && raw['records'] is List)
+          ? (raw['records'] as List)
+          : null;
+      if (records == null || records.isEmpty) return null;
+      final first = records.first;
+      return first is Map ? first.cast<String, dynamic>() : null;
+    } catch (e) {
+      throw SpaceBookingException('同学信息解析失败：$e');
+    }
   }
 
   /// 原生提前签退（使用中主动释放房间）

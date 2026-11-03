@@ -252,7 +252,7 @@ void main() {
         allTime: 0,
       );
       expect(roomFull.isAvailable, isFalse);
-      expect(roomFull.statusDesc, '已约满');
+      expect(roomFull.statusDesc, '当天已约满');
 
       const roomDisabled = SpaceRoom(
         id: '3',
@@ -372,6 +372,7 @@ void main() {
         expect(detail.bookedSegments[0].statusDesc, '已预约');
 
         final hourSlots = detail.hourSlots;
+        expect(identical(detail.hourSlots, hourSlots), isTrue); // 构造时缓存，不再每次重算
         expect(hourSlots.isNotEmpty, isTrue);
         expect(hourSlots[0].startHour, '08:00');
         expect(hourSlots[0].endHour, '09:00');
@@ -473,6 +474,90 @@ void main() {
 
       final afkOk = await api.afkReservation(roomId: '1');
       expect(afkOk, isTrue);
+    });
+
+    test('SpaceRoomDetail.hourSlots 在构造时缓存，不再每次访问重算', () {
+      final detail = SpaceRoomDetail(
+        room: const SpaceRoom(
+          id: '1',
+          name: '研讨间1',
+          floor: '1F',
+          roomType: '研讨间',
+          minNum: 1,
+          maxNum: 4,
+          devices: '',
+          status: 0,
+          openStartTime: '08:00',
+          openEndTime: '10:00',
+        ),
+        timeSlices: const <SpaceTimeSlice>[],
+        existingReservations: const <Map<String, dynamic>>[],
+      );
+
+      expect(identical(detail.hourSlots, detail.hourSlots), isTrue);
+      expect(detail.hourSlots, hasLength(2));
+      expect(detail.hourSlots.first.startHour, '08:00');
+    });
+
+    test('fetchMyReservations：两个接口都失败时抛错，不再伪装成空列表', () async {
+      final api = SpaceBookingApi(_MockCasClient(const <String, dynamic>{}));
+      api.userId = '123456';
+      api.accessToken = 'test-token';
+
+      await expectLater(
+        api.fetchMyReservations(),
+        throwsA(isA<SpaceBookingException>()),
+      );
+    });
+
+    test('fetchMyReservations：历史接口失败时保留当前预约', () async {
+      final mockClient = _MockCasClient(<String, dynamic>{
+        'reservationByUserId': <String, dynamic>{
+          'id': 'res1',
+          'roomId': '1',
+          'roomName': '研讨间101',
+          'startTime': '2026-10-30 14:00:00',
+          'endTime': '2026-10-30 16:00:00',
+          'reservationStatus': 21,
+          'type': 0,
+        },
+      });
+      final api = SpaceBookingApi(mockClient);
+      api.userId = '123456';
+      api.accessToken = 'test-token';
+
+      final list = await api.fetchMyReservations();
+      expect(list, hasLength(1));
+      expect(list.first.id, 'res1');
+    });
+
+    test('searchUser：查无此人返回 null，查询失败抛错', () async {
+      final emptyApi = SpaceBookingApi(
+        _MockCasClient(<String, dynamic>{
+          'user/pageUser': <String, dynamic>{'records': <dynamic>[]},
+        }),
+      );
+      emptyApi.accessToken = 'test-token';
+      expect(await emptyApi.searchUser('000000'), isNull);
+
+      final failingApi = SpaceBookingApi(
+        _MockCasClient(const <String, dynamic>{}),
+      );
+      failingApi.accessToken = 'test-token';
+      await expectLater(
+        failingApi.searchUser('000000'),
+        throwsA(isA<SpaceBookingException>()),
+      );
+    });
+
+    test('fetchRoomReservationDetail：失败时抛错而不是返回 null', () async {
+      final api = SpaceBookingApi(_MockCasClient(const <String, dynamic>{}));
+      api.accessToken = 'test-token';
+
+      await expectLater(
+        api.fetchRoomReservationDetail(roomId: '101', date: '2026-10-30'),
+        throwsA(isA<SpaceBookingException>()),
+      );
     });
   });
 }
