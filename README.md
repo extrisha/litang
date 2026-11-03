@@ -1,36 +1,27 @@
 # 理堂
 
-上海理工大学校园助手，Flutter 客户端。
+上海理工大学校园助手，Flutter 客户端（Android 为主）。非官方个人项目。
 
+## 功能
 
-⚠Vibe Coding⚠
+- **首页**：全校 63 个二级单位站点通知聚合（7000+ 条），按竞赛 / 教学 / 讲座等分类筛选，本院优先
+- **搜索**：本地通知检索（标题 / 部门 / 分类），完全离线，不依赖服务端
+- **今日课表**：全校排课日程，Canvas 绘制网格，多周次切换
+- **校园服务**：空教室查询、全校课程检索、研讨空间预约、宿舍电费
+- **学习通**：课程、作业、考试、讨论、活动签到（数字口令 / 扫码 / 雷达 / 拍照）
+- **一网畅学（TronClass）**：课程、待办、考试、课件与签到
+- **学业档案**：成绩、绩点、专业排名、培养方案进度
+- **提醒**：作业与考试提醒、校历联动、客户端版本自动检测与更新
+- **地图**：校园地点检索、课表一键定位教室（离线底图与瓦片暂时停用）
+- **论坛**：尚未开放，当前页面为示例数据，入口暂时保留
 
+## 登录与隐私
 
-持续开发中...更多功能敬请等待...
-
-
-
-## 功能与开源范围
-
-
-- 首页：校园通知聚合（全校 63 个二级站点、7000+ 条，按竞赛/教学/讲座等分类筛选，本院优先）
-- 搜索：本地通知检索（标题/部门/分类，离线 BM25，不依赖服务端）
-- 地图：离线校园地图（基于 OpenStreetMap 离线瓦片引擎、校区切换、地点检索、课表一键定位教室）
-- 今日课表：全校排课日程展示（Canvas 精细排版网格、智能防冲突莫兰迪配色引擎、多周次平滑切换）
-- 校园服务：空教室实时查询、全校课程检索、空间预约、宿舍电费余量监测
-- 学习通：课程、作业、考试、讨论、活动签到（数字口令 / 扫码 / 雷达 / 拍照）
-- 一网畅学（Tronclass）：课程、待办、考试、课件与签到
-- 学业档案：成绩、绩点、专业排名、培养方案进度
-- 校历联动、作业与考试提醒、客户端版本自动检测与平滑更新
-- 论坛：**尚未开放**，当前页面为示例数据；入口暂时保留
-
-### 关于登录（请以本节为准）
-
-三个系统的登录方式并不相同，凭据都只保存在本机：
+三个系统的登录方式不同，凭据都只保存在本机：
 
 | 系统 | 登录方式 | 本地保存 |
 |---|---|---|
-| 教务 | App 内通过学校 CAS 登录 | 会话 cookie；勾选「记住登录」时，学号与密码也会用系统密钥库（Keystore / Keychain）加密保存 |
+| 教务 | App 内通过学校 CAS 登录 | 会话 cookie；勾选「记住登录」时，学号与密码会加密保存在系统密钥库（Android Keystore / iOS Keychain） |
 | 学习通 | 内嵌学习通官方登录页，密码只输入在对方页面 | 只保存会话 cookie |
 | 一网畅学 | 复用教务登录态静默认证 | 只保存会话 cookie |
 
@@ -38,87 +29,74 @@
 - 密码与 cookie 只在本机使用，不上传、不写日志、不经过本项目服务器（本项目没有服务器）。
 - 登录后只读取当前账号本人可见的数据，不提供代刷、代签、批量操作。
 
-### 数据来源与边界
+## 数据来源与边界
 
 - 通知来自学校各二级单位**公开网页**上的公开信息，只保存标题、发布单位、分类、发布日期与原文链接。
 - 本项目**不做加密破解、不逆向登录协议**；页面结构变化可能导致部分功能暂时失效。
 - 地图数据来源于 [OpenStreetMap](https://www.openstreetmap.org/)，遵循 Open Database License (ODbL)；地图瓦片与校内标注仅用于校内信息展示与学习交流。
 
-### 免责
+## 开发
 
-本项目为非官方个人学习项目，与上海理工大学、超星学习通、Tronclass 官方无关。
-仅供学习和个人使用，请遵守各平台用户协议；如有侵权或不当使用，请联系删除。
-
-## 架构与工程化规范
-
-项目遵循职责单一、高内聚低耦合的组件化架构设计：
-
-- `lib/pages/classroom/`：空教室与全校排课双 Tab 检索、筛选 BottomSheet 与课程/教室展示卡片。
-- `lib/pages/life/`：校园生活服务模块（宿舍电费、签到调度、作业/待办统一聚合、考试列表、快捷服务入口）。
-- `lib/pages/today/`：课表主页面、Canvas 高性能网格绘制器、教学周下拉速切组件、智能防冲突莫兰迪配色引擎。
-- `lib/data/geo/`：基于 `flutter_map` 的军工路校区离线 OSM 瓦片源、校区经纬度边界与瓦片缓存适配器。
-- `lib/data/`：教务系统 CAS 客户端、一网畅学 / 学习通数据桥接层与离线持久化缓存。
-
-## 自动化 CI/CD 与发版流程
-
-本项目已配置基于 GitHub Actions 的自动化中性路径构建流水线（`.github/workflows/release.yml`）：
-
-### 1. 自动打包（Push CI）
-- **分支推送自动构建**：每次向 `main` 分支执行 `git push`，CI 将自动拉取代码、运行完整测试用例、以中性路径构建 Release APK 并计算 SHA256，产物可在该次运行的 **Artifacts** 中直接下载测试。
-- **防止路径泄露**：中性路径（Ubuntu Runner 根路径）构建避免了 Windows 本机绝对路径或私人用户名被编译进 `libapp.so` 产生隐私泄露。
-
-### 2. 正式发版（Release 触发）
-- **方式一（推送 Tag，推荐）**：
-  ```bash
-  git tag 0.5.8
-  git push origin 0.5.8
-  ```
-  GitHub Actions 检测到版本 Tag 后将自动构建 APK 并直接创建正式的 GitHub Release，附带文件哈希与版本信息。
-- **方式二（GitHub 页面一键触发）**：
-  进入 GitHub 仓库的 **Actions** 标签页 -> 选择 **release-apk** -> 点击 **Run workflow**，输入版本号与更新说明即可一键发布。
-
-### 3. 本地极速发版（纯相对路径，推荐 ⚡）
-
-针对 GitHub Actions 云端构建较慢（约 6~10 分钟冷启动）的情况，推荐使用**本地一键极速打包脚本**（实测仅需 **67 秒**，且 **100% 相对路径驱动**，不依赖任何特定盘符或硬编码绝对路径，可在任何电脑与文件夹即开即用）：
+需要 Flutter stable（Dart SDK `^3.13.5`）、Android SDK 与 JDK 17。
 
 ```bash
-# 方式 A：双击运行（Windows 最简）
-双击 tools/release/build_apk.bat
-
-# 方式 B：Node / 跨平台运行（自动打包并归档至 ./dist/）
-node tools/release/build_apk.mjs
-
-# 方式 C：一键打包 + 自动解析并回写更新清单 update.json
-node tools/release/build_apk.mjs --update --notes "更新说明文字"
-
-# 方式 D：PowerShell 运行
-.\tools\release\build_apk.ps1 -UpdateManifest -Notes "更新说明文字"
+flutter pub get
+flutter test                # 单元与 widget 测试，必须全绿
+dart analyze lib test       # 必须 No issues found
+dart format lib test        # 提交前跑一次，应幂等
 ```
 
-* **产物位置**：`dist/app-release.apk`（严格遵循规范统一命名）
-* **自动校验**：自动生成 `dist/app-release.apk.sha256` 校验和文件
-* **发布后自查**：
+### 目录
+
+```
+lib/
+├─ data/       网络、解析、缓存、模型
+│  ├─ auth/        CAS / 教务登录态
+│  ├─ chaoxing/    学习通
+│  ├─ lms/         一网畅学（TronClass）
+│  ├─ jwc/         教务：成绩、排名、空间预约、排课
+│  ├─ geo/         离线地图瓦片与校区分区
+│  ├─ vector_map/  矢量校园数据
+│  └─ illustrated_map/  手绘校园图
+├─ pages/      页面（classroom / life / today …）
+├─ services/   跨页面服务：提醒、天气、更新、小组件同步
+└─ widgets/    复用组件：三态视图、遮罩式异步任务、带 cookie 的 WebView
+```
+
+## 发版
+
+发版本地打包（CI 自动发版已停用，见下方说明）：
+
 ```bash
+# 1. 改版本号（两处都要，versionCode 必须递增）
+#    pubspec.yaml: version: 0.6.1+36
+#    update.json : version / versionCode / notes / sha256
+# 2. 打包
+node tools/release/build_apk.mjs
+# 3. 校验
 node tools/release/check-update.mjs
 ```
 
-**Release 标题与 tag 规范**：标题统一为 `LiTang-<version>`（如 `LiTang-0.5.8`）；tag 统一为 `<version>`（如 `0.5.8`）。Gitee 侧下载地址按 tag 拼接，GitHub 侧支持 `releases/latest/download`。
+- **产物**：`dist/app-release.apk` 与 `dist/app-release.apk.sha256`
+- **Release 标题**：`LiTang-<version>`；**tag**：`<version>`（不带 `v`，Gitee 下载地址按 tag 拼接）
+- **更新说明**：`node tools/release/build_apk.mjs --update --notes "…"` 会回写 `update.json`
+- **强制更新**：加 `--mandatory` 会把 `minVersionCode` 设为该版本，旧客户端打开即阻断；不加则为平滑可选更新
 
-**强制更新说明**：添加 `--mandatory` 会将 `minVersionCode` 设定为该版本，低于该版本代码的旧客户端打开时将强制阻断并提示更新；不加则为普通平滑可选更新。
+> **为什么不用 GitHub Actions 发版**：正式包用本地密钥签名，且 `update.json` 钉住了 APK 的
+> SHA-256。CI 构建出的包哈希必然不同，没有签名密钥时还会退回 debug 签名，用户装不上也校验不过。
+> 因此 `.github/workflows/release.yml` 已停用，只保留通知同步流水线。
 
-参考项目：
+## 参考项目
 
-
-https://github.com/DanXi-Dev/DanXi
-
-
-https://github.com/BigSilverFish/usst-jwgl-client
-
-
-如果你有好的想法，欢迎加入我（们？）！QQ:2897010516
+- [DanXi-Dev/DanXi](https://github.com/DanXi-Dev/DanXi)
+- [BigSilverFish/usst-jwgl-client](https://github.com/BigSilverFish/usst-jwgl-client)
 
 ## 开源协议
 
-本项目采用 [GNU General Public License v3.0 (GPL-3.0)](LICENSE) 开源协议。
-地图数据基于 [OpenStreetMap](https://www.openstreetmap.org/) 贡献者（© OpenStreetMap contributors，ODbL 许可）。
-本项目为个人非官方学习项目，与上海理工大学官方无关。
+本项目采用 [GNU General Public License v3.0 (GPL-3.0)](LICENSE)。
+地图数据 © OpenStreetMap contributors（ODbL）。
+
+本项目为非官方个人学习项目，与上海理工大学、超星学习通、TronClass 官方无关。仅供学习和个人使用，
+请遵守各平台用户协议；如有侵权或不当使用，请联系删除。
+
+有想法或问题欢迎提 Issue。

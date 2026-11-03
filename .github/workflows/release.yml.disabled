@@ -1,3 +1,11 @@
+# ⛔ 已停用（2026-11-03）：文件名改为 .disabled，GitHub Actions 不再读取。
+#
+# 停用原因：正式包用本地密钥签名，且 update.json 钉住了 APK 的 SHA-256。
+# CI 构建出的包哈希必然与本地包不同；未配置签名 Secret 时还会退回 debug 签名，
+# 用户既装不上、也过不了校验。发版统一走 tools/release/build_apk.mjs。
+#
+# 如需恢复：把文件名改回 release.yml（并先确认签名 Secret 与哈希策略能对上）。
+
 name: release-apk
 
 on:
