@@ -12,7 +12,7 @@
 - **一网畅学（TronClass）**：课程、待办、考试、课件与签到
 - **学业档案**：成绩、绩点、专业排名、培养方案进度
 - **提醒**：作业与考试提醒、校历联动、客户端版本自动检测与更新
-- **地图**：校园地点检索、课表一键定位教室（暂时停用）
+- **地图**：官方手绘校园图（已配准到真实经纬度）、地点检索、课表一键定位教室
 - **论坛**：仍在规划，当前页面为示例数据，入口暂时保留
 
 ## 登录与隐私
@@ -33,7 +33,7 @@
 
 - 通知来自学校各二级单位**公开网页**上的公开信息，只保存标题、发布单位、分类、发布日期与原文链接。
 - 本项目**不做加密破解、不逆向登录协议**；页面结构变化可能导致部分功能暂时失效。
-- 地图数据来源于 [OpenStreetMap](https://www.openstreetmap.org/)，遵循 Open Database License (ODbL)；地图瓦片与校内标注仅用于校内信息展示与学习交流。
+- 地图底图为学校官方发布的校园示意图，仅用于校内信息展示；其经纬度由 [OpenStreetMap](https://www.openstreetmap.org/)（ODbL）的建筑轮廓做控制点配准反推，平均误差约 17 m。配准脚本见 `tools/map/georef_campus_map.py`，参数与精度见 `scratch/georef_report.md`。
 
 ## 开发
 
@@ -55,9 +55,8 @@ lib/
 │  ├─ chaoxing/    学习通
 │  ├─ lms/         一网畅学（TronClass）
 │  ├─ jwc/         教务：成绩、排名、空间预约、排课
-│  ├─ geo/         离线地图瓦片与校区分区
-│  ├─ vector_map/  矢量校园数据
-│  └─ illustrated_map/  手绘校园图
+│  ├─ geo/         坐标转换（WGS-84 ↔ GCJ-02）
+│  └─ campus_labels.dart / campus_tiles.dart  图内标签与底图瓦片的经纬度
 ├─ pages/      页面（classroom / life / today …）
 ├─ services/   跨页面服务：提醒、天气、更新、小组件同步
 └─ widgets/    复用组件：三态视图、遮罩式异步任务、带 cookie 的 WebView

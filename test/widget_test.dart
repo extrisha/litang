@@ -59,11 +59,12 @@ void main() {
     expect(find.text('换个关键词试试'), findsOneWidget);
   });
 
-  testWidgets('地图页在维护状态下展示维护提示', (tester) async {
+  testWidgets('地图页可用：渲染底图与搜索框', (tester) async {
     await tester.pumpWidget(_wrap(const MapPage()));
 
     expect(find.text('校园地图'), findsOneWidget);
-    expect(find.text('校园地图功能维护中'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('校园地图功能维护中'), findsNothing);
   });
 
   testWidgets('我的页展示学业入口与空间服务', (tester) async {

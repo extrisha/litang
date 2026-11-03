@@ -15,8 +15,7 @@ class AppColors {
   //
   // 页面里原本直接写 `Color(0xFFF3F4F6)` 这类 Tailwind 色值，全项目 493 处、
   // 227 种。这里把**高频且有明确语义**的收成 token；一次性调色板
-  // （`today/models/course_theme.dart` 的 16 套课程色、
-  // `data/vector_map/vector_map_style.dart` 的地图风格）保持原样不动，
+  // （`today/models/course_theme.dart` 的 16 套课程色）保持原样不动，
   // 它们是数据不是主题。
   // ---------------------------------------------------------------------------
 
