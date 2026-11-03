@@ -1,9 +1,9 @@
 {
-  "version": "0.6.1",
-  "versionCode": 36,
+  "version": "0.7.0-alpha",
+  "versionCode": 45,
   "minVersionCode": 0,
-  "notes": "升级 0.6.1：修复空间预约偶发「登录失效」、网页端重复登录（CAS 会话 cookie 未正确注入）；修复学习通 SSO 网关被误判为已登录导致登录失败；全面统一错误提示，失败不再显示成「暂无数据」，并支持一键重试。",
-  "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.6.1/app-release.apk",
-  "sha256": "7dbfe43832d91b4e0b2163ec112b181c87342850b951383b18a730dcf19c991f"
+  "notes": "0.7.0-alpha 测试版：校园地图重做（建筑角点校准、步行路径），地图功能仍在测试改进中，可能不稳定；课表支持左右滑动翻页切换周次；修复空间预约偶发登录失效与网页端重复登录。",
+  "apk_github": "https://github.com/extrisha/litang/releases/download/0.7.0-alpha/app-release.apk",
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.7.0-alpha/app-release.apk",
+  "sha256": "181ba6c4c2a36f831bbb8ce0cae384e28bd6998ce61ffac77b23ab109b8d5403"
 }
