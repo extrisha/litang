@@ -5,6 +5,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../app_theme.dart';
 import '../data/auth/cas_client.dart';
+import '../data/chaoxing/web_cookie_bridge.dart';
 
 /// 带 cookie 注入的通用内嵌网页，可以单独塞进任意页面里用。
 class CookieWebView extends StatefulWidget {
@@ -101,37 +102,78 @@ class CookieWebViewState extends State<CookieWebView> {
       return;
     }
     if (widget.cookies.isNotEmpty) {
-      try {
-        final manager = WebViewCookieManager();
-        final host = target.host.toLowerCase();
-        for (final cookie in widget.cookies) {
-          // 只向属于目标主机或其父域的主机注入 cookie，防止向无关第三方站点泄露凭据
-          final cookieDomain = cookie.domain
-              .replaceFirst(RegExp(r'^\.'), '')
-              .toLowerCase();
-          if (cookieDomain.isEmpty || host.isEmpty) continue;
-          final matchesTarget =
-              host == cookieDomain || host.endsWith('.$cookieDomain');
-          if (!matchesTarget) continue;
-
-          final String targetUrl = 'https://$host/';
-          final domain = defaultTargetPlatform == TargetPlatform.android
-              ? targetUrl
-              : cookie.domain;
-          await manager.setCookie(
-            WebViewCookie(
-              name: cookie.name,
-              value: cookie.value,
-              domain: domain,
-              path: cookie.path,
-            ),
-          );
-        }
-      } catch (_) {
-        // 注入失败也继续打开
-      }
+      final injected = await _injectCookies(
+        widget.cookies,
+        target.host.toLowerCase(),
+      );
+      debugPrint('[webview] cookie 注入 $injected 条 → ${target.host}');
     }
     await controller.loadRequest(target);
+  }
+
+  /// 把 [cookies] 注入 WebView。
+  ///
+  /// 优先走原生 `CookieManager`（`litang/web_cookies` 通道的 `write`），因为
+  /// 只有它能写 `Domain` 属性 —— `.usst.edu.cn` 这类父域 cookie 才能被
+  /// `ids6.usst.edu.cn` 的 CAS 那一跳带上。
+  ///
+  /// 没有原生通道时（iOS/桌面）退回 `webview_flutter`，它只能写 host-only
+  /// cookie，于是按 cookie 自己的域逐个主机注入：`ids6` 的 CASTGC 至少能
+  /// 落在 `ids6` 上，CAS 那一跳仍然是登录态。
+  Future<int> _injectCookies(List<CasCookie> cookies, String host) async {
+    final plan = WebCookieBridge.buildInjection(cookies, 'https://$host/');
+    final written = await WebCookieBridge.writeAll(plan);
+    if (written >= 0) return written;
+
+    try {
+      final manager = WebViewCookieManager();
+      var count = 0;
+      for (final cookie in plan) {
+        // plan 里的 url 形如 https://ids6.usst.edu.cn/，取回主机名
+        final cookieHost = Uri.tryParse(cookie.url)?.host ?? '';
+        if (cookieHost.isEmpty) continue;
+        // iOS 的 WebViewCookie domain 参数要的是「域」而不是 URL
+        final domain = defaultTargetPlatform == TargetPlatform.android
+            ? cookie.url
+            : cookieHost;
+        await manager.setCookie(
+          WebViewCookie(
+            name: _nameOf(cookie.cookie),
+            value: _valueOf(cookie.cookie),
+            domain: domain,
+            path: _pathOf(cookie.cookie),
+          ),
+        );
+        count++;
+      }
+      return count;
+    } catch (_) {
+      // 注入失败也继续打开
+      return 0;
+    }
+  }
+
+  static String _nameOf(String setCookie) {
+    final pair = setCookie.split(';').first;
+    final eq = pair.indexOf('=');
+    return eq <= 0 ? '' : pair.substring(0, eq).trim();
+  }
+
+  static String _valueOf(String setCookie) {
+    final pair = setCookie.split(';').first;
+    final eq = pair.indexOf('=');
+    return eq <= 0 ? '' : pair.substring(eq + 1).trim();
+  }
+
+  static String _pathOf(String setCookie) {
+    for (final part in setCookie.split(';').skip(1)) {
+      final text = part.trim();
+      if (text.toLowerCase().startsWith('path=')) {
+        final value = text.substring(5).trim();
+        return value.isEmpty ? '/' : value;
+      }
+    }
+    return '/';
   }
 
   @override

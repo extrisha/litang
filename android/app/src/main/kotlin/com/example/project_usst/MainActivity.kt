@@ -52,6 +52,38 @@ class MainActivity : FlutterActivity() {
                         }
                     }
 
+                    // 写入 cookie。
+                    //
+                    // 为什么要自己写：webview_flutter 的 WebViewCookieManager
+                    // 只能拼 name=value; path=/，**设不了 Domain 属性**，于是
+                    // `.usst.edu.cn` 这类父域 cookie 会被绑成 host-only，
+                    // 跳去 ids6.usst.edu.cn 的 CAS 那一跳就拿不到 CASTGC，
+                    // 用户必然要在网页里重新登录一次（还会顶掉 App 的会话）。
+                    // 这里直接走系统 CookieManager，可以带上 Domain。
+                    "write" -> {
+                        @Suppress("UNCHECKED_CAST")
+                        val cookies = call.argument<List<Map<String, String>>>("cookies")
+                            ?: emptyList<Map<String, String>>()
+                        Handler(Looper.getMainLooper()).post {
+                            try {
+                                val manager = CookieManager.getInstance()
+                                manager.setAcceptCookie(true)
+                                var count = 0
+                                for (entry in cookies) {
+                                    val url = entry["url"]
+                                    val cookie = entry["cookie"]
+                                    if (url.isNullOrEmpty() || cookie.isNullOrEmpty()) continue
+                                    manager.setCookie(url, cookie)
+                                    count++
+                                }
+                                manager.flush()
+                                result.success(count)
+                            } catch (e: Exception) {
+                                result.error("cookie_write_failed", e.message, null)
+                            }
+                        }
+                    }
+
                     else -> result.notImplemented()
                 }
             }
