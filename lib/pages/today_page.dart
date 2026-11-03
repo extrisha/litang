@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../app_theme.dart';
 import '../data/auth/jwgl_auth.dart';
@@ -50,11 +51,18 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
   /// 最近一次同步是否失败（包含静默同步），用于区分「没课」和「取不到」
   bool _syncFailed = false;
 
-  /// 主题色映射缓存：跟着 `_snapshot` + `_selectedWeek` 走，
-  /// 不再每次 build 都重算（`buildCourseThemeMap` 里有 O(n²) 的 contains）。
+  /// 主题色映射缓存：按**周次**分桶。
+  ///
+  /// 左右滑动时相邻两页会同时构建，若只缓存「当前周」这一格，两页会互相把
+  /// 缓存挤掉、每帧重算两次 `buildCourseThemeMap`（内部有 O(n²) 的 contains）。
+  /// 快照换了就整表清空，最多也就 20 项。
   CourseSnapshot? _themeSnapshot;
-  int _themeWeek = -1;
-  Map<String, CourseTheme> _themeMap = const <String, CourseTheme>{};
+  final Map<int, Map<String, CourseTheme>> _themeByWeek =
+      <int, Map<String, CourseTheme>>{};
+
+  /// 周次翻页控制器。第一帧就用 `_selectedWeek` 建，避免加载缓存后页面
+  /// 还停在第 1 周、而顶栏已经显示第 8 周。
+  PageController? _pageController;
 
   @override
   void initState() {
@@ -98,6 +106,7 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     _minuteTimer?.cancel();
+    _pageController?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     JwglAuth.instance.removeListener(_onAuthChanged);
     super.dispose();
@@ -122,6 +131,8 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
         _snapshot = cached;
         _selectedWeek = curWeek;
       });
+      // 缓存里的「当前周」可能不是第 1 周：把翻页视图对齐过去
+      _syncPageToWeek(curWeek);
     }
     if (JwglAuth.instance.isLoggedIn) {
       final fresh = await CourseRepository.isFresh();
@@ -134,13 +145,15 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
   Future<void> _loadCacheAndRefresh({bool silent = false}) async {
     final cached = await CourseRepository.loadCache();
     if (mounted && cached != null) {
+      final week =
+          CalendarService.instance.currentWeek ??
+          cached.currentWeek ??
+          _selectedWeek;
       setState(() {
         _snapshot = cached;
-        _selectedWeek =
-            CalendarService.instance.currentWeek ??
-            cached.currentWeek ??
-            _selectedWeek;
+        _selectedWeek = week;
       });
+      _syncPageToWeek(week);
     }
     await _refresh(silent: silent);
   }
@@ -188,6 +201,49 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
   }
 
   int get _maxWeek => 20;
+
+  /// 切换周次的唯一入口（下拉面板、「回到本周」按钮都走这里）。
+  /// 左右滑动不经过它——拖拽由 PageView 自己处理，停下后回调 `_onPageChanged`。
+  void _goWeek(int week) {
+    if (week < 1 || week > _maxWeek || week == _selectedWeek) return;
+    final distance = (week - _selectedWeek).abs();
+    HapticFeedback.selectionClick();
+    setState(() => _selectedWeek = week);
+    // 相邻周平滑滑过去；从面板直接跳很远时用跳转，避免滚过中间每一页
+    _syncPageToWeek(week, animate: distance == 1);
+  }
+
+  PageController get _page =>
+      _pageController ??= PageController(initialPage: _selectedWeek - 1);
+
+  /// 让翻页视图对齐到指定周（controller 还没挂载时直接跳过）。
+  void _syncPageToWeek(int week, {bool animate = false}) {
+    final target = (week - 1).clamp(0, _maxWeek - 1);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final controller = _pageController;
+      if (controller == null || !controller.hasClients) return;
+      final current = controller.page?.round() ?? target;
+      if (current == target) return;
+      if (animate) {
+        controller.animateToPage(
+          target,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+      } else {
+        controller.jumpToPage(target);
+      }
+    });
+  }
+
+  /// 拖拽翻页停下后，把顶栏与状态切到目标周。
+  void _onPageChanged(int index) {
+    final week = index + 1;
+    if (week == _selectedWeek) return;
+    HapticFeedback.selectionClick();
+    setState(() => _selectedWeek = week);
+  }
 
   int get _currentWeek =>
       CalendarService.instance.currentWeek ?? _snapshot?.currentWeek ?? 1;
@@ -358,7 +414,7 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
           const Spacer(),
           if (!isCur)
             TextButton.icon(
-              onPressed: () => setState(() => _selectedWeek = _currentWeek),
+              onPressed: () => _goWeek(_currentWeek),
               style: TextButton.styleFrom(
                 foregroundColor: AppColors.usstRed,
                 padding: const EdgeInsets.symmetric(
@@ -402,10 +458,8 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
       currentWeek: _currentWeek,
       maxWeek: _maxWeek,
       onSelectWeek: (week) {
-        setState(() {
-          _selectedWeek = week;
-          _showWeekSelector = false;
-        });
+        setState(() => _showWeekSelector = false);
+        _goWeek(week);
       },
     );
   }
@@ -508,36 +562,55 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
 
   Widget _scheduleGrid() {
     final courses = _snapshot?.courses ?? <Course>[];
-    return ScheduleGrid(
-      courses: courses,
-      selectedWeek: _selectedWeek,
-      themeMap: _themeMapFor(_snapshot, _selectedWeek),
-      activePeriod: _activePeriod(),
-      isToday: (d) => _isToday(d),
-      dateForDay: (w, d) => _dateForDay(w, d),
-      onRefresh: () => _refresh(),
-      onCourseTap: _showCourseDetailModal,
-      onCourseDoubleTap: _locateCourseOnMap,
-      periodWidth: _periodWidth,
-      headerHeight: _headerHeight,
+    // 用 PageView 而不是手势 + 动画：
+    // - 跟手拖拽、松手回弹、边缘阻尼全部由 Flutter 的滚动机制负责，
+    //   位移在合成阶段完成，不需要每帧跑 Dart 逻辑；
+    // - 只在需要时构建相邻那一页（默认 allowImplicitScrolling: false）；
+    // - 垂直滚动、下拉刷新、点按/双击课程都不受影响（方向不同）。
+    return PageView.builder(
+      controller: _page,
+      itemCount: _maxWeek,
+      onPageChanged: _onPageChanged,
+      itemBuilder: (context, index) {
+        final week = index + 1;
+        // 相邻两页可能同时存在，各自持有一个纵向滚动视图；
+        // 若都继承同一个 PrimaryScrollController 会触发「一挂多」断言。
+        return PrimaryScrollController.none(
+          child: ScheduleGrid(
+            courses: courses,
+            selectedWeek: week,
+            themeMap: _themeMapFor(_snapshot, week),
+            activePeriod: _activePeriod(),
+            isToday: (d) => _isToday(d),
+            dateForDay: (w, d) => _dateForDay(w, d),
+            onRefresh: () => _refresh(),
+            onCourseTap: _showCourseDetailModal,
+            onCourseDoubleTap: _locateCourseOnMap,
+            periodWidth: _periodWidth,
+            headerHeight: _headerHeight,
+          ),
+        );
+      },
     );
   }
 
-  /// 同一份快照 + 同一个周次只算一次主题色映射。
+  /// 同一份快照下的每个周次只算一次主题色映射。
   ///
   /// `buildCourseThemeMap` 内部有 O(n²) 的 `contains` 去重，原来每次 build
   /// 都要重算一遍；配合上面「每分钟一次重建」就是白烧 CPU。
+  /// 拖拽翻页时相邻两页会同时构建，所以必须按周次分桶缓存，不能只留一格。
   Map<String, CourseTheme> _themeMapFor(CourseSnapshot? snapshot, int week) {
-    if (identical(_themeSnapshot, snapshot) && _themeWeek == week) {
-      return _themeMap;
+    if (!identical(_themeSnapshot, snapshot)) {
+      _themeSnapshot = snapshot;
+      _themeByWeek.clear();
     }
-    _themeSnapshot = snapshot;
-    _themeWeek = week;
-    _themeMap = buildCourseThemeMap(
-      (snapshot?.courses ?? const <Course>[])
-          .where((c) => c.activeInWeek(week))
-          .toList(),
+    return _themeByWeek.putIfAbsent(
+      week,
+      () => buildCourseThemeMap(
+        (snapshot?.courses ?? const <Course>[])
+            .where((c) => c.activeInWeek(week))
+            .toList(),
+      ),
     );
-    return _themeMap;
   }
 }
