@@ -255,12 +255,17 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
   }
 
   bool _isToday(int dayIndex) {
-    if (_selectedWeek != _currentWeek) return false;
+    // 是否"本周"由调用方（表头的 displayedWeek / 页的 isCurrentWeek）判断，
+    // 这里只管"今天星期几"。带上 _selectedWeek 判断的话，翻页过渡期间
+    // 旧页会因为 _selectedWeek 已经变了而突然失去今天高亮。
     final now = DateTime.now();
     return (now.weekday - 1) == dayIndex;
   }
 
   int? _activePeriod() {
+    // 只有正在看「本周」时才有"当前节次"概念。
+    // 原来不判这一条，加上翻页后每一周都会被画上那条红色高亮。
+    if (_selectedWeek != _currentWeek) return null;
     final now = DateTime.now();
     final curM = now.hour * 60 + now.minute;
     for (final p in JwglSchedule.periods) {
@@ -560,37 +565,43 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
     );
   }
 
+  /// 课表：节次列与星期表头固定，只有右侧课程区左右翻页。
+  ///
+  /// 翻页交给 `ScheduleGrid` 内部的 `PageView`，好处是纵向滚动视图只有**一个**，
+  /// 不再每翻一页就换一个新的滚动视图（那样滑动后第一下纵向拖动常常没反应）。
   Widget _scheduleGrid() {
-    final courses = _snapshot?.courses ?? <Course>[];
-    // 用 PageView 而不是手势 + 动画：
-    // - 跟手拖拽、松手回弹、边缘阻尼全部由 Flutter 的滚动机制负责，
-    //   位移在合成阶段完成，不需要每帧跑 Dart 逻辑；
-    // - 只在需要时构建相邻那一页（默认 allowImplicitScrolling: false）；
-    // - 垂直滚动、下拉刷新、点按/双击课程都不受影响（方向不同）。
-    return PageView.builder(
-      controller: _page,
-      itemCount: _maxWeek,
+    final all = _snapshot?.courses ?? const <Course>[];
+    // 周末列按全部周判断：否则翻到某周时列数变化，整张表会横向跳动
+    return ScheduleGrid(
+      weekCount: _maxWeek,
+      pageOf: _pageOf,
+      pageController: _page,
       onPageChanged: _onPageChanged,
-      itemBuilder: (context, index) {
-        final week = index + 1;
-        // 相邻两页可能同时存在，各自持有一个纵向滚动视图；
-        // 若都继承同一个 PrimaryScrollController 会触发「一挂多」断言。
-        return PrimaryScrollController.none(
-          child: ScheduleGrid(
-            courses: courses,
-            selectedWeek: week,
-            themeMap: _themeMapFor(_snapshot, week),
-            activePeriod: _activePeriod(),
-            isToday: (d) => _isToday(d),
-            dateForDay: (w, d) => _dateForDay(w, d),
-            onRefresh: () => _refresh(),
-            onCourseTap: _showCourseDetailModal,
-            onCourseDoubleTap: _locateCourseOnMap,
-            periodWidth: _periodWidth,
-            headerHeight: _headerHeight,
-          ),
-        );
-      },
+      activePeriod: _activePeriod(),
+      hasSaturday: all.any((c) => c.day == 5),
+      hasSunday: all.any((c) => c.day == 6),
+      displayedWeek: _selectedWeek,
+      currentWeek: _currentWeek,
+      isToday: _isToday,
+      dateForDay: _dateForDay,
+      onRefresh: () => _refresh(),
+      onCourseTap: _showCourseDetailModal,
+      onCourseDoubleTap: _locateCourseOnMap,
+      periodWidth: _periodWidth,
+      headerHeight: _headerHeight,
+    );
+  }
+
+  /// 某一周的课表数据（`PageView` 只对实际构建的页调用）。
+  WeekPage _pageOf(int week) {
+    final courses = (_snapshot?.courses ?? const <Course>[])
+        .where((c) => c.activeInWeek(week))
+        .toList();
+    return WeekPage(
+      week: week,
+      courses: courses,
+      themeMap: _themeMapFor(_snapshot, week),
+      isCurrentWeek: week == _currentWeek,
     );
   }
 

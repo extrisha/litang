@@ -20,14 +20,32 @@ void main() {
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
 
+    final controller = PageController(initialPage: selectedWeek - 1);
+    addTearDown(controller.dispose);
+
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: ScheduleGrid(
-            courses: courses,
-            selectedWeek: selectedWeek,
-            themeMap: buildCourseThemeMap(courses),
+            weekCount: 20,
+            pageOf: (week) {
+              final weekCourses = courses
+                  .where((c) => c.activeInWeek(week))
+                  .toList();
+              return WeekPage(
+                week: week,
+                courses: weekCourses,
+                themeMap: buildCourseThemeMap(weekCourses),
+                isCurrentWeek: week == selectedWeek,
+              );
+            },
+            pageController: controller,
+            onPageChanged: (_) {},
             activePeriod: activePeriod,
+            hasSaturday: courses.any((c) => c.day == 5),
+            hasSunday: courses.any((c) => c.day == 6),
+            displayedWeek: selectedWeek,
+            currentWeek: selectedWeek,
             isToday: (_) => false,
             dateForDay: (_, _) => null,
             onRefresh: () async {},

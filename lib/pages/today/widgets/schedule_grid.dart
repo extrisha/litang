@@ -10,16 +10,45 @@ import '../../../data/models.dart';
 import '../../../data/jwc/jwgl_schedule.dart';
 import '../models/course_theme.dart';
 
-/// 课表主网格（包含吸顶星期表头、左侧节次列、以及网格线与课程卡片）
+/// 一页（一周）需要的课表数据。
+///
+/// 按周惰性构造：只有真正被 `PageView` 构建的页才会去算主题色，
+/// 不会为了翻页把 20 周全部预先算好。
+class WeekPage {
+  const WeekPage({
+    required this.week,
+    required this.courses,
+    required this.themeMap,
+    required this.isCurrentWeek,
+  });
+
+  final int week;
+
+  /// 该周生效的课程（已按 `activeInWeek` 过滤）。
+  final List<Course> courses;
+
+  final Map<String, CourseTheme> themeMap;
+
+  /// 是否「本周」。只有本周才画当前节次高亮和今天列高亮——
+  /// 否则拖拽时相邻那一页也会被画上红带，看起来就是「高亮漂到别的周」。
+  final bool isCurrentWeek;
+}
+
+/// 课表主网格：吸顶星期表头 + 左侧节次列固定，只有右侧课程区左右翻页。
 class ScheduleGrid extends StatelessWidget {
   const ScheduleGrid({
     super.key,
-    required this.courses,
-    required this.selectedWeek,
-    required this.themeMap,
+    required this.weekCount,
+    required this.pageOf,
+    required this.pageController,
+    required this.onPageChanged,
     required this.activePeriod,
-    required this.isToday,
+    required this.hasSaturday,
+    required this.hasSunday,
     required this.dateForDay,
+    required this.displayedWeek,
+    required this.currentWeek,
+    required this.isToday,
     required this.onRefresh,
     required this.onCourseTap,
     required this.onCourseDoubleTap,
@@ -27,17 +56,37 @@ class ScheduleGrid extends StatelessWidget {
     this.headerHeight = 38.0,
   });
 
-  final List<Course> courses;
-  final int selectedWeek;
-  final Map<String, CourseTheme> themeMap;
+  /// 总周数（1..weekCount）。
+  final int weekCount;
+
+  /// 按周取数据；只对实际构建的页调用。
+  final WeekPage Function(int week) pageOf;
+  final PageController pageController;
+  final ValueChanged<int> onPageChanged;
+
+  /// 当前节次；只有本周页会用（见 [WeekPage.isCurrentWeek]）。
   final int? activePeriod;
-  final bool Function(int dayIndex) isToday;
+
+  /// 有课就展示周末列。按**全部周**判断而不是当前周，
+  /// 否则翻页时列数会变、整张表横向跳动。
+  final bool hasSaturday;
+  final bool hasSunday;
+
   final DateTime? Function(int week, int dayIndex) dateForDay;
   final RefreshCallback onRefresh;
   final void Function(Course course) onCourseTap;
   final void Function(Course course) onCourseDoubleTap;
   final double periodWidth;
   final double headerHeight;
+
+  /// 表头显示哪一周的日期（跟随当前翻到的页）。
+  final int displayedWeek;
+
+  /// 本周是第几周（表头「今天」高亮用）。
+  final int currentWeek;
+
+  /// 某天是不是今天（只有本周页会用到）。
+  final bool Function(int dayIndex) isToday;
 
   static const List<String> dayNames = <String>[
     '一',
@@ -63,12 +112,8 @@ class ScheduleGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final shown = courses.where((c) => c.activeInWeek(selectedWeek)).toList();
-
-    // 默认隐藏周末；若检测到周六有课则在右侧展开周六；若周日有课则在周一左侧展开周日
-    final hasSaturday = shown.any((c) => c.day == 5);
-    final hasSunday = shown.any((c) => c.day == 6);
-
+    // 周末列按「全部周」判断：若有任意一周周末有课就一直展示，
+    // 否则翻到某周时列数变化会让整张表横向跳动。
     final visibleDays = <int>[];
     if (hasSunday) visibleDays.add(6); // 周日置于周一左侧
     visibleDays.addAll(<int>[0, 1, 2, 3, 4]); // 周一至周五
@@ -136,37 +181,50 @@ class ScheduleGrid extends StatelessWidget {
                         rowHeight,
                         totalGridHeight,
                       ),
-                      // 右侧课程网格
+                      // 右侧课程网格：只有这一块左右翻页，节次列与表头不动
                       SizedBox(
                         width: dayWidth * visibleDays.length,
                         height: totalGridHeight,
-                        child: Stack(
-                          children: <Widget>[
-                            // 网格底图
-                            Positioned.fill(
-                              child: CustomPaint(
-                                painter: GridPainter(
-                                  periods: JwglSchedule.periodCount,
-                                  activePeriod: activePeriod,
-                                  visibleDays: visibleDays,
-                                  isTodayCol: (d) => isToday(d),
-                                  dayWidth: dayWidth,
-                                  rowHeight: rowHeight,
+                        child: PageView.builder(
+                          controller: pageController,
+                          itemCount: weekCount,
+                          onPageChanged: onPageChanged,
+                          itemBuilder: (context, index) {
+                            final page = pageOf(index + 1);
+                            // 只有本周页才画「当前节次」红带与今天列高亮
+                            final pageActive = page.isCurrentWeek
+                                ? activePeriod
+                                : null;
+                            return Stack(
+                              children: <Widget>[
+                                // 网格底图
+                                Positioned.fill(
+                                  child: CustomPaint(
+                                    painter: GridPainter(
+                                      periods: JwglSchedule.periodCount,
+                                      activePeriod: pageActive,
+                                      visibleDays: visibleDays,
+                                      isTodayCol: (d) =>
+                                          page.isCurrentWeek && isToday(d),
+                                      dayWidth: dayWidth,
+                                      rowHeight: rowHeight,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            // 课程色块
-                            for (final course in shown)
-                              if (visibleDays.contains(course.day))
-                                _buildCourseCard(
-                                  course,
-                                  dayWidth,
-                                  rowHeight,
-                                  visibleDays.indexOf(course.day),
-                                  themeMap[course.name] ??
-                                      themeForCourse(course.name),
-                                ),
-                          ],
+                                // 课程色块
+                                for (final course in page.courses)
+                                  if (visibleDays.contains(course.day))
+                                    _buildCourseCard(
+                                      course,
+                                      dayWidth,
+                                      rowHeight,
+                                      visibleDays.indexOf(course.day),
+                                      page.themeMap[course.name] ??
+                                          themeForCourse(course.name),
+                                    ),
+                              ],
+                            );
+                          },
                         ),
                       ),
                     ],
@@ -181,8 +239,9 @@ class ScheduleGrid extends StatelessWidget {
   }
 
   Widget _buildDayHeaderCell(int dayIndex, double dayWidth) {
-    final isT = isToday(dayIndex);
-    final date = dateForDay(selectedWeek, dayIndex);
+    // 表头固定不动，但日期要跟着当前显示的周走
+    final isT = displayedWeek == currentWeek && isToday(dayIndex);
+    final date = dateForDay(displayedWeek, dayIndex);
     final dateStr = date != null ? '${date.month}/${date.day}' : '';
 
     return Container(
