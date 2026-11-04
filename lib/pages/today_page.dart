@@ -570,16 +570,13 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
   /// 翻页交给 `ScheduleGrid` 内部的 `PageView`，好处是纵向滚动视图只有**一个**，
   /// 不再每翻一页就换一个新的滚动视图（那样滑动后第一下纵向拖动常常没反应）。
   Widget _scheduleGrid() {
-    final all = _snapshot?.courses ?? const <Course>[];
-    // 周末列按全部周判断：否则翻到某周时列数变化，整张表会横向跳动
     return ScheduleGrid(
       weekCount: _maxWeek,
       pageOf: _pageOf,
       pageController: _page,
       onPageChanged: _onPageChanged,
       activePeriod: _activePeriod(),
-      hasSaturday: all.any((c) => c.day == 5),
-      hasSunday: all.any((c) => c.day == 6),
+      // 周末列由每一页按自己那周的课程决定（见 ScheduleGrid.visibleDaysOf）
       displayedWeek: _selectedWeek,
       currentWeek: _currentWeek,
       isToday: _isToday,

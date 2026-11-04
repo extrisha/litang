@@ -42,8 +42,6 @@ void main() {
             pageController: controller,
             onPageChanged: (_) {},
             activePeriod: activePeriod,
-            hasSaturday: courses.any((c) => c.day == 5),
-            hasSunday: courses.any((c) => c.day == 6),
             displayedWeek: selectedWeek,
             currentWeek: selectedWeek,
             isToday: (_) => false,
@@ -136,6 +134,28 @@ void main() {
     );
     expect(find.text('周六'), findsOneWidget);
     expect(find.text('周日'), findsNothing);
+  });
+
+  testWidgets('周末列按「当周」判断：别的周有周六课不影响本周', (tester) async {
+    // 周六课只在第 5 周上
+    const courses = <Course>[
+      Course(
+        name: '周六课',
+        day: 5,
+        start: 0,
+        span: 1,
+        room: '1',
+        weeks: <int>[5],
+      ),
+    ];
+
+    // 看第 1 周：本周没有周六课，不该占位
+    await pumpGrid(tester, courses: courses, selectedWeek: 1);
+    expect(find.text('周六'), findsNothing);
+
+    // 看第 5 周：这一周有周六课，展开周六列
+    await pumpGrid(tester, courses: courses, selectedWeek: 5);
+    expect(find.text('周六'), findsOneWidget);
   });
 
   testWidgets('当前节次高亮不崩、网格正常绘制', (tester) async {

@@ -43,8 +43,6 @@ class ScheduleGrid extends StatelessWidget {
     required this.pageController,
     required this.onPageChanged,
     required this.activePeriod,
-    required this.hasSaturday,
-    required this.hasSunday,
     required this.dateForDay,
     required this.displayedWeek,
     required this.currentWeek,
@@ -67,10 +65,7 @@ class ScheduleGrid extends StatelessWidget {
   /// 当前节次；只有本周页会用（见 [WeekPage.isCurrentWeek]）。
   final int? activePeriod;
 
-  /// 有课就展示周末列。按**全部周**判断而不是当前周，
-  /// 否则翻页时列数会变、整张表横向跳动。
-  final bool hasSaturday;
-  final bool hasSunday;
+  /// 有课就展示周末列。按**这一页自己**判断（见 [visibleDaysOf]）。
 
   final DateTime? Function(int week, int dayIndex) dateForDay;
   final RefreshCallback onRefresh;
@@ -110,14 +105,31 @@ class ScheduleGrid extends StatelessWidget {
     return '${parts.first}等';
   }
 
+  /// 某一周要展示哪几天。
+  ///
+  /// 按**这一周自己**有没有周末课判断：本周只有工作日就只显示 5 列，
+  /// 某周周六有课就为那一页展开周六。列数变化不会让整表跳动——
+  /// `dayWidth = (可用宽 - 节次列) / 列数`，一页的总宽度恒等于
+  /// `可用宽 - 节次列`，变的只是列宽。
+  static List<int> visibleDaysOf(List<Course> courses) {
+    final hasSat = courses.any((c) => c.day == 5);
+    final hasSun = courses.any((c) => c.day == 6);
+    return <int>[
+      if (hasSun) 6, // 周日置于周一左侧
+      0,
+      1,
+      2,
+      3,
+      4, // 周一至周五
+      if (hasSat) 5, // 周六置于周五右侧
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
-    // 周末列按「全部周」判断：若有任意一周周末有课就一直展示，
-    // 否则翻到某周时列数变化会让整张表横向跳动。
-    final visibleDays = <int>[];
-    if (hasSunday) visibleDays.add(6); // 周日置于周一左侧
-    visibleDays.addAll(<int>[0, 1, 2, 3, 4]); // 周一至周五
-    if (hasSaturday) visibleDays.add(5); // 周六置于周五右侧
+    // 表头固定不动，但它的列集合要跟"当前显示的那一页"一致，
+    // 否则列宽对不上。
+    final visibleDays = visibleDaysOf(pageOf(displayedWeek).courses);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -191,6 +203,11 @@ class ScheduleGrid extends StatelessWidget {
                           onPageChanged: onPageChanged,
                           itemBuilder: (context, index) {
                             final page = pageOf(index + 1);
+                            // 每一页按**自己这周**的周末课决定列集合
+                            final pageDays = visibleDaysOf(page.courses);
+                            final pageDayWidth =
+                                (availableWidth - periodWidth) /
+                                pageDays.length;
                             // 只有本周页才画「当前节次」红带与今天列高亮
                             final pageActive = page.isCurrentWeek
                                 ? activePeriod
@@ -203,22 +220,22 @@ class ScheduleGrid extends StatelessWidget {
                                     painter: GridPainter(
                                       periods: JwglSchedule.periodCount,
                                       activePeriod: pageActive,
-                                      visibleDays: visibleDays,
+                                      visibleDays: pageDays,
                                       isTodayCol: (d) =>
                                           page.isCurrentWeek && isToday(d),
-                                      dayWidth: dayWidth,
+                                      dayWidth: pageDayWidth,
                                       rowHeight: rowHeight,
                                     ),
                                   ),
                                 ),
                                 // 课程色块
                                 for (final course in page.courses)
-                                  if (visibleDays.contains(course.day))
+                                  if (pageDays.contains(course.day))
                                     _buildCourseCard(
                                       course,
-                                      dayWidth,
+                                      pageDayWidth,
                                       rowHeight,
-                                      visibleDays.indexOf(course.day),
+                                      pageDays.indexOf(course.day),
                                       page.themeMap[course.name] ??
                                           themeForCourse(course.name),
                                     ),
