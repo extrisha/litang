@@ -1,9 +1,9 @@
 {
-  "version": "0.7.0-alpha",
-  "versionCode": 45,
+  "version": "0.7.1",
+  "versionCode": 47,
   "minVersionCode": 0,
-  "notes": "0.7.0-alpha 测试版：校园地图重做（建筑角点校准、步行路径），地图功能仍在测试改进中，可能不稳定；课表支持左右滑动翻页切换周次；修复空间预约偶发登录失效与网页端重复登录。",
-  "apk_github": "https://github.com/extrisha/litang/releases/download/0.7.0-alpha/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.7.0-alpha/app-release.apk",
-  "sha256": "181ba6c4c2a36f831bbb8ce0cae384e28bd6998ce61ffac77b23ab109b8d5403"
+  "notes": "升级 0.7.1：新增高校体育绑定与次数卡片；地图支持角点标定逐个删除、路线采集可区分步行/骑行；课表改为左右滑动翻页切换周次（节次列与周几固定，周末列按当周显示）；修复空间预约偶发登录失效与网页端重复登录。",
+  "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.7.1/app-release.apk",
+  "sha256": "50a656a8626b5f9fbbb148fce65274c38a02cc02481e812f4570d051389c6078"
 }
