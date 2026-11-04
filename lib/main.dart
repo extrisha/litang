@@ -24,7 +24,6 @@ import 'pages/map_page.dart';
 import 'pages/forum_page.dart';
 import 'pages/profile_page.dart';
 import 'pages/today_page.dart';
-import 'widgets/usst_campus_icon.dart';
 import 'widgets/usst_today_icon.dart';
 
 /// 全局导航 key：点通知时要能从任意位置跳转。
@@ -253,8 +252,10 @@ class _RootScaffoldState extends State<RootScaffold>
             label: '信息',
           ),
           const NavigationDestination(
-            icon: UsstCampusIcon(selected: false),
-            selectedIcon: UsstCampusIcon(selected: true),
+            // 原来是自绘的思晏堂剪影，尖顶 + 坡屋顶 + 黑门窗，缩到 24px 容易看成鬼屋；
+            // 换回 Material 的柱廊建筑，和「信息 / 理评 / 我的」同一套线框风格。
+            icon: Icon(Icons.account_balance_outlined),
+            selectedIcon: Icon(Icons.account_balance),
             label: '校园',
           ),
           const NavigationDestination(

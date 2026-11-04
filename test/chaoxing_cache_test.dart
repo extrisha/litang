@@ -57,6 +57,7 @@ void main() {
         courseName: '大学物理实验',
         courseId: '1',
         classId: '2',
+        url: 'https://mobilelearn.chaoxing.com/widget/sign/e?id=a1&c=9&enc=ABC',
       ),
     ]);
 
@@ -65,6 +66,7 @@ void main() {
     expect(data!.courses.single.name, '大学物理实验');
     expect(data.works.single.workId, 'w1');
     expect(data.activities.single.signCode, '1234');
+    expect(data.activities.single.url, contains('enc=ABC'));
   });
 
   test('缓存按学号隔离', () async {

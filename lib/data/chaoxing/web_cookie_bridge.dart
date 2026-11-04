@@ -47,7 +47,12 @@ class WebCookieBridge {
     }
   }
 
-  /// 退出登录时清一下 WebView 里的 cookie，别留着上一个账号的会话。
+  /// 退出登录时清 WebView 的会话：**cookie + localStorage/sessionStorage**。
+  ///
+  /// 只清 cookie 会漏：上理体育（ydmap）把登录 token 放在 `window.localStorage`
+  /// 里（`fe.put` 走 localStorage，JSON 编码），换账号后不清就是上一个人的登录态。
+  /// 这里一次性清空，代价是同一 App 内其它 WebView 的网页缓存也没了 —— 退出登录
+  /// 本来就要这个效果，和「换账号旧缓存不能留」一致。
   static Future<void> clear() async {
     try {
       await _channel.invokeMethod<void>('clear');

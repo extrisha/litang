@@ -263,7 +263,10 @@ class _MapDiagnosticsPageState extends State<MapDiagnosticsPage> {
                   '在地图页长按你所在的真实位置即可校准（需室外、精度 ≤25 m）。',
                   style: TextStyle(fontSize: 11, color: AppColors.textMuted),
                 ),
-                if (MapCalibration.active)
+                if (MapCalibration.active) ...<Widget>[
+                  const SizedBox(height: 8),
+                  for (var i = 0; i < MapCalibration.samples.length; i++)
+                    _calibrationRow(i, MapCalibration.samples[i]),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: <Widget>[
@@ -289,10 +292,11 @@ class _MapDiagnosticsPageState extends State<MapDiagnosticsPage> {
                           if (!mounted) return;
                           setState(() {});
                         },
-                        child: const Text('清除校准'),
+                        child: const Text('清除全部'),
                       ),
                     ],
                   ),
+                ],
               ],
             ),
           ),
@@ -371,6 +375,41 @@ class _MapDiagnosticsPageState extends State<MapDiagnosticsPage> {
           ],
         ],
       ),
+    );
+  }
+
+  /// 单个标定点：显示时间、精度、偏移，并允许单独删除。
+  Widget _calibrationRow(int index, MapCalibrationSample sample) {
+    final (east, north) = MapCalibration.offsetOf(sample);
+    final time =
+        '${sample.savedAt.hour.toString().padLeft(2, '0')}:'
+        '${sample.savedAt.minute.toString().padLeft(2, '0')}';
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Text(
+            '第 ${index + 1} 个 · $time · 精度 ${sample.accuracy.toStringAsFixed(0)} m · '
+            '偏移 东${east.toStringAsFixed(0)} 北${north.toStringAsFixed(0)} m',
+            style: const TextStyle(
+              fontSize: 11.5,
+              height: 1.4,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.delete_outline, size: 18),
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          tooltip: '删除这个标定点',
+          onPressed: () async {
+            await MapCalibration.removeAt(index);
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+      ],
     );
   }
 

@@ -2,9 +2,9 @@ import 'dart:math' as math;
 
 /// WGS-84（系统 GPS 原始坐标）与 GCJ-02（国内火星坐标系）互转工具。
 ///
-/// 注意：一网畅学（TronClass）雷达签到服务端比对使用的是标准 WGS-84 坐标，
-/// 签到上报应使用系统原始经纬度，无需转为 GCJ-02（转换会导致约 480 米偏差并触发超出范围）。
-/// 本工具保留用于国内地图 SDK（如高德/腾讯地图）瓦片或图层显示时的坐标对齐。
+/// 一网畅学（TronClass）雷达签到按 USST 参考实现（usst-jwgl-client）
+/// 要求 GCJ-02：系统定位拿到 WGS-84 后必须先 [wgs84ToGcj02] 再上报。
+/// 参考项目的教学楼基准坐标也全部是 GCJ-02。
 class CoordinateUtils {
   CoordinateUtils._();
 

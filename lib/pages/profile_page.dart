@@ -25,10 +25,9 @@ import 'rank_page.dart';
 import 'simple_web.dart';
 import 'login_page.dart';
 import 'update_page.dart';
-import 'space_booking_page.dart';
 import '../services/update_service.dart';
 
-/// 我的：个人信息 + 查询入口（学业 / 空间）+ 课表（自动同步 + 手动刷新）。
+/// 我的：个人信息 + 学业查询 + 网页入口（上理体育 / 学工 / 教务）。
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
 
@@ -291,13 +290,9 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ]),
             const SizedBox(height: 16),
-            _sectionTitle('服务'),
+            _sectionTitle('网页入口'),
             _grid(<Widget>[
-              _entry(
-                Icons.event_seat_outlined,
-                '空间预约',
-                onTap: _openSpaceBooking,
-              ),
+              _entry(Icons.sports_outlined, '上理体育', onTap: _openSport),
               _entry(Icons.badge_outlined, '学工一体化', onTap: _openXuegong),
               _entry(Icons.language_outlined, '教务网页版', onTap: _openJwglWeb),
             ]),
@@ -617,10 +612,22 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  void _openSpaceBooking() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const SpaceBookingPage()));
+  /// 上理体育是第三方 SaaS（智慧体育 ydmap），没有可复用的学校会话，
+  /// 只能在 WebView 里用手机号登录一次；登录态由 WebView 自己保留，下次直接进。
+  ///
+  /// 登录态（`Access-Token`）在 WebView 的 localStorage 里，落在应用私有目录
+  /// `app_webview/`，由应用沙箱 + 系统整盘加密保护。**不要自己再存一份**：
+  /// 写普通文件是明文泄露，写 Keystore 也只是多一份可解密副本，而 WebView 里
+  /// 那份依然在。退出登录时由 `WebCookieBridge.clear()` 连同 localStorage 一起清。
+  void _openSport() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const SimpleWebPage(
+          title: '上理体育',
+          url: 'https://usst.ydmap.cn/_/usst.html',
+        ),
+      ),
+    );
   }
 
   Future<void> _openXuegong() async {

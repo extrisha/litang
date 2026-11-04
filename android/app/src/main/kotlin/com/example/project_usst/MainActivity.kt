@@ -3,6 +3,7 @@ package com.example.project_usst
 import android.os.Handler
 import android.os.Looper
 import android.webkit.CookieManager
+import android.webkit.WebStorage
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -45,6 +46,9 @@ class MainActivity : FlutterActivity() {
                             try {
                                 CookieManager.getInstance().removeAllCookies(null)
                                 CookieManager.getInstance().flush()
+                                // 只清 cookie 不够：上理体育（ydmap）的会话 token 存在
+                                // localStorage 里，不清的话换账号后打开还是上一个人的登录态。
+                                WebStorage.getInstance().deleteAllData()
                                 result.success(null)
                             } catch (e: Exception) {
                                 result.error("cookie_clear_failed", e.message, null)

@@ -21,6 +21,15 @@ void main() {
       expect(rollcall.timeText, '10:30');
     });
 
+    test('UTC 时间（带 Z）显示成本地时间', () {
+      const raw =
+          '{"rollcalls":[{"id": 1, "created_at": "2026-10-23T02:30:00Z"}]}';
+      final local = DateTime.parse('2026-10-23T02:30:00Z').toLocal();
+      String two(int v) => v.toString().padLeft(2, '0');
+      final list = RollcallApi.parseOngoing(raw);
+      expect(list.single.timeText, '${two(local.hour)}:${two(local.minute)}');
+    });
+
     test('数字口令 / 雷达 / 二维码 / 默认类型', () {
       final raw =
           '{"rollcalls": ['
@@ -138,6 +147,38 @@ void main() {
     });
   });
 
+  group('RollcallApi.buildRadarPayload（对齐 usst-jwgl-client）', () {
+    test('字段固定：accuracy 默认 15、altitude 10.0、radarSignal null', () {
+      final body = RollcallApi.buildRadarPayload(
+        deviceId: 'uuid',
+        latitude: 31.29464,
+        longitude: 121.55350,
+      );
+      expect(body['deviceId'], 'uuid');
+      expect(body['latitude'], 31.29464);
+      expect(body['longitude'], 121.55350);
+      expect(body['accuracy'], 15.0);
+      expect(body['altitude'], 10.0);
+      expect(body.containsKey('radarSignal'), isTrue);
+      expect(body['radarSignal'], isNull);
+      expect(body.containsKey('altitudeAccuracy'), isFalse);
+      expect(body.containsKey('heading'), isFalse);
+      expect(body.containsKey('speed'), isFalse);
+    });
+
+    test('传入精度时使用实际精度，不改变其它字段', () {
+      final body = RollcallApi.buildRadarPayload(
+        deviceId: 'uuid',
+        latitude: 31.0,
+        longitude: 121.0,
+        accuracy: 8.5,
+      );
+      expect(body['accuracy'], 8.5);
+      expect(body['altitude'], 10.0);
+      expect(body['radarSignal'], isNull);
+    });
+  });
+
   group('RollcallApi.parseSignResult', () {
     test('成功签到响应', () {
       final res = RollcallApi.parseSignResult(200, '{"status_name":"已签到"}');
@@ -153,6 +194,19 @@ void main() {
       );
       expect(res.success, isFalse);
       expect(res.message, contains('登录状态已失效'));
+    });
+
+    test('401/403 提示重新登录，404 提示点名已结束', () {
+      final unauth = RollcallApi.parseSignResult(401, '');
+      expect(unauth.success, isFalse);
+      expect(unauth.message, contains('重新登录'));
+
+      final forbidden = RollcallApi.parseSignResult(403, '');
+      expect(forbidden.message, contains('重新登录'));
+
+      final gone = RollcallApi.parseSignResult(404, '');
+      expect(gone.success, isFalse);
+      expect(gone.message, contains('已结束'));
     });
 
     test('errorCode 触发友好提示', () {
@@ -195,7 +249,7 @@ void main() {
         '{"errorCode":"RADAR_SIGNAL_INVALID_NO_SIGNAL"}',
       );
       expect(res.success, isFalse);
-      expect(res.message, '本堂课需要教室蓝牙信标，请在教室内重试');
+      expect(res.message, contains('蓝牙信标验证'));
     });
 
     test('设备重复签到错误映射', () {

@@ -91,6 +91,19 @@ class MapCalibration {
     await _save();
   }
 
+  /// 删除单个标定点（有些位置吸不准，需要单独剔除）。
+  static Future<void> removeAt(int index) async {
+    if (index < 0 || index >= _samples.length) return;
+    _samples = <MapCalibrationSample>[..._samples]..removeAt(index);
+    await _save();
+  }
+
+  /// 单个标定点的偏移（米）：东向、北向。
+  static (double east, double north) offsetOf(MapCalibrationSample sample) => (
+    (sample.mapLng - sample.gpsLng) * _mPerDegLng,
+    (sample.mapLat - sample.gpsLat) * _mPerDegLat,
+  );
+
   static Future<void> clear() async {
     _samples = <MapCalibrationSample>[];
     await CacheStore.remove(_key);

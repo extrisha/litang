@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../app_exception.dart';
 import '../auth/cas_client.dart';
@@ -175,6 +176,8 @@ class Rollcall {
     final time =
         (json['created_at'] ??
                 json['createdAt'] ??
+                json['rollcall_time'] ??
+                json['rollcallTime'] ??
                 json['start_at'] ??
                 json['begin_at'] ??
                 json['started_at'] ??
@@ -208,6 +211,14 @@ class Rollcall {
   static String _shortTime(String raw) {
     if (raw.isEmpty) {
       return '';
+    }
+    // 服务端给的是 UTC（带 Z / 时区偏移）时，直接截字符串会差 8 小时。
+    // 和 USST 参考实现一致：能解析成 DateTime 就转本地时区再显示。
+    final parsed = DateTime.tryParse(raw);
+    if (parsed != null) {
+      final local = parsed.toLocal();
+      String two(int value) => value.toString().padLeft(2, '0');
+      return '${two(local.hour)}:${two(local.minute)}';
     }
     final match = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(raw);
     if (match != null) {
@@ -447,31 +458,25 @@ class RollcallApi {
 
   /// 雷达签到：上报**本机真实定位**。
   ///
-  /// 只用系统定位结果，不提供「选教学楼 / 手填坐标」的入口——那种远程代签
-  /// 不是这个 App 要做的事。接口是 `/answer?api_version=1.76`，
-  /// 不是 `/position`（后者不存在，所以以前雷达也一定失败）。
+  /// 对齐 USST 参考实现 `usst-jwgl-client` 的 `answerRadarRollcall`：
+  /// - 坐标必须是 **GCJ-02**（系统 GPS 是 WGS-84，由调用方先转换）。
+  /// - 请求体固定为 `deviceId / latitude / longitude / accuracy / altitude /
+  ///   radarSignal: null`；USST 的雷达点名是纯坐标比对，不自己构造
+  ///   `radarSignal`，需要信标的课堂参考实现也明确提示「需要教室蓝牙信号」。
+  /// - 接口是 `/answer?api_version=1.76`（不是 `/position`）。
   Future<SignResult> reportRadarPosition(
     Rollcall rollcall,
     double latitude,
     double longitude, {
     double? accuracy,
-    double? altitude,
-    double? altitudeAccuracy,
-    double? heading,
-    double? speed,
   }) async {
     final deviceId = await TronDeviceId.get();
-    final body = <String, dynamic>{
-      'deviceId': deviceId,
-      'latitude': latitude,
-      'longitude': longitude,
-      'accuracy': ?accuracy,
-      'altitude': ?altitude,
-      'altitudeAccuracy': ?altitudeAccuracy,
-      'heading': ?heading,
-      'speed': ?speed,
-      'radarSignal': null,
-    };
+    final body = buildRadarPayload(
+      deviceId: deviceId,
+      latitude: latitude,
+      longitude: longitude,
+      accuracy: accuracy,
+    );
     final resp = await client.sendJson(
       Uri.parse('$_base/api/rollcall/${rollcall.id}/answer?api_version=1.76'),
       method: 'PUT',
@@ -479,6 +484,25 @@ class RollcallApi {
     );
     return _result(resp);
   }
+
+  /// 构造雷达请求体（公开供单测）。
+  ///
+  /// `altitude` 固定 10.0、`radarSignal` 固定 null，与 USST 参考实现一致；
+  /// 不要额外塞 `altitudeAccuracy` / `heading` / `speed`，服务端并不需要。
+  @visibleForTesting
+  static Map<String, dynamic> buildRadarPayload({
+    required String deviceId,
+    required double latitude,
+    required double longitude,
+    double? accuracy,
+  }) => <String, dynamic>{
+    'deviceId': deviceId,
+    'latitude': latitude,
+    'longitude': longitude,
+    'accuracy': (accuracy != null && accuracy > 0) ? accuracy : 15.0,
+    'altitude': 10.0,
+    'radarSignal': null,
+  };
 
   Future<SignResult> _put(String path, Map<String, dynamic> data) async {
     final resp = await client.sendJson(
@@ -538,10 +562,17 @@ class RollcallApi {
       'ROLLCALL_RADAR_OUT_OF_SCOPE': '定位超出签到范围，请靠近上课教室后重试',
       'RADAR_ROLLCALL_POSITION_INVALID': '定位坐标无效，请重新定位后重试',
       'ROLLCALL_DEVICE_ALREADY_IN_USE': '这台设备已经给其他账号签过到了',
-      'RADAR_SIGNAL_INVALID_NO_SIGNAL': '本堂课需要教室蓝牙信标，请在教室内重试',
+      'RADAR_SIGNAL_INVALID_NO_SIGNAL': '本堂课开启了蓝牙信标验证，需要教室蓝牙信号支持',
     };
     if (radarErrors.containsKey(errorCode)) {
       return SignResult(success: false, message: radarErrors[errorCode]);
+    }
+    // 对齐参考实现：401/403 是会话失效，404 是点名已结束/关闭。
+    if (code == 401 || code == 403) {
+      return const SignResult(success: false, message: '登录状态已失效，请重新登录教务系统');
+    }
+    if (code == 404) {
+      return const SignResult(success: false, message: '点名已结束或已关闭');
     }
     final rawMsg =
         (map?['message'] ?? map?['error'] ?? map?['msg'])?.toString().trim() ??
@@ -561,7 +592,10 @@ class RollcallApi {
       return const SignResult(success: false, message: '这台设备已经给其他账号签过到了');
     }
     if (lowerMsg.contains('no signal') || lowerMsg.contains('radar signal')) {
-      return const SignResult(success: false, message: '本堂课需要教室蓝牙信标，请在教室内重试');
+      return const SignResult(
+        success: false,
+        message: '本堂课开启了蓝牙信标验证，需要教室蓝牙信号支持',
+      );
     }
     if (rawMsg.isNotEmpty) {
       message = rawMsg;

@@ -55,6 +55,7 @@ class ChaoxingActivity {
     required this.courseName,
     required this.courseId,
     required this.classId,
+    this.url = '',
   });
 
   final String id;
@@ -66,6 +67,13 @@ class ChaoxingActivity {
   final String courseId;
   final String classId;
 
+  /// 服务端给的活动页地址。
+  ///
+  /// 官方客户端对签到活动就是直接打开这个 URL（见 flutter_chaoxing 对
+  /// `StudentMission.url` 的说明）。自己拼 `widget/sign/e` 是拼不对的：
+  /// 其中的 `c` 是每 10 秒轮换的校验值，不是活动 id。
+  final String url;
+
   Map<String, dynamic> toCacheJson() => <String, dynamic>{
     'id': id,
     'name': name,
@@ -75,6 +83,7 @@ class ChaoxingActivity {
     'courseName': courseName,
     'courseId': courseId,
     'classId': classId,
+    'url': url,
   };
 
   static ChaoxingActivity? fromCacheJson(Map<String, dynamic> json) {
@@ -84,11 +93,14 @@ class ChaoxingActivity {
       id: id,
       name: (json['name'] ?? '').toString(),
       activeType: (json['activeType'] ?? '').toString(),
-      status: (json['status'] as num?)?.toInt() ?? 0,
+      status: (json['status'] is num
+          ? (json['status'] as num).toInt()
+          : int.tryParse('${json['status'] ?? ''}') ?? 0),
       signCode: (json['signCode'] ?? '').toString(),
       courseName: (json['courseName'] ?? '').toString(),
       courseId: (json['courseId'] ?? '').toString(),
       classId: (json['classId'] ?? '').toString(),
+      url: (json['url'] ?? '').toString(),
     );
   }
 
@@ -516,36 +528,75 @@ class ChaoxingClient {
                 'showNotStartedActive': '1',
               },
             );
-        final response = await _send(uri);
-        final map = jsonDecode(
-          (response.data as String?) ?? '{}',
-        ) as Map<String, dynamic>;
-        final data = map['data'] as Map<String, dynamic>?;
-        final list = (data?['activeList'] as List<dynamic>? ?? <dynamic>[]);
-        for (final item in list) {
-          if (item is! Map<String, dynamic>) continue;
-          final id = (item['id'] ?? '').toString();
-          final status = (item['status'] as num?)?.toInt() ?? 0;
-          final activeType = (item['activeType'] ?? '').toString();
-          if (id.isEmpty || status != 1 || activeType != '2') continue;
-          out.add(
-            ChaoxingActivity(
-              id: id,
-              name: (item['name'] ?? item['content'] ?? '签到').toString(),
-              activeType: activeType,
-              status: status,
-              signCode: (item['signCode'] ?? '').toString(),
-              courseName: course.name,
-              courseId: course.courseId,
-              classId: course.classId,
-            ),
-          );
-        }
+        final response = await _send(
+          uri,
+          headers: <String, String>{
+            'Accept': 'application/json, text/plain, */*',
+            'Referer': 'https://i.chaoxing.com/',
+          },
+        );
+        out.addAll(parseActivities((response.data as String?) ?? '', course));
       } catch (_) {
         // 单门课失败不影响其他课程
       }
       return out;
     });
+  }
+
+  /// 解析 activelist 响应（公开以便单测）。
+  ///
+  /// 常见结构是 `{result:1, data:{activeList:[...]}}`，但部分版本把
+  /// `activeList` 放在顶层，所以两种都兼容。`activeType == 2` 是签到，
+  /// `status == 1` 是进行中；`url` 是官方客户端打开的签到页地址。
+  @visibleForTesting
+  static List<ChaoxingActivity> parseActivities(
+    String raw,
+    ChaoxingCourse course,
+  ) {
+    final text = raw.trim();
+    if (text.isEmpty || text.startsWith('<')) {
+      return const <ChaoxingActivity>[];
+    }
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is! Map) {
+        return const <ChaoxingActivity>[];
+      }
+      final data = decoded['data'];
+      final list =
+          (data is Map ? data['activeList'] : null) ??
+          decoded['activeList'] ??
+          <dynamic>[];
+      final out = <ChaoxingActivity>[];
+      for (final item in list) {
+        if (item is! Map) continue;
+        final id = (item['id'] ?? '').toString();
+        final rawStatus = item['status'];
+        final status = rawStatus is num
+            ? rawStatus.toInt()
+            : int.tryParse('$rawStatus') ?? 0;
+        final activeType = (item['activeType'] ?? '').toString();
+        if (id.isEmpty || status != 1 || activeType != '2') continue;
+        out.add(
+          ChaoxingActivity(
+            id: id,
+            name: (item['name'] ?? item['nameOne'] ?? item['content'] ?? '签到')
+                .toString(),
+            activeType: activeType,
+            status: status,
+            signCode: (item['signCode'] ?? '').toString(),
+            courseName: course.name,
+            courseId: course.courseId,
+            classId: course.classId,
+            // 官方客户端打开的就是这个地址；二维码/拍照等各签到形态都靠它。
+            url: (item['url'] ?? '').toString(),
+          ),
+        );
+      }
+      return out;
+    } catch (_) {
+      return const <ChaoxingActivity>[];
+    }
   }
 
   /// 扫码签到。
@@ -587,13 +638,32 @@ class ChaoxingClient {
         '这不是学习通的签到二维码',
       );
     }
-    if (!uri.queryParameters.containsKey('enc')) {
+    final params = uri.queryParameters;
+    final activeId = (params['id'] ?? params['activeId'] ?? '').trim();
+    final enc = (params['enc'] ?? '').trim();
+    if (activeId.isEmpty) {
+      return const ChaoxingSignResult(
+        ChaoxingSignStatus.invalid,
+        '二维码里没有签到活动 ID',
+      );
+    }
+    if (enc.isEmpty) {
       return const ChaoxingSignResult(
         ChaoxingSignStatus.invalid,
         '二维码缺少 enc 参数',
       );
     }
 
+    // 第一步：调 H5 页面真正使用的提交接口。
+    // 只 GET 二维码地址往往只是打开「签到结果」页，并没有提交签到；
+    // 之前把已签到账号的页面回显误当成「扫码成功」，正常账号反而签不上。
+    final ajax = await _answerQrByAjax(activeId, enc);
+    if (ajax != null && ajax.success) {
+      return ajax;
+    }
+
+    // 第二步：/pptSign 不认（缺 uid、接口改版等）时，退回打开二维码页面，
+    // 交给服务端页面自己处理，至少不把原来能用的路径弄坏。
     final response = await _send(
       uri,
       headers: <String, String>{
@@ -601,13 +671,125 @@ class ChaoxingClient {
         'Referer': 'https://mobilelearn.chaoxing.com/',
       },
     );
-    final html = (response.data as String?) ?? '';
-    return parseSignResult(html);
+    final page = parseSignResult((response.data as String?) ?? '');
+    if (ajax != null && page.status == ChaoxingSignStatus.unknown) {
+      // 页面也看不出结果时，用 ajax 的具体错误提示，别只报「结果未知」。
+      return ajax;
+    }
+    return page;
+  }
+
+  /// 学习通 H5 二维码签到的提交接口。
+  ///
+  /// 抓包得到的地址是 `pptSign/stuSignajax?enc=...&activeId=...&uid=...&fid=...`，
+  /// 二维码里的 `enc` 才是核心密钥；只打开页面不算签到。
+  Future<ChaoxingSignResult?> _answerQrByAjax(
+    String activeId,
+    String enc,
+  ) async {
+    final uid = _cookieValue('_uid').isNotEmpty
+        ? _cookieValue('_uid')
+        : _cookieValue('UID');
+    if (uid.isEmpty) {
+      // 没有 uid 说明 cookie 不完整，交给页面路径。
+      return null;
+    }
+    final uri =
+        Uri.parse('https://mobilelearn.chaoxing.com/pptSign/stuSignajax')
+            .replace(
+              queryParameters: <String, String>{
+                'enc': enc,
+                'activeId': activeId,
+                'uid': uid,
+                'fid': _fid,
+                'name': '',
+                'clientip': '',
+                'useragent': '',
+                'latitude': '-1',
+                'longitude': '-1',
+                'appType': '15',
+              },
+            );
+    try {
+      final response = await _send(
+        uri,
+        headers: <String, String>{
+          'User-Agent': _mobileUa,
+          'Referer': 'https://mobilelearn.chaoxing.com/',
+        },
+      );
+      return parseAjaxSignResult((response.data as String?) ?? '');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _cookieValue(String name) {
+    for (final cookie in jar.cookies) {
+      if (cookie.name == name && cookie.value.isNotEmpty) {
+        return cookie.value;
+      }
+    }
+    return '';
   }
 
   /// 学习通客户端的 UA——服务端据此判断是不是 App 在请求。
   static const String _mobileUa =
       'Dalvik/2.1.0 (Linux; U; Android 14; 23127PN0CC) (CHAOXING/6.5.0)';
+
+  /// 解析 `stuSignajax` 的纯文本响应（公开以便单测）。
+  ///
+  /// 成功时服务端直接回 `success` / `success2`，失败则是
+  /// 「签到已结束」「您已签到」「不在签到范围」这类中文短句。
+  @visibleForTesting
+  static ChaoxingSignResult parseAjaxSignResult(String body) {
+    final text = body
+        .replaceAll(RegExp(r'<script[\s\S]*?</script>'), ' ')
+        .replaceAll(RegExp(r'<style[\s\S]*?</style>'), ' ')
+        .replaceAll(RegExp(r'<[^>]+>'), ' ')
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (text.isEmpty) {
+      return const ChaoxingSignResult(ChaoxingSignStatus.unknown, '服务端没有返回内容');
+    }
+    final lower = text.toLowerCase();
+    if (lower == 'success' ||
+        lower == 'success2' ||
+        text.contains('签到成功') ||
+        lower.contains('"status":true')) {
+      return const ChaoxingSignResult(ChaoxingSignStatus.success, '签到成功');
+    }
+    if (text.contains('已签到') || text.contains('已经签到')) {
+      return const ChaoxingSignResult(
+        ChaoxingSignStatus.alreadySigned,
+        '已经签过到了',
+      );
+    }
+    if (text.contains('结束') || text.contains('过期') || text.contains('超时')) {
+      return const ChaoxingSignResult(ChaoxingSignStatus.ended, '签到已结束');
+    }
+    if (text.contains('无效') ||
+        text.contains('不存在') ||
+        text.contains('失败') ||
+        text.contains('不在签到范围') ||
+        text.contains('距离')) {
+      return ChaoxingSignResult(
+        ChaoxingSignStatus.invalid,
+        text.length > 40 ? text.substring(0, 40) : text,
+      );
+    }
+    if (text.contains('请使用客户端')) {
+      return const ChaoxingSignResult(
+        ChaoxingSignStatus.unknown,
+        '服务端没认出客户端身份，请重试',
+      );
+    }
+    return ChaoxingSignResult(
+      ChaoxingSignStatus.unknown,
+      text.length > 40 ? text.substring(0, 40) : '签到结果未知',
+    );
+  }
 
   /// 解析签到结果页（公开以便单测）。
   @visibleForTesting

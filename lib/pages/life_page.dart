@@ -9,12 +9,14 @@ import '../app_theme.dart';
 import '../data/auth/cas_client.dart';
 import '../data/app_exception.dart';
 import '../data/auth/jwgl_auth.dart';
+import '../data/auth/sport_campus_auth.dart';
 import '../data/calendar/calendar_service.dart';
 import '../data/chaoxing/chaoxing_auth.dart';
 import '../data/chaoxing/chaoxing_cache.dart';
 import '../data/chaoxing/chaoxing_client.dart';
 import '../data/chaoxing/chaoxing_sso.dart';
 import '../data/course_name.dart';
+import '../data/geo/coordinate_utils.dart';
 import '../data/jwc/course_repository.dart';
 import '../data/life_cache.dart';
 import '../data/lms/rollcall_api.dart';
@@ -33,11 +35,12 @@ import 'life/widgets/life_exam_card.dart';
 import 'life/widgets/life_todo_card.dart';
 import 'life/widgets/quick_tools_row.dart';
 import 'life/widgets/rollcall_card.dart';
+import 'life/widgets/sport_campus_card.dart';
 import 'login_page.dart';
 import 'qr_scan_page.dart';
 import 'simple_web.dart';
 
-/// 校园服务：签到（一网畅学）+ 一网畅学入口 + 宿舍电费。
+/// 校园服务：签到（一网畅学）+ 一网畅学入口 + 宿舍电费 + 校园跑次数。
 class LifePage extends StatefulWidget {
   const LifePage({super.key});
 
@@ -249,6 +252,8 @@ class _LifePageState extends State<LifePage> {
       _refreshChaoxing(withWorks: true, autoLogin: true),
       _loadCourses(force: true),
       _loadDormElectricity(force: true),
+      // 校园跑走第三方「高校体育」，和上面几条互不依赖
+      SportCampusAuth.instance.refresh(force: true),
     ]);
   }
 
@@ -591,9 +596,12 @@ class _LifePageState extends State<LifePage> {
                 )
                 .toList();
       final needWorks = withWorks || _cxWorks.isEmpty;
-      // 签到和作业都只看当前学期的课：
-      // 往期课的作业早就截止了，放进待办只会干扰当前任务。
-      final activitiesFuture = client.fetchActivities(currentCourses);
+      // 作业只看当前学期的课：往期课的作业早就截止了，放进待办只会干扰。
+      // 签到活动不能跟着这个过滤走——`status == 1` 的签到本来就只有正在上课
+      // 的课程才会有；而课表课程名和超星课程名经常对不上（后缀、简写），
+      // 一旦按名字过滤就会把真正进行中的签到静默丢掉。这是「学习通签到
+      // 不可用」的另一半原因。
+      final activitiesFuture = client.fetchActivities(rawCourses);
       final worksFuture = needWorks
           ? client.fetchWorks(currentCourses)
           : Future<List<ChaoxingWork>>.value(_cxWorks);
@@ -603,13 +611,16 @@ class _LifePageState extends State<LifePage> {
         return;
       }
       setState(() {
-        _cxCourses = currentCourses;
+        // 这里必须存**全部**课程：作业过滤只作用于 `currentCourses`，
+        // 但下一次刷新签到还要拿全量课程。以前存的是过滤后的列表，
+        // 结果第二次刷新开始，课表里没匹配上的课程就被永久丢掉。
+        _cxCourses = rawCourses;
         _cxActivities = activities;
         _cxWorks = works;
       });
       if (cacheUser.isNotEmpty &&
           JwglAuth.instance.savedUsername == cacheUser) {
-        unawaited(ChaoxingCache.writeCourses(cacheUser, currentCourses));
+        unawaited(ChaoxingCache.writeCourses(cacheUser, rawCourses));
         unawaited(ChaoxingCache.writeActivities(cacheUser, activities));
         unawaited(ChaoxingCache.writeWorks(cacheUser, works));
       }
@@ -1211,8 +1222,7 @@ class _LifePageState extends State<LifePage> {
     if (!mounted || choice == null) return;
 
     if (choice == 'web') {
-      final signUrl =
-          'https://mobilelearn.chaoxing.com/widget/sign/e?id=${activity.id}&c=${activity.id}&classId=${activity.classId}&courseId=${activity.courseId}';
+      final signUrl = _chaoxingSignPageUrl(activity, client);
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => SimpleWebPage(
@@ -1228,6 +1238,58 @@ class _LifePageState extends State<LifePage> {
     } else if (choice == 'qr') {
       await _signChaoxingByQr(activity);
     }
+  }
+
+  /// 学习通签到页地址。
+  ///
+  /// 优先用活动列表返回的 `url`——官方客户端就是把这个地址交给 WebView。
+  /// 之前自己拼 `widget/sign/e?id=..&c=<活动ID>` 是错的：二维码里的 `c` 是
+  /// 每 10 秒轮换的校验值，不是活动 id，拼出来必然打不开或提示已失效。
+  String _chaoxingSignPageUrl(
+    ChaoxingActivity activity,
+    ChaoxingClient client,
+  ) {
+    final raw = activity.url.trim();
+    if (raw.isNotEmpty) {
+      final uri = Uri.tryParse(raw);
+      if (uri != null) {
+        if (uri.hasScheme) {
+          return raw;
+        }
+        return Uri.parse('https://mobilelearn.chaoxing.com/')
+            .resolve(raw)
+            .toString();
+      }
+    }
+
+    String cookie(String name) {
+      for (final item in client.jar.cookies) {
+        if (item.name == name && item.value.isNotEmpty) {
+          return item.value;
+        }
+      }
+      return '';
+    }
+
+    final uid = cookie('_uid').isNotEmpty ? cookie('_uid') : cookie('UID');
+    final fid = cookie('fid');
+    return Uri.parse('https://mobilelearn.chaoxing.com/newsign/preSign')
+        .replace(
+          queryParameters: <String, String>{
+            'general': '1',
+            'sys': '1',
+            'ls': '1',
+            'appType': '15',
+            'tid': '',
+            'ut': 's',
+            'activePrimaryId': activity.id,
+            'courseId': activity.courseId,
+            'classId': activity.classId,
+            if (uid.isNotEmpty) 'uid': uid,
+            if (fid.isNotEmpty) 'fid': fid,
+          },
+        )
+        .toString();
   }
 
   Future<void> _signChaoxingByQr(ChaoxingActivity activity) async {
@@ -1318,17 +1380,18 @@ class _LifePageState extends State<LifePage> {
       }
       final SignResult result;
       try {
-        // 一网畅学（TronClass）雷达签到服务端比对的是标准 WGS-84 坐标，
-        // 系统定位给出的即为 WGS-84；切勿转换为 GCJ-02，否则会导致约 480 米偏差并触发超出签到范围。
-        result = await RollcallApi(client).reportRadarPosition(
-          rollcall,
+        // 和 USST 参考实现（usst-jwgl-client）一致：系统定位是 WGS-84，
+        // 一网畅学雷达点名服务端比对的是 GCJ-02，必须先转换再上报。
+        // 直接用 WGS-84 会偏约 480 米，触发「超出签到范围」。
+        final (gcjLat, gcjLng) = CoordinateUtils.wgs84ToGcj02(
           position.latitude,
           position.longitude,
+        );
+        result = await RollcallApi(client).reportRadarPosition(
+          rollcall,
+          gcjLat,
+          gcjLng,
           accuracy: position.accuracy,
-          altitude: position.altitude,
-          altitudeAccuracy: position.altitudeAccuracy,
-          heading: position.heading,
-          speed: position.speed,
         );
       } catch (_) {
         if (mounted) {
@@ -1567,6 +1630,8 @@ class _LifePageState extends State<LifePage> {
                 onRefresh: () => _loadDormElectricity(force: true),
                 onLogin: _loginThenLoadDorm,
               ),
+              const SizedBox(height: 12),
+              const SportCampusSection(),
             ],
           ),
         ),

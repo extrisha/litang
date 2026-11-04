@@ -4,23 +4,40 @@ import 'package:latlong2/latlong.dart';
 
 import 'cache_store.dart';
 
-/// 一条采集到的步行路线（用于后续改善路线推荐/发现捷径）。
+/// 采集方式：步行 / 骑行。两者的路线偏好不同（骑行会绕开台阶、走坡道）。
+enum TraceMode {
+  walk('步行', 'walk'),
+  bike('骑行', 'bike');
+
+  const TraceMode(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  static TraceMode fromValue(String? value) =>
+      value == 'bike' ? TraceMode.bike : TraceMode.walk;
+}
+
+/// 一条采集到的路线（用于后续改善路线推荐/发现捷径）。
 class MapTrace {
   const MapTrace({
     required this.fromName,
     required this.toName,
     required this.points,
     required this.startedAt,
+    this.mode = TraceMode.walk,
   });
 
   final String fromName;
   final String toName;
   final List<LatLng> points;
   final DateTime startedAt;
+  final TraceMode mode;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'from': fromName,
     'to': toName,
+    'mode': mode.value,
     'at': startedAt.toIso8601String(),
     'points': <List<double>>[
       for (final p in points) <double>[p.latitude, p.longitude],
@@ -41,6 +58,7 @@ class MapTrace {
       points: points,
       startedAt:
           DateTime.tryParse(json['at'] as String? ?? '') ?? DateTime.now(),
+      mode: TraceMode.fromValue(json['mode'] as String?),
     );
   }
 }
@@ -87,9 +105,13 @@ class MapTraces {
   /// 导出为 JSONL（每行一条路线），方便直接发回。
   static String exportText() {
     if (_items.isEmpty) return '（还没有路线记录）';
+    final walk = _items.where((t) => t.mode == TraceMode.walk).length;
     final buffer = StringBuffer()
-      ..writeln('【校园路线记录】共 ${_items.length} 条')
-      ..writeln('from,to,at,points');
+      ..writeln(
+        '【校园路线记录】共 ${_items.length} 条'
+        '（步行 $walk / 骑行 ${_items.length - walk}）',
+      )
+      ..writeln('from,to,mode,at,points');
     for (final t in _items) {
       buffer.writeln(jsonEncode(t.toJson()));
     }

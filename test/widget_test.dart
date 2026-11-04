@@ -67,7 +67,7 @@ void main() {
     expect(find.text('校园地图功能维护中'), findsNothing);
   });
 
-  testWidgets('我的页展示学业入口与空间服务', (tester) async {
+  testWidgets('我的页展示学业入口与网页入口', (tester) async {
     await tester.pumpWidget(_wrap(const ProfilePage()));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
@@ -75,8 +75,10 @@ void main() {
     expect(find.text('学业'), findsOneWidget);
     // 课表已单独抽取为「今日」独立Tab，我的页不再保留课表区块
     expect(find.textContaining('课表'), findsNothing);
-    // 空间入口：教室查询 / 学工一体化，旧的「我的课表」已移除
-    expect(find.text('空间预约'), findsOneWidget);
+    // 网页入口：上理体育 / 学工一体化 / 教务网页版；空间预约已挪到「生活」页
+    expect(find.text('网页入口'), findsOneWidget);
+    expect(find.text('上理体育'), findsOneWidget);
+    expect(find.text('空间预约'), findsNothing);
     expect(find.text('教室查询'), findsNothing);
     expect(find.text('学工一体化'), findsOneWidget);
     expect(find.text('我的课表'), findsNothing);

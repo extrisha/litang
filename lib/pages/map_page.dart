@@ -117,6 +117,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
 
   /// 正在采集的轨迹。
   bool _recording = false;
+  TraceMode _traceMode = TraceMode.walk;
   final List<LatLng> _trace = <LatLng>[];
   StreamSubscription<Position>? _traceSubscription;
   DateTime? _traceStartedAt;
@@ -630,8 +631,43 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
 
   // ---------------------------------------------------------------- 路线采集
 
-  Future<void> _startTrace() async {
+  /// 开始记录前先选步行还是骑行。
+  Future<void> _chooseTraceMode() async {
+    final mode = await showDialog<TraceMode>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('这次怎么走？', style: TextStyle(fontSize: 15)),
+        children: <Widget>[
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(dialogContext).pop(TraceMode.walk),
+            child: const Row(
+              children: <Widget>[
+                Icon(Icons.directions_walk, size: 18),
+                SizedBox(width: 10),
+                Text('步行', style: TextStyle(fontSize: 14)),
+              ],
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(dialogContext).pop(TraceMode.bike),
+            child: const Row(
+              children: <Widget>[
+                Icon(Icons.directions_bike, size: 18),
+                SizedBox(width: 10),
+                Text('骑行', style: TextStyle(fontSize: 14)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    if (mode == null) return;
+    await _startTrace(mode);
+  }
+
+  Future<void> _startTrace(TraceMode mode) async {
     if (_recording) return;
+    _traceMode = mode;
     setState(() {
       _recording = true;
       _trace.clear();
@@ -691,6 +727,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
         toName: to.name,
         points: points,
         startedAt: startedAt,
+        mode: _traceMode,
       ),
     );
     if (!mounted) return;
@@ -998,7 +1035,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        '记录中 · ${_trace.length} 个点 · 再点一次停止',
+                        '记录中（${_traceMode.label}）· ${_trace.length} 个点 · 再点一次停止',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -1297,7 +1334,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           backgroundColor: _recording ? AppColors.usstRed : Colors.white,
           foregroundColor: _recording ? Colors.white : AppColors.textPrimary,
           elevation: 3,
-          onPressed: _recording ? _stopTrace : _startTrace,
+          onPressed: _recording ? _stopTrace : _chooseTraceMode,
           child: Icon(
             _recording ? Icons.stop : Icons.radio_button_checked,
             size: 20,
