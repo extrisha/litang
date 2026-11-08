@@ -125,6 +125,91 @@ class ScheduleGrid extends StatelessWidget {
     ];
   }
 
+  Size _textSize(
+    BuildContext context,
+    String text,
+    TextStyle style, {
+    double maxWidth = double.infinity,
+  }) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: DefaultTextStyle.of(context).style.merge(style),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout(maxWidth: maxWidth);
+    final size = painter.size;
+    painter.dispose();
+    return size;
+  }
+
+  Size _periodCellSize(BuildContext context) {
+    var width = periodWidth;
+    var height = 40.0;
+    for (final period in JwglSchedule.periods) {
+      final number = _textSize(
+        context,
+        '${period.period}',
+        const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700),
+      );
+      final start = _textSize(
+        context,
+        period.start,
+        const TextStyle(fontSize: 7.5),
+      );
+      final end = _textSize(
+        context,
+        period.end,
+        const TextStyle(fontSize: 7.5),
+      );
+      // 时间保持完整一行；字号变大时扩展节次列及行高，课表仍可纵向滚动。
+      width = math.max(
+        width,
+        math.max(number.width + 8, math.max(start.width, end.width)) + 4.6,
+      );
+      height = math.max(
+        height,
+        number.height + start.height + end.height + 6.5,
+      );
+    }
+    return Size(width.ceilToDouble(), height.ceilToDouble());
+  }
+
+  double _dayHeaderHeight(
+    BuildContext context,
+    List<int> visibleDays,
+    double dayWidth,
+  ) {
+    var height = headerHeight;
+    for (final day in visibleDays) {
+      final today = displayedWeek == currentWeek && isToday(day);
+      final label = _textSize(
+        context,
+        '周${dayNames[day]}',
+        TextStyle(
+          fontSize: 11,
+          fontWeight: today ? FontWeight.w700 : FontWeight.w600,
+        ),
+        maxWidth: math.max(1, dayWidth - 0.5 - (today ? 12 : 0)),
+      );
+      final date = dateForDay(displayedWeek, day);
+      final dateHeight = date == null
+          ? 0.0
+          : _textSize(
+              context,
+              '${date.month}/${date.day}',
+              TextStyle(
+                fontSize: 9,
+                fontWeight: today ? FontWeight.w600 : FontWeight.w400,
+              ),
+              maxWidth: math.max(1, dayWidth - 0.5),
+            ).height;
+      height = math.max(height, label.height + dateHeight + 8.5);
+    }
+    return height.ceilToDouble();
+  }
+
   @override
   Widget build(BuildContext context) {
     // 表头固定不动，但它的列集合要跟"当前显示的那一页"一致，
@@ -137,13 +222,23 @@ class ScheduleGrid extends StatelessWidget {
         final availableHeight = constraints.maxHeight;
 
         // 单元格横向宽度均分（根据可见星期数 5~7 动态伸缩，充满屏幕）
-        final dayWidth = (availableWidth - periodWidth) / visibleDays.length;
+        final periodCellSize = _periodCellSize(context);
+        final columnWidth = periodCellSize.width;
+        final dayWidth = (availableWidth - columnWidth) / visibleDays.length;
+        final dayHeaderHeight = _dayHeaderHeight(
+          context,
+          visibleDays,
+          dayWidth,
+        );
 
         // 课表视口净高度（扣除顶部固定星期栏高度）
-        final viewportHeight = availableHeight - headerHeight;
+        final viewportHeight = availableHeight - dayHeaderHeight;
 
         // 让第十一节课与第十二节课的分界线与底部导航栏齐平：rowHeight * 11 = viewportHeight
-        final rowHeight = math.max((viewportHeight - 1.0) / 11.0, 40.0);
+        final rowHeight = math.max(
+          (viewportHeight - 1.0) / 11.0,
+          periodCellSize.height,
+        );
 
         // 总高度刚好等于 13 节课的高度，下滑到底时第 13 节下边线恰好停在导航栏顶端
         final totalGridHeight = 13 * rowHeight;
@@ -154,8 +249,8 @@ class ScheduleGrid extends StatelessWidget {
             Row(
               children: <Widget>[
                 Container(
-                  width: periodWidth,
-                  height: headerHeight,
+                  width: columnWidth,
+                  height: dayHeaderHeight,
                   alignment: Alignment.center,
                   decoration: const BoxDecoration(
                     color: Color(0xFFFAFAFA),
@@ -174,7 +269,7 @@ class ScheduleGrid extends StatelessWidget {
                   ),
                 ),
                 for (final dayIndex in visibleDays)
-                  _buildDayHeaderCell(dayIndex, dayWidth),
+                  _buildDayHeaderCell(dayIndex, dayWidth, dayHeaderHeight),
               ],
             ),
             // 垂直滚动区域：左侧节次列与右侧课程网格同属同一垂直滚动视图，彻底修复节次不同步bug
@@ -192,6 +287,7 @@ class ScheduleGrid extends StatelessWidget {
                         activePeriod,
                         rowHeight,
                         totalGridHeight,
+                        columnWidth,
                       ),
                       // 右侧课程网格：只有这一块左右翻页，节次列与表头不动
                       SizedBox(
@@ -206,7 +302,7 @@ class ScheduleGrid extends StatelessWidget {
                             // 每一页按**自己这周**的周末课决定列集合
                             final pageDays = visibleDaysOf(page.courses);
                             final pageDayWidth =
-                                (availableWidth - periodWidth) /
+                                (availableWidth - columnWidth) /
                                 pageDays.length;
                             // 只有本周页才画「当前节次」红带与今天列高亮
                             final pageActive = page.isCurrentWeek
@@ -255,7 +351,7 @@ class ScheduleGrid extends StatelessWidget {
     );
   }
 
-  Widget _buildDayHeaderCell(int dayIndex, double dayWidth) {
+  Widget _buildDayHeaderCell(int dayIndex, double dayWidth, double cellHeight) {
     // 表头固定不动，但日期要跟着当前显示的周走
     final isT = displayedWeek == currentWeek && isToday(dayIndex);
     final date = dateForDay(displayedWeek, dayIndex);
@@ -263,7 +359,7 @@ class ScheduleGrid extends StatelessWidget {
 
     return Container(
       width: dayWidth,
-      height: headerHeight,
+      height: cellHeight,
       padding: const EdgeInsets.symmetric(vertical: 2),
       decoration: BoxDecoration(
         color: isT ? const Color(0xFFFFECEB) : Colors.white,
@@ -314,24 +410,30 @@ class ScheduleGrid extends StatelessWidget {
     int? activePeriod,
     double rowHeight,
     double totalHeight,
+    double columnWidth,
   ) {
     return Container(
-      width: periodWidth,
+      width: columnWidth,
       height: totalHeight,
       color: const Color(0xFFFAFAFA),
       child: Column(
         children: <Widget>[
           for (var p = 1; p <= JwglSchedule.periodCount; p++)
-            _buildPeriodCell(p, activePeriod == p, rowHeight),
+            _buildPeriodCell(p, activePeriod == p, rowHeight, columnWidth),
         ],
       ),
     );
   }
 
-  Widget _buildPeriodCell(int period, bool isActive, double rowHeight) {
+  Widget _buildPeriodCell(
+    int period,
+    bool isActive,
+    double rowHeight,
+    double columnWidth,
+  ) {
     final timeStr = JwglSchedule.periodAt(period);
     return Container(
-      width: periodWidth,
+      width: columnWidth,
       height: rowHeight,
       alignment: Alignment.center,
       decoration: BoxDecoration(

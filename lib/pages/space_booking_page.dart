@@ -17,7 +17,9 @@ enum _ExpandedPanel { none, date, building }
 
 /// 空间预约原生主页面（图书馆研讨间 / 静音舱 / 研修空间系统）
 class SpaceBookingPage extends StatefulWidget {
-  const SpaceBookingPage({super.key});
+  const SpaceBookingPage({super.key, this.api});
+
+  final SpaceBookingApi? api;
 
   static const String spaceBaseUrl =
       'https://libspace.usst.edu.cn/student/studentIndex';
@@ -37,10 +39,19 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
   /// 整页级错误（未登录、CAS 失败）仍走 [_error]。
   String? _roomsError;
   String? _reservationsError;
+  String? _historyError;
+  bool _currentLoading = false;
+  bool _historyLoading = false;
+  int _historyPage = 0;
+  bool _hasMoreHistory = false;
+  bool _historyResetFailed = false;
 
   /// 列表请求代次。`_initAndLoad`（首次/下拉刷新/重试）与 `_changeDate`（切日期）
   /// 会并发，先发的慢响应不能覆盖后发的结果。
   final RequestGuard _roomsGuard = RequestGuard();
+  final RequestGuard _initGuard = RequestGuard();
+  final RequestGuard _currentGuard = RequestGuard();
+  final RequestGuard _historyGuard = RequestGuard();
 
   /// 网页端入口是否正在打开中（防止连点叠出多个遮罩/页面）
   bool _webBookingOpening = false;
@@ -49,7 +60,16 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
   bool _actionInFlight = false;
 
   List<SpaceRoom> _rooms = const <SpaceRoom>[];
-  List<SpaceReservation> _reservations = const <SpaceReservation>[];
+  List<SpaceReservation> _currentReservations = const [];
+  List<SpaceReservation> _historyReservations = const [];
+
+  List<SpaceReservation> get _reservations {
+    final unique = <String, SpaceReservation>{};
+    for (final item in [..._currentReservations, ..._historyReservations]) {
+      unique.putIfAbsent(item.id, () => item);
+    }
+    return unique.values.toList();
+  }
 
   late DateTime _selectedDate;
   String _selectedBuilding = '全部场馆';
@@ -65,90 +85,121 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
   }
 
   Future<void> _initAndLoad() async {
-    final requestId = _roomsGuard.begin();
+    final requestId = _initGuard.begin();
+    _roomsGuard.invalidate();
+    _currentGuard.invalidate();
+    _historyGuard.invalidate();
     if (mounted) {
       setState(() {
         _loading = true;
         _error = null;
         _roomsError = null;
         _reservationsError = null;
+        _historyError = null;
+        _currentLoading = true;
+        _historyLoading = true;
       });
     }
 
-    final sessionOk = await JwglAuth.instance.ensureSession();
-    if (!mounted || !_roomsGuard.isCurrent(requestId)) return;
-    final client = JwglAuth.instance.client;
-    if (!sessionOk || client == null) {
-      _handleInitFailure('请先在“我的”页面登录统一身份认证（CAS）后再使用空间预约');
-      return;
-    }
-
-    // 复用同一个 API 实例：每次重建都会丢掉 accessToken，导致每次都重走一遍
-    // CAS 登录（1~2 秒）。只有 CAS 会话真的换了客户端对象时才重建。
-    final existing = _api;
-    if (existing == null || !identical(existing.casClient, client)) {
-      _api = SpaceBookingApi(client);
-    }
-    final api = _api!;
-
-    // 下拉刷新只是要新数据，不需要新 token。
-    // 真正的过期由 `isTokenValid`（比例余量）和各接口的 401 重试兜底。
-    final ok = await api.ensureAuthenticated();
-    if (!mounted || !_roomsGuard.isCurrent(requestId)) return;
-    if (!ok) {
-      _handleInitFailure('统一身份认证（CAS）免密登录空间预约失败，请检查网络或登录 WebVPN 后重试');
-      return;
-    }
-
-    final dateStr = DateFmt.ymd(_selectedDate);
-
-    // 两个数据源并发拉取，但允许一边失败：房间拉不到不该顺带清掉预约记录，
-    // 反之亦然。只有两边都失败时才整页报错。
-    final roomsFuture = api.fetchRooms(date: dateStr);
-    final reservationsFuture = api.fetchMyReservations();
-
-    List<SpaceRoom>? rooms;
-    List<SpaceReservation>? reservations;
-    String? roomsError;
-    String? reservationsError;
-
     try {
-      rooms = await roomsFuture;
+      if (widget.api != null) {
+        _api = widget.api;
+      } else {
+        final sessionOk = await JwglAuth.instance.ensureSession();
+        if (!mounted || !_initGuard.isCurrent(requestId)) return;
+        final client = JwglAuth.instance.client;
+        if (!sessionOk || client == null) {
+          _handleInitFailure('请先在“我的”页面登录统一身份认证（CAS）后再使用空间预约');
+          return;
+        }
+        if (_api == null || !identical(_api!.casClient, client)) {
+          _api = SpaceBookingApi(client);
+          _rooms = [];
+          _currentReservations = [];
+          _historyReservations = [];
+        }
+      }
+      final ok = await _api!.ensureAuthenticated();
+      if (!mounted || !_initGuard.isCurrent(requestId)) return;
+      if (!ok) {
+        _handleInitFailure('统一身份认证（CAS）免密登录空间预约失败，请检查网络或登录 WebVPN 后重试');
+        return;
+      }
+      await Future.wait([
+        _loadRooms(_selectedDate),
+        _loadCurrentReservations(),
+        _loadHistory(reset: true),
+      ]);
     } catch (e) {
-      roomsError = e is SpaceBookingException
-          ? e.message
-          : '获取房间列表失败，请检查网络或登录 WebVPN 后重试';
+      if (!mounted || !_initGuard.isCurrent(requestId)) return;
+      _handleInitFailure(_message(e, '空间预约加载失败，请重试'));
     }
-    try {
-      reservations = await reservationsFuture;
-    } catch (e) {
-      reservationsError = e is SpaceBookingException
-          ? e.message
-          : '获取预约记录失败，请检查网络或登录 WebVPN 后重试';
-    }
+  }
 
-    if (!mounted || !_roomsGuard.isCurrent(requestId)) return;
+  String _message(Object error, String fallback) =>
+      error is SpaceBookingException ? error.message : fallback;
 
-    if (rooms == null && reservations == null) {
-      _handleInitFailure(
-        roomsError ?? reservationsError ?? '获取空间预约数据失败，请检查网络或登录 WebVPN 后重试',
-      );
-      return;
-    }
-
+  Future<void> _loadCurrentReservations() async {
+    final requestId = _currentGuard.begin();
     setState(() {
-      if (rooms != null) _rooms = rooms;
-      if (reservations != null) _reservations = reservations;
-      _roomsError = roomsError;
-      _reservationsError = reservationsError;
-      _loading = false;
+      _currentLoading = true;
+      _reservationsError = null;
     });
-
-    if (roomsError != null) {
-      _showSnack('房间列表刷新失败：$roomsError');
-    } else if (reservationsError != null) {
-      _showSnack('预约记录刷新失败：$reservationsError');
+    try {
+      final items = await _api!.fetchCurrentReservations();
+      if (!mounted || !_currentGuard.isCurrent(requestId)) return;
+      setState(() => _currentReservations = items);
+    } catch (e) {
+      if (!mounted || !_currentGuard.isCurrent(requestId)) return;
+      setState(() => _reservationsError = _message(e, '当前预约加载失败'));
+    } finally {
+      if (mounted && _currentGuard.isCurrent(requestId)) {
+        setState(() => _currentLoading = false);
+      }
     }
+  }
+
+  Future<void> _loadHistory({bool reset = false}) async {
+    if (!reset && _historyLoading) return;
+    final requestId = _historyGuard.begin();
+    final page = reset ? 1 : _historyPage + 1;
+    setState(() {
+      _historyLoading = true;
+      _historyError = null;
+    });
+    try {
+      final result = await _api!.fetchReservationHistory(page: page);
+      if (!mounted || !_historyGuard.isCurrent(requestId)) return;
+      setState(() {
+        final unique = <String, SpaceReservation>{
+          if (!reset)
+            for (final item in _historyReservations) item.id: item,
+          for (final item in result.items) item.id: item,
+        };
+        _historyReservations = unique.values.toList();
+        _historyPage = result.page;
+        _hasMoreHistory = result.hasMore;
+      });
+    } catch (e) {
+      if (!mounted || !_historyGuard.isCurrent(requestId)) return;
+      setState(() {
+        _historyError = _message(e, '历史预约加载失败');
+        _historyResetFailed = reset;
+      });
+    } finally {
+      if (mounted && _historyGuard.isCurrent(requestId)) {
+        setState(() => _historyLoading = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _initGuard.invalidate();
+    _roomsGuard.invalidate();
+    _currentGuard.invalidate();
+    _historyGuard.invalidate();
+    super.dispose();
   }
 
   /// 首次加载/整页刷新失败：始终留下错误信息，有旧数据时再补一条提示。
@@ -160,6 +211,8 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
     final hasData = _rooms.isNotEmpty || _reservations.isNotEmpty;
     setState(() {
       _loading = false;
+      _currentLoading = false;
+      _historyLoading = false;
       _error = message;
     });
     if (hasData) {
@@ -179,15 +232,21 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
   }
 
   Future<void> _changeDate(DateTime date) async {
-    final requestId = _roomsGuard.begin();
     setState(() {
       _selectedDate = date;
-      _loading = true;
-      _error = null;
-      _roomsError = null;
       _expandedPanel = _ExpandedPanel.none;
+      _rooms = [];
     });
+    if (_api == null) return _initAndLoad();
+    await _loadRooms(date);
+  }
 
+  Future<void> _loadRooms(DateTime date) async {
+    final requestId = _roomsGuard.begin();
+    setState(() {
+      _loading = true;
+      _roomsError = null;
+    });
     final api = _api;
     if (api == null) {
       // 首次登录就没成功时 `_api` 为 null：这里必须把 loading 收掉并明确报错，
@@ -676,15 +735,27 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
   Widget _buildRoomsTab() {
     final roomsError = _roomsError ?? _error;
     if (_loading && _rooms.isEmpty) {
-      return const AsyncStateView(loading: true);
+      return Column(
+        children: [
+          _buildControlsBar(),
+          const Expanded(child: AsyncStateView(loading: true)),
+        ],
+      );
     }
 
     if (roomsError != null && _rooms.isEmpty) {
-      return AsyncStateView(
-        error: roomsError,
-        onRetry: _initAndLoad,
-        secondaryLabel: '在网页端打开',
-        onSecondary: () => _openWebBooking(),
+      return Column(
+        children: [
+          _buildControlsBar(),
+          Expanded(
+            child: AsyncStateView(
+              error: roomsError,
+              onRetry: _initAndLoad,
+              secondaryLabel: '在网页端打开',
+              onSecondary: () => _openWebBooking(),
+            ),
+          ),
+        ],
       );
     }
 
@@ -1428,8 +1499,8 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
   // =========================================================================
 
   Widget _buildReservationsTab() {
-    final reservationsError = _reservationsError ?? _error;
-    if (_loading && _reservations.isEmpty) {
+    final reservationsError = _reservationsError ?? _historyError ?? _error;
+    if ((_currentLoading || _historyLoading) && _reservations.isEmpty) {
       return const AsyncStateView(loading: true);
     }
 
@@ -1462,17 +1533,29 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
           Container(
             color: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: Row(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: <Widget>[
                 _buildReservationFilterChip('全部 (${_reservations.length})', 0),
-                const SizedBox(width: 8),
                 _buildReservationFilterChip('进行中 ($activeCount)', 1),
-                const SizedBox(width: 8),
                 _buildReservationFilterChip('已结束 ($pastCount)', 2),
               ],
             ),
           ),
           const Divider(height: 1, thickness: 0.6, color: AppColors.divider),
+          if (_currentLoading || _historyLoading)
+            const LinearProgressIndicator(minHeight: 2),
+          if (_reservationsError != null)
+            _reservationErrorBanner(
+              '当前预约刷新失败：$_reservationsError',
+              _loadCurrentReservations,
+            ),
+          if (_historyError != null)
+            _reservationErrorBanner(
+              '历史预约加载失败：$_historyError',
+              () => _loadHistory(reset: _historyResetFailed),
+            ),
           Expanded(
             child: filtered.isEmpty
                 // 空态也要可滚动，否则 RefreshIndicator 收不到滚动通知、拉不动
@@ -1513,7 +1596,7 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                                 icon: const Icon(Icons.search, size: 16),
                                 label: const Text('去挑选研修空间'),
                                 onPressed: () {
-                                  DefaultTabController.of(context).animateTo(0);
+                                  DefaultTabController.of(ctx).animateTo(0);
                                 },
                               ),
                             ],
@@ -1524,14 +1607,32 @@ class _SpaceBookingPageState extends State<SpaceBookingPage> {
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.all(16),
+                    physics: const AlwaysScrollableScrollPhysics(),
                     itemCount: filtered.length,
                     itemBuilder: (ctx, i) => _buildReservationCard(filtered[i]),
                   ),
           ),
+          if (_hasMoreHistory && _historyError == null)
+            TextButton.icon(
+              key: const ValueKey('load-more-reservations'),
+              onPressed: _historyLoading ? null : () => _loadHistory(),
+              icon: const Icon(Icons.expand_more),
+              label: Text(_historyLoading ? '正在加载历史预约…' : '加载更多历史预约'),
+            ),
         ],
       ),
     );
   }
+
+  Widget _reservationErrorBanner(String message, VoidCallback retry) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    child: Row(
+      children: [
+        Expanded(child: Text(message, style: const TextStyle(fontSize: 12))),
+        TextButton(onPressed: retry, child: const Text('重试')),
+      ],
+    ),
+  );
 
   Widget _buildReservationFilterChip(String label, int index) {
     final isSelected = _reservationFilterIndex == index;

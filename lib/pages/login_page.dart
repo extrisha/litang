@@ -6,7 +6,10 @@ import '../data/auth/jwgl_auth.dart';
 
 /// 教务系统登录页（统一身份认证 CAS）。
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({super.key, this.auth, this.client});
+
+  final JwglAuth? auth;
+  final CasClient? client;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -57,22 +60,14 @@ class _LoginPageState extends State<LoginPage> {
       _error = null;
     });
 
-    final client = _client ??= CasClient();
+    final client = _client ??= widget.client ?? CasClient();
     try {
-      if (captcha == null) {
-        await client.login(username, password);
-      } else {
-        await client.loginWithCaptcha(
-          username: username,
-          password: password,
-          challenge: captcha,
-          code: code,
-        );
-      }
-      await JwglAuth.instance.adopt(
-        client,
+      await (widget.auth ?? JwglAuth.instance).login(
         username,
         password,
+        client: client,
+        challenge: captcha,
+        captchaCode: code,
         remember: _remember,
       );
       if (!mounted) {

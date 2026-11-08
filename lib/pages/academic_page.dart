@@ -5,9 +5,11 @@ import '../data/auth/jwgl_auth.dart';
 import '../data/date_format.dart';
 import '../data/jwc/academic_api.dart';
 import '../data/jwc/academic_repository.dart';
+import '../data/jwc/course_repository.dart';
 import '../widgets/async_state.dart';
+import 'training_plan_page.dart';
 
-/// 学业情况：培养计划（占位）+ 学分要求完成情况。
+/// 学业情况：专业培养计划与学分要求完成情况。
 class AcademicPage extends StatefulWidget {
   const AcademicPage({super.key});
 
@@ -208,7 +210,7 @@ class _AcademicPageState extends State<AcademicPage> {
                 ),
                 SizedBox(height: 4),
                 Text(
-                  '各专业培养计划以 PDF 发布，正在整理专业映射，暂以教务网站为准',
+                  '按专业与年级查找，支持 PDF 查看和离线缓存',
                   style: TextStyle(
                     fontSize: 11,
                     color: AppColors.textSecondary,
@@ -217,14 +219,23 @@ class _AcademicPageState extends State<AcademicPage> {
               ],
             ),
           ),
-          TextButton(onPressed: _toastPlan, child: const Text('说明')),
+          TextButton(onPressed: _openPlan, child: const Text('查看')),
         ],
       ),
     );
   }
 
-  void _toastPlan() {
-    _toast('培养计划：教务网站 → 培养计划（https://jwc.usst.edu.cn/pyjh/list.htm）');
+  Future<void> _openPlan() async {
+    final snapshot = await CourseRepository.loadCache();
+    if (!mounted) return;
+    final major = snapshot?.majorName.trim() ?? '';
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => TrainingPlanPage(
+          major: major.isNotEmpty ? major : _progress?.majorName ?? '',
+        ),
+      ),
+    );
   }
 
   Widget _overallCard(AcademicProgress progress) {

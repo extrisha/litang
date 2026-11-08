@@ -12,15 +12,17 @@ class ClassroomInfo {
   const ClassroomInfo({
     required this.name,
     required this.building,
-    required this.isFree,
+    required bool? isFree,
     this.occupiedCourse = '',
     this.occupiedTeacher = '',
     this.timeRange = '',
-  });
+  }) : available = isFree;
 
   final String name;
   final String building;
-  final bool isFree;
+  final bool? available;
+  bool get isFree => available == true;
+  bool get isKnown => available != null;
   final String occupiedCourse;
   final String occupiedTeacher;
   final String timeRange;
@@ -28,7 +30,7 @@ class ClassroomInfo {
   Map<String, dynamic> toJson() => <String, dynamic>{
     'name': name,
     'building': building,
-    'isFree': isFree,
+    'isFree': available,
     'occupiedCourse': occupiedCourse,
     'occupiedTeacher': occupiedTeacher,
     'timeRange': timeRange,
@@ -37,7 +39,7 @@ class ClassroomInfo {
   static ClassroomInfo fromJson(Map<String, dynamic> json) => ClassroomInfo(
     name: json['name']?.toString() ?? '',
     building: json['building']?.toString() ?? '',
-    isFree: json['isFree'] == true,
+    isFree: json['isFree'] is bool ? json['isFree'] as bool : null,
     occupiedCourse: json['occupiedCourse']?.toString() ?? '',
     occupiedTeacher: json['occupiedTeacher']?.toString() ?? '',
     timeRange: json['timeRange']?.toString() ?? '',
@@ -299,8 +301,19 @@ int _parseInt(dynamic val, int fallback) {
 }
 
 /// 教室查询与全校课表 API（对接 lapp.usst.edu.cn 全校课表库）
+class _SchedulePage {
+  const _SchedulePage(this.items, this.total, this.pages, this.signature);
+  final List<LappScheduleItem> items;
+  final int? total;
+  final int? pages;
+  final String signature;
+}
+
 class ClassroomApi {
-  ClassroomApi(this.client);
+  ClassroomApi(this.client, {DateTime Function()? now})
+    : now = now ?? DateTime.now;
+
+  final DateTime Function() now;
 
   final CasClient client;
 
@@ -311,8 +324,11 @@ class ClassroomApi {
       '$_lappBase/_web/_lightapp/schedule/mobile/school/queryClassSchedule.rst';
 
   /// 缓存排课数据，避免重复请求
-  static final Map<String, List<LappScheduleItem>> _cache =
-      <String, List<LappScheduleItem>>{};
+  static const cacheTtl = Duration(minutes: 5);
+  static final _caches =
+      Expando<Map<String, ({List<LappScheduleItem> items, DateTime at})>>();
+  static final _queries =
+      Expando<Map<String, Future<List<LappScheduleItem>>>>();
 
   /// 预设学院列表
   static const List<String> defaultColleges = <String>[
@@ -404,14 +420,106 @@ class ClassroomApi {
     int rows = 1000,
     bool forceRefresh = false,
   }) async {
+    if (rows <= 0 || rows > 1000 || page < 0) throw ArgumentError('分页参数不合法');
     final cacheKey =
         '$xn|$xq|$week|$zj|$jc|$kcmc|$kcdm|$lsmc|$college|$page|$rows';
-    if (!forceRefresh && _cache.containsKey(cacheKey)) {
-      return _cache[cacheKey]!;
+    final cache = _caches[client] ??= {};
+    final pending = _queries[client] ??= {};
+    final instant = now();
+    cache.removeWhere((_, entry) => instant.difference(entry.at) >= cacheTtl);
+    if (!forceRefresh && cache.containsKey(cacheKey)) {
+      return cache[cacheKey]!.items;
     }
+    if (pending[cacheKey] != null) return pending[cacheKey]!;
+    late final Future<List<LappScheduleItem>> operation;
+    operation =
+        (() async {
+          if (!await ensureSession()) {
+            throw const AppException(AppFailure.auth, '教务登录已失效，请重新登录');
+          }
+          final combined = <LappScheduleItem>[];
+          final seenPages = <String>{};
+          final seenIds = <String>{};
+          for (var offset = 0; offset < 20; offset++) {
+            final result = await _fetchSchedulePage(
+              xn: xn,
+              xq: xq,
+              week: week,
+              zj: zj,
+              jc: jc,
+              kcmc: kcmc,
+              kcdm: kcdm,
+              lsmc: lsmc,
+              college: college,
+              page: page + offset,
+              rows: rows,
+            );
+            if (result.items.isNotEmpty && !seenPages.add(result.signature)) {
+              throw const AppException(
+                AppFailure.parse,
+                '排课分页重复，无法确认教室空闲，请稍后重试',
+              );
+            }
+            if (result.items.any(
+              (item) => item.id.isNotEmpty && !seenIds.add(item.id),
+            )) {
+              throw const AppException(
+                AppFailure.parse,
+                '排课分页记录重叠，无法确认教室空闲，请刷新重试',
+              );
+            }
+            combined.addAll(result.items);
+            final expected = result.total == null
+                ? null
+                : result.total! - page * rows;
+            final done = expected != null
+                ? combined.length >= expected
+                : result.pages != null
+                ? page + offset + 1 >= result.pages!
+                : result.items.length < rows;
+            if (done) {
+              final items = List<LappScheduleItem>.unmodifiable(combined);
+              cache.remove(cacheKey);
+              while (cache.isNotEmpty &&
+                  (cache.length >= 20 ||
+                      cache.values.fold<int>(
+                                0,
+                                (sum, entry) => sum + entry.items.length,
+                              ) +
+                              items.length >
+                          20000)) {
+                cache.remove(cache.keys.first);
+              }
+              if (items.length <= 20000) {
+                cache[cacheKey] = (items: items, at: now());
+              }
+              return items;
+            }
+            if (result.items.isEmpty) {
+              throw const AppException(AppFailure.parse, '排课数据未完整取得，无法确认空闲状态');
+            }
+          }
+          throw const AppException(AppFailure.parse, '排课结果过多，请缩小查询条件后重试');
+        })().whenComplete(() {
+          if (identical(pending[cacheKey], operation)) pending.remove(cacheKey);
+        });
+    pending[cacheKey] = operation;
+    return operation;
+  }
 
-    await ensureSession();
-
+  Future<_SchedulePage> _fetchSchedulePage({
+    String xn = '',
+    String xq = '',
+    int week = -1,
+    int zj = -1,
+    String jc = '-1',
+    String kcmc = '',
+    String kcdm = '',
+    String lsmc = '',
+    String college = '',
+    int page = 0,
+    int rows = 1000,
+  }) async {
     final queryMap = <String, String>{
       'week': week.toString(),
       'zj': zj.toString(),
@@ -463,13 +571,23 @@ class ClassroomApi {
       );
     }
 
-    final result =
-        json['result'] as Map<String, dynamic>? ?? <String, dynamic>{};
-    final data = result['data'] as List<dynamic>? ?? <dynamic>[];
+    final result = json['result'];
+    if (result is! Map || result['data'] is! List) {
+      throw const AppException(AppFailure.parse, '排课列表缺失，无法确认教室状态');
+    }
+    final data = result['data'] as List;
+    final total = int.tryParse(
+      '${result['total'] ?? result['records'] ?? result['totalCount'] ?? json['total'] ?? ''}',
+    );
+    final pages = int.tryParse(
+      '${result['totalPages'] ?? result['pageCount'] ?? ''}',
+    );
 
     final list = <LappScheduleItem>[];
     for (final item in data) {
-      if (item is! Map) continue;
+      if (item is! Map) {
+        throw const AppException(AppFailure.parse, '排课记录不完整，无法确认空闲状态');
+      }
       final m = item.cast<String, dynamic>();
       list.add(
         LappScheduleItem(
@@ -501,8 +619,7 @@ class ClassroomApi {
       );
     }
 
-    _cache[cacheKey] = list;
-    return list;
+    return _SchedulePage(list, total, pages, jsonEncode(data));
   }
 
   /// 查询全校课程（支持课程名、教师名、课程代码及学院筛选），聚合为 SchoolCourse

@@ -10,6 +10,7 @@ import '../data/attachment_cache.dart';
 import '../data/auth/cas_client.dart';
 import '../data/calendar/calendar_service.dart';
 import '../data/auth/jwgl_auth.dart';
+import '../data/auth/session_store.dart';
 import '../data/auth/xuegong_auth.dart';
 import '../data/chaoxing/chaoxing_auth.dart';
 import '../data/jwc/course_api.dart';
@@ -29,16 +30,23 @@ import '../services/update_service.dart';
 
 /// 我的：个人信息 + 学业查询 + 网页入口（上理体育 / 学工 / 教务）。
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+  const ProfilePage({super.key, this.auth});
+
+  final JwglAuth? auth;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  JwglAuth get _auth => widget.auth ?? JwglAuth.instance;
+
   CourseSnapshot? _snapshot;
   UserProfile? _profile;
   String? _profileUserId;
+  CasClient? _profileClient;
+  int _generation = 0;
+  int _localLoadGeneration = 0;
   bool _loading = false;
   bool _openingXuegong = false;
   int _week = 1;
@@ -51,83 +59,126 @@ class _ProfilePageState extends State<ProfilePage> {
   void initState() {
     super.initState();
     AttachmentCache.refreshSize();
-    _profileUserId = JwglAuth.instance.studentId;
-    JwglAuth.instance.addListener(_onAuthChanged);
+    final account = _authAccount;
+    if (account.isNotEmpty) _profileUserId = account;
+    _profileClient = _auth.client;
+    _auth.addListener(_onAuthChanged);
+    CourseRepository.changes.addListener(_onCoursesChanged);
     _bootstrap();
   }
 
   @override
   void dispose() {
-    JwglAuth.instance.removeListener(_onAuthChanged);
+    _auth.removeListener(_onAuthChanged);
+    CourseRepository.changes.removeListener(_onCoursesChanged);
     super.dispose();
   }
 
-  /// 教务账号切换后，重新读当前账号的本地资料；没有自定义昵称就显示真实姓名。
+  String get _authAccount {
+    final saved = _auth.savedUsername.trim();
+    return saved.isNotEmpty ? saved : (_auth.studentId ?? '').trim();
+  }
+
+  bool _isCurrent(int generation, String account) =>
+      mounted &&
+      generation == _generation &&
+      _profileUserId == account &&
+      identical(_profileClient, _auth.client) &&
+      (_authAccount.isEmpty || _authAccount == account);
+
+  /// 本地身份不依赖校园网会话；同账号恢复也要补齐缺失的姓名。
   void _onAuthChanged() {
-    final id = JwglAuth.instance.studentId;
-    if (id == _profileUserId) {
-      return;
+    if (!mounted) return;
+    final id = _authAccount;
+    final accountChanged = id != _profileUserId;
+    if (accountChanged || !identical(_profileClient, _auth.client)) {
+      _generation++;
+      _localLoadGeneration++;
+      setState(() {
+        _profileUserId = id;
+        _profileClient = _auth.client;
+        _loading = false;
+        if (accountChanged) {
+          _profile = null;
+          _snapshot = null;
+        }
+      });
     }
-    _profileUserId = id;
-    if (!mounted) {
+    if (id.isNotEmpty) unawaited(_loadLocalAndRefresh());
+  }
+
+  void _onCoursesChanged() {
+    // 今日页同步后只重读本地，避免保存通知再次触发网络同步。
+    unawaited(_loadLocal());
+  }
+
+  Future<void> _loadLocal() async {
+    final account = _profileUserId;
+    if (account == null) return;
+    final generation = _generation;
+    final loadGeneration = ++_localLoadGeneration;
+    final profileFuture = ProfileStore.load(username: account);
+    final cached = await CourseRepository.loadCache(username: account);
+    final profile = await profileFuture;
+    if (!_isCurrent(generation, account) ||
+        loadGeneration != _localLoadGeneration) {
       return;
     }
     setState(() {
-      _profile = null;
-      _snapshot = null;
+      _profile = profile;
+      if (cached != null) _snapshot = cached;
+      _week =
+          CalendarService.instance.currentWeek ??
+          _snapshot?.currentWeek ??
+          _week;
     });
-    if (id == null || id.isEmpty) {
-      return;
-    }
-    unawaited(_loadProfile());
-    unawaited(_refresh(silent: true));
   }
 
-  Future<void> _loadProfile() async {
-    final id = JwglAuth.instance.studentId ?? '';
-    final profile = await ProfileStore.load(username: id);
-    if (!mounted || JwglAuth.instance.studentId != id) {
-      return;
+  Future<void> _loadLocalAndRefresh() async {
+    final account = _profileUserId;
+    if (account == null || account.isEmpty) return;
+    final generation = _generation;
+    await _loadLocal();
+    if (!_isCurrent(generation, account)) return;
+    if (_auth.isLoggedIn &&
+        (_snapshot == null ||
+            _snapshot!.collegeName.trim().isEmpty ||
+            _snapshot!.studentName.trim().isEmpty)) {
+      await _refresh(silent: true);
     }
-    setState(() => _profile = profile);
   }
 
   Future<void> _bootstrap() async {
-    final cached = await CourseRepository.loadCache();
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _snapshot = cached;
-      _week =
-          CalendarService.instance.currentWeek ?? cached?.currentWeek ?? _week;
-    });
-
-    final auth = JwglAuth.instance;
-    if (!auth.isLoggedIn) {
-      await auth.restore();
-      if (!mounted) {
-        return;
+    final generation = _generation;
+    if (_profileUserId == null) {
+      String account;
+      try {
+        account = await SessionStore().loadUsername();
+      } catch (_) {
+        account = '';
       }
-      setState(() {});
+      if (!mounted || generation != _generation) return;
+      _profileUserId = account;
     }
-    _profileUserId = auth.studentId;
-    await _loadProfile();
-    if (!mounted) {
+    await _loadLocal();
+    if (!mounted) return;
+    try {
+      if (!_auth.isLoggedIn) await _auth.restore();
+    } catch (_) {
+      // 网络恢复失败不影响已经显示的本地姓名。
       return;
     }
-    // 旧缓存没有学院信息时，后台补拉一次（静默，不打断用户）
-    if (auth.isLoggedIn &&
-        (_snapshot == null || _snapshot!.collegeName.isEmpty)) {
-      await _refresh(silent: true);
-    }
+    if (mounted) _onAuthChanged();
   }
 
   Future<void> _refresh({bool silent = false}) async {
     if (_loading) {
       return;
     }
-    final auth = JwglAuth.instance;
+    final auth = _auth;
+    final account = _profileUserId;
+    final generation = _generation;
+    if (account == null || account.isEmpty) return;
     if (!auth.isLoggedIn) {
       if (!silent) {
         _toast('请先登录教务系统');
@@ -137,17 +188,17 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() => _loading = true);
     try {
       final ok = await auth.ensureSession();
+      if (!_isCurrent(generation, account)) return;
       if (!ok) {
-        if (mounted) {
+        if (!silent) {
           _toast('登录已过期，请重新登录');
-          setState(() {});
         }
         return;
       }
-      final snapshot = await CourseRepository.refresh(auth.client!);
-      if (!mounted) {
-        return;
-      }
+      final client = auth.client;
+      if (client == null) return;
+      final snapshot = await CourseRepository.refresh(client, auth: auth);
+      if (!_isCurrent(generation, account)) return;
       setState(() {
         _snapshot = snapshot;
         _week =
@@ -155,15 +206,12 @@ class _ProfilePageState extends State<ProfilePage> {
             snapshot.currentWeek ??
             _week;
       });
-      if (snapshot.courses.isEmpty && !silent) {
-        _toast('没取到课表，请稍后重试');
-      }
     } catch (_) {
-      if (mounted && !silent) {
+      if (_isCurrent(generation, account) && !silent) {
         _toast('课表更新失败，请检查网络后重试');
       }
     } finally {
-      if (mounted) {
+      if (_isCurrent(generation, account)) {
         setState(() => _loading = false);
       }
     }
@@ -179,7 +227,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   /// 用当前会话 cookie 免密打开教务系统网页版。
   Future<void> _openJwglWeb() async {
-    final auth = JwglAuth.instance;
+    final auth = _auth;
     if (!auth.isLoggedIn) {
       _toast('请先登录教务系统');
       return;
@@ -198,7 +246,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _openRank() async {
-    final auth = JwglAuth.instance;
+    final auth = _auth;
     if (!auth.isLoggedIn) {
       _toast('请先登录教务系统');
       return;
@@ -208,7 +256,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _openAcademic() async {
-    final auth = JwglAuth.instance;
+    final auth = _auth;
     if (!auth.isLoggedIn) {
       _toast('请先登录教务系统');
       return;
@@ -218,7 +266,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _openGrades() async {
-    final auth = JwglAuth.instance;
+    final auth = _auth;
     if (!auth.isLoggedIn) {
       _toast('请先登录教务系统');
       return;
@@ -228,44 +276,43 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _handleAuth() async {
-    final auth = JwglAuth.instance;
+    final auth = _auth;
     if (auth.isLoggedIn) {
+      final username = auth.savedUsername;
       await auth.logout();
-      await CourseRepository.clear();
+      await CourseRepository.clear(username: username);
       await GradeRepository.clear();
       await AcademicRepository.clear();
       await RankRepository.clear();
       await XuegongAuth.instance.clear();
       // 学习通是独立账号，退出教务时必须一起清，否则下一个人会看到上一个人的课程。
       await ChaoxingAuth.instance.logout();
-      if (mounted) {
+      if (mounted && _authAccount.isEmpty) {
         setState(() {
           _snapshot = null;
           _profile = null;
-          _profileUserId = null;
+          _profileUserId = '';
         });
       }
       return;
     }
-    final ok = await Navigator.of(context)
-        .push<bool>(MaterialPageRoute<bool>(builder: (_) => const LoginPage()));
+    final ok = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(builder: (_) => LoginPage(auth: auth)),
+    );
     if (!mounted) {
       return;
     }
     setState(() {});
     if (ok == true) {
-      // 换账号后旧缓存不能留
-      await CourseRepository.clear();
+      final account = _profileUserId;
+      final generation = _generation;
+      if (account == null || account.isEmpty) return;
       await GradeRepository.clear();
       await AcademicRepository.clear();
-      _snapshot = null;
-      _profileUserId = auth.studentId;
-      await _loadProfile();
-      if (mounted) {
-        setState(() {});
-      }
+      if (!_isCurrent(generation, account)) return;
       _toast('已登录教务系统');
-      await _refresh(silent: true);
+      // adopt 通知可能已同步成功，保留按账号隔离的课表和姓名。
+      await _loadLocalAndRefresh();
     }
   }
 
@@ -407,9 +454,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _userCard() {
     return AnimatedBuilder(
-      animation: JwglAuth.instance,
+      animation: _auth,
       builder: (context, _) {
-        final auth = JwglAuth.instance;
+        final auth = _auth;
         final loggedIn = auth.isLoggedIn;
         final profile = _profile;
         final nickname = (profile?.nickname.isNotEmpty ?? false)
@@ -464,7 +511,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         )
                       else ...<Widget>[
                         Text(
-                          '学号 ${JwglAuth.instance.studentId ?? ''}',
+                          '学号 ${auth.studentId ?? ''}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -518,8 +565,10 @@ class _ProfilePageState extends State<ProfilePage> {
     return '$college · $className';
   }
 
-  /// 编辑论坛用的昵称和头像（只存本地，和教务账号无关）。
+  /// 编辑论坛用的昵称和头像，按当前教务账号存本地。
   Future<void> _editProfile() async {
+    final account = _profileUserId ?? '';
+    final generation = _generation;
     final current = _profile;
     final nicknameController = TextEditingController(
       text: (current?.nickname.isNotEmpty ?? false)
@@ -596,18 +645,15 @@ class _ProfilePageState extends State<ProfilePage> {
     );
     final input = nicknameController.text.trim();
     nicknameController.dispose();
-    if (saved != true) {
+    if (saved != true || !_isCurrent(generation, account)) {
       return;
     }
     final profile = UserProfile(
       nickname: input.isEmpty ? (_snapshot?.studentName ?? '同学') : input,
       avatar: avatar,
     );
-    await ProfileStore.save(
-      profile,
-      username: JwglAuth.instance.studentId ?? '',
-    );
-    if (mounted) {
+    await ProfileStore.save(profile, username: account);
+    if (_isCurrent(generation, account)) {
       setState(() => _profile = profile);
     }
   }
@@ -634,7 +680,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (_openingXuegong) {
       return;
     }
-    final auth = JwglAuth.instance;
+    final auth = _auth;
     if (!auth.isLoggedIn) {
       _toast('请先登录教务系统');
       return;
@@ -715,15 +761,21 @@ class _ProfilePageState extends State<ProfilePage> {
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
-        child: SizedBox(
+        child: Container(
           width: 104,
-          height: 88,
+          constraints: const BoxConstraints(minHeight: 88),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
               Icon(icon, color: AppColors.usstRed, size: 26),
               const SizedBox(height: 8),
-              Text(label, style: const TextStyle(fontSize: 13)),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13),
+              ),
             ],
           ),
         ),

@@ -7,6 +7,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Reuse the existing x86_64 emulator for local checks; release remains arm64.
+val runtimeTestX64 = providers.gradleProperty("litangRuntimeTest").orNull == "true"
+if (runtimeTestX64 && gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }) {
+    throw GradleException("litangRuntimeTest is only for local debug/profile checks")
+}
+
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
 val hasKeyProperties = keystorePropertiesFile.exists()
@@ -51,13 +57,15 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            abiFilters.clear()
+            abiFilters += if (runtimeTestX64) listOf("x86_64") else listOf("arm64-v8a")
         }
     }
 
     packaging {
         jniLibs {
-            excludes += listOf("lib/armeabi-v7a/**", "lib/x86_64/**")
+            excludes += listOf("lib/armeabi-v7a/**")
+            if (!runtimeTestX64) excludes += "lib/x86_64/**"
         }
     }
 

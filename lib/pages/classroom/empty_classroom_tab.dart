@@ -6,12 +6,14 @@ import '../../data/auth/jwgl_auth.dart';
 import '../../data/calendar/calendar_service.dart';
 import '../../data/jwc/classroom_api.dart';
 import '../../data/jwc/classroom_data.dart';
+import '../../data/request_guard.dart';
 import 'widgets/classroom_card.dart';
 import 'widgets/classroom_filter_sheet.dart';
 
 /// 空教室检索 Tab 页面
 class EmptyClassroomTab extends StatefulWidget {
-  const EmptyClassroomTab({super.key});
+  const EmptyClassroomTab({super.key, this.api});
+  final ClassroomApi? api;
 
   @override
   State<EmptyClassroomTab> createState() => _EmptyClassroomTabState();
@@ -29,6 +31,15 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
   String? _error;
   List<ClassroomInfo> _allRooms = const <ClassroomInfo>[];
   final TextEditingController _searchController = TextEditingController();
+  final RequestGuard _guard = RequestGuard();
+  var _authIdentity = JwglAuth.instance.client;
+
+  void _authChanged() {
+    final client = JwglAuth.instance.client;
+    if (identical(client, _authIdentity)) return;
+    _authIdentity = client;
+    if (mounted) _loadClassrooms();
+  }
 
   static const List<({String name, int day})> _days =
       <({String name, int day})>[
@@ -44,6 +55,7 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
   @override
   void initState() {
     super.initState();
+    JwglAuth.instance.addListener(_authChanged);
     _initDefaults();
     _searchController.addListener(() {
       setState(() {
@@ -55,6 +67,8 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
 
   @override
   void dispose() {
+    _guard.invalidate();
+    JwglAuth.instance.removeListener(_authChanged);
     _searchController.dispose();
     super.dispose();
   }
@@ -80,20 +94,25 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
   }
 
   Future<void> _loadClassrooms({bool forceRefresh = false}) async {
+    final request = _guard.begin();
+    final client = JwglAuth.instance.client;
+    bool current() =>
+        mounted &&
+        _guard.isCurrent(request) &&
+        identical(client, JwglAuth.instance.client);
     setState(() {
       _loading = true;
       _error = null;
     });
 
-    final client = JwglAuth.instance.client;
-    if (client == null) {
+    if (client == null && widget.api == null) {
       final rooms = <ClassroomInfo>[];
       final targetBuildings = _selectedBuilding == '全部教学楼'
           ? knownClassroomsByBuilding.keys
           : <String>[_selectedBuilding];
       for (final b in targetBuildings) {
         for (final r in knownClassroomsByBuilding[b] ?? const <String>[]) {
-          rooms.add(ClassroomInfo(name: r, building: b, isFree: true));
+          rooms.add(ClassroomInfo(name: r, building: b, isFree: null));
         }
       }
       setState(() {
@@ -104,7 +123,7 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
     }
 
     try {
-      final api = ClassroomApi(client);
+      final api = widget.api ?? ClassroomApi(client!);
       final opt = defaultSectionOptions[_selectedSectionIndex];
       final termId = CalendarService.instance.termId;
       String xn = '';
@@ -126,12 +145,15 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
         forceRefresh: forceRefresh,
       );
 
+      if (!current()) return;
       setState(() {
         _allRooms = result;
         _loading = false;
       });
     } catch (e) {
+      if (!current()) return;
       setState(() {
+        _allRooms = const [];
         // 数据层已经给出人话（登录失效 / 网络 / 解析），别再套一层前缀
         _error = e is AppException ? e.message : '教室数据加载失败：$e';
         _loading = false;
@@ -141,7 +163,7 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
 
   List<ClassroomInfo> get _filteredClassrooms {
     return _allRooms.where((room) {
-      if (_onlyFree && !room.isFree) return false;
+      if (_onlyFree && room.isKnown && !room.isFree) return false;
       if (_classroomKeyword.isNotEmpty) {
         final kw = _classroomKeyword.toLowerCase();
         final matchName = room.name.toLowerCase().contains(kw);
@@ -371,7 +393,7 @@ class _EmptyClassroomTabState extends State<EmptyClassroomTab> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        '仅看空闲',
+                        '隐藏占用',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: _onlyFree

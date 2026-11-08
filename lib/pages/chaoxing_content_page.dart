@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
 
-import '../data/http/api_client.dart';
+import '../data/auth/cas_client.dart';
+import '../data/auth/jwgl_auth.dart';
 
 import '../app_theme.dart';
 import '../data/attachment_cache.dart';
@@ -34,6 +34,13 @@ class _ChaoxingContentPageState extends State<ChaoxingContentPage> {
   List<ChaoxingCourseAttachment>? _attachments;
   String? _error;
   String? _openingObjectId;
+  String? _downloadKey;
+
+  @override
+  void dispose() {
+    if (_downloadKey != null) AttachmentCache.cancel(_downloadKey!);
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -107,18 +114,33 @@ class _ChaoxingContentPageState extends State<ChaoxingContentPage> {
       final cacheName = isPdf && !lowerName.endsWith('.pdf')
           ? '${attachment.name}.pdf'
           : attachment.name;
-      var path = await AttachmentCache.existing(cacheName);
+      String? path;
       String? remote = isPdf ? yun?.pdfUrl : yun?.downloadUrl;
       if (remote == null || remote.isEmpty) {
         remote = yun?.pdfUrl.isNotEmpty == true
             ? yun!.pdfUrl
             : yun?.downloadUrl;
       }
-      if (path == null && remote != null && remote.isNotEmpty) {
-        final bytes = await _fetchBytes(remote);
-        if (bytes.isNotEmpty) {
-          path = await AttachmentCache.save(cacheName, bytes);
-        }
+      if (remote != null && remote.isNotEmpty) {
+        _downloadKey = AttachmentCache.key(
+          source: 'chaoxing',
+          account: JwglAuth.instance.savedUsername,
+          attachmentId:
+              '${widget.course.courseId}:${widget.course.classId}:${attachment.objectId}',
+          version: '${attachment.size}:$isPdf',
+        );
+        final target = Uri.parse(remote);
+        final downloader = CasClient(initialCookies: client.jar.cookies);
+        path = await AttachmentCache.download(
+          key: _downloadKey!,
+          name: cacheName,
+          receive: (path, token) => downloader.downloadFile(
+            target.scheme == 'http' ? target.replace(scheme: 'https') : target,
+            path,
+            cancelToken: token,
+          ),
+        );
+        _downloadKey = null;
       }
       if (!mounted) return;
 
@@ -164,31 +186,9 @@ class _ChaoxingContentPageState extends State<ChaoxingContentPage> {
             .showSnackBar(const SnackBar(content: Text('附件下载失败，请稍后重试')));
       }
     } finally {
+      _downloadKey = null;
       if (mounted) setState(() => _openingObjectId = null);
     }
-  }
-
-  Future<List<int>> _fetchBytes(String url) async {
-    var uri = Uri.parse(url);
-    if (uri.scheme == 'http') {
-      uri = uri.replace(scheme: 'https');
-    }
-    const maxDownloadSize = 50 * 1024 * 1024; // 50MB
-    final resp = await ApiClient.longRunning.get<List<int>>(
-      uri.toString(),
-      options: Options(
-        headers: <String, String>{'User-Agent': 'Mozilla/5.0'},
-        responseType: ResponseType.bytes,
-      ),
-    );
-    if ((resp.statusCode ?? 0) < 200 || (resp.statusCode ?? 0) >= 300) {
-      throw Exception('HTTP ${resp.statusCode}');
-    }
-    final bytes = resp.data ?? const <int>[];
-    if (bytes.length > maxDownloadSize) {
-      throw Exception('附件过大（超过 50MB），建议在网页端下载');
-    }
-    return bytes;
   }
 
   @override

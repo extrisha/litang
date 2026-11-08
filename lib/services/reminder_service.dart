@@ -1,4 +1,8 @@
 import 'dart:convert';
+
+import '../data/task_deadline.dart';
+import '../data/bounded_requests.dart';
+
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -144,6 +148,8 @@ class ReminderService {
     'courseName': work.courseName,
     'statusText': work.statusText,
     'deadline': work.deadline,
+    'deadlineAt': work.dueAt?.toIso8601String(),
+    'fetchedAt': work.fetchedAt?.toIso8601String(),
     'expired': work.expired,
     'taskUrl': work.taskUrl,
   };
@@ -162,10 +168,14 @@ class ReminderService {
           .map((t) => t.courseId)
           .where((id) => id > 0)
           .toSet();
-      for (final courseId in courseIds) {
-        final list = await HomeworkApi(client).fetchSubmissions(courseId);
-        ids.addAll(list.map((s) => s.activityId));
-      }
+      await mapWithConcurrency(courseIds, (courseId) async {
+        try {
+          final list = await HomeworkApi(client).fetchSubmissions(courseId);
+          ids.addAll(list.map((s) => s.activityId));
+        } catch (_) {
+          /* 单门课失败不跳过其他课程。 */
+        }
+      });
     } catch (_) {
       // 查不到就当不知道，宁可多提醒一次
     }
@@ -205,9 +215,7 @@ class ReminderService {
           if (cxClient != null) {
             final courses = await cxClient.fetchCourses();
             final works = await cxClient.fetchWorks(courses);
-            if (works.isNotEmpty) {
-              await syncChaoxingWorks(works);
-            }
+            await syncChaoxingWorks(works);
           }
         }
       } catch (_) {
@@ -257,8 +265,7 @@ class ReminderService {
 
   // -------------------------------------------------------------- 学习通作业
 
-  /// 学习通作业只有相对时间（剩余 X 小时 Y 分钟），按当前时刻算成绝对时间。
-  /// 每次拉到作业列表都会重算，所以只要偶尔打开一次 App，计划就是准的。
+  /// 使用抓取时已固定的绝对截止时间，缓存和重启不推迟提醒。
   Future<void> syncChaoxingWorks(List<ChaoxingWork> works) async {
     if (!await _ensureReady()) return;
     try {
@@ -270,14 +277,14 @@ class ReminderService {
       for (final work in works) {
         // 已交 / 已批阅 / 已截止都不提醒
         if (work.finished || work.expired) continue;
-        final remaining = parseRemaining(work.deadline);
-        if (remaining == null || remaining <= Duration.zero) continue;
+        final deadline = work.dueAt;
+        if (deadline == null || !deadline.isAfter(wallClock)) continue;
         final key = '$_cxPrefix${work.workId}';
         if (keys.contains(_offKey(key))) continue;
         fresh.add(key);
         await _schedule(
           key: key,
-          deadline: wallClock.add(remaining),
+          deadline: deadline,
           title: '学习通作业快截止了',
           body: '${work.courseName}\n${work.title}',
           now: now,
@@ -333,12 +340,12 @@ class ReminderService {
   /// 单独排一个学习通作业。
   Future<void> scheduleChaoxingOne(ChaoxingWork work) async {
     if (!await _ensureReady()) return;
-    final remaining = parseRemaining(work.deadline);
-    if (remaining == null || remaining <= Duration.zero) return;
+    final deadline = work.dueAt;
+    if (deadline == null || !deadline.isAfter(DateTime.now())) return;
     final key = '$_cxPrefix${work.workId}';
     await _schedule(
       key: key,
-      deadline: DateTime.now().add(remaining),
+      deadline: deadline,
       title: '学习通作业快截止了',
       body: '${work.courseName}\n${work.title}',
       now: tz.TZDateTime.now(tz.local),
@@ -528,16 +535,6 @@ class ReminderService {
 
   /// 解析学习通的「剩余 91 小时 40 分钟」这类文本。
   /// 认 天 / 小时 / 分钟，任意组合；认不出来返回 null。
-  static Duration? parseRemaining(String raw) {
-    final text = raw.trim();
-    if (text.isEmpty) return null;
-    final day = RegExp(r'(\d+)\s*天').firstMatch(text);
-    final hour = RegExp(r'(\d+)\s*小时').firstMatch(text);
-    final minute = RegExp(r'(\d+)\s*分钟').firstMatch(text);
-    if (day == null && hour == null && minute == null) return null;
-    final days = int.tryParse(day?.group(1) ?? '') ?? 0;
-    final hours = int.tryParse(hour?.group(1) ?? '') ?? 0;
-    final minutes = int.tryParse(minute?.group(1) ?? '') ?? 0;
-    return Duration(days: days, hours: hours, minutes: minutes);
-  }
+  static Duration? parseRemaining(String raw) =>
+      TaskDeadline.parseRemaining(raw);
 }

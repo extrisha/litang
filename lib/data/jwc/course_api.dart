@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../auth/cas_client.dart';
+import '../app_exception.dart';
 import '../models.dart';
 import 'jwgl_schedule.dart';
 
@@ -66,19 +67,24 @@ class CourseSnapshot {
         .toList(),
   };
 
-  CourseSnapshot copyWith({int? currentWeek, String? collegeName}) =>
-      CourseSnapshot(
-        termLabel: termLabel,
-        xnm: xnm,
-        xqm: xqm,
-        courses: courses,
-        updatedAt: updatedAt,
-        studentName: studentName,
-        className: className,
-        majorName: majorName,
-        collegeName: collegeName ?? this.collegeName,
-        currentWeek: currentWeek ?? this.currentWeek,
-      );
+  CourseSnapshot copyWith({
+    int? currentWeek,
+    String? collegeName,
+    String? studentName,
+    String? className,
+    String? majorName,
+  }) => CourseSnapshot(
+    termLabel: termLabel,
+    xnm: xnm,
+    xqm: xqm,
+    courses: courses,
+    updatedAt: updatedAt,
+    studentName: studentName ?? this.studentName,
+    className: className ?? this.className,
+    majorName: majorName ?? this.majorName,
+    collegeName: collegeName ?? this.collegeName,
+    currentWeek: currentWeek ?? this.currentWeek,
+  );
 
   static CourseSnapshot fromJson(Map<String, dynamic> json) {
     final list = (json['courses'] as List<dynamic>? ?? <dynamic>[]).map((e) {
@@ -168,53 +174,58 @@ class CourseApi {
     }
   }
 
-  Future<CourseSnapshot> fetchCurrent() async {
-    final currentWeek = await fetchCurrentWeek();
-    final userInfo = await _fetchUserInfo();
+  Future<CourseSnapshot> fetchCurrent({bool includeExtras = true}) async {
     final now = DateTime.now();
     final year = now.month >= 8 ? now.year : now.year - 1;
     final term = (now.month >= 8 || now.month <= 1) ? '3' : '12';
     final attempts = <Map<String, String>>[
       <String, String>{'xnm': '', 'xqm': '', 'kzlx': 'ck'},
       <String, String>{'xnm': '$year', 'xqm': term, 'kzlx': 'ck'},
-      <String, String>{'xnm': '$year', 'xqm': '3', 'kzlx': 'ck'},
-      <String, String>{'xnm': '$year', 'xqm': '12', 'kzlx': 'ck'},
-      <String, String>{'xnm': '${year - 1}', 'xqm': '12', 'kzlx': 'ck'},
     ];
 
-    CourseSnapshot? last;
     for (final params in attempts) {
       final resp = await _post(_kbPath, params);
       final raw = resp.data ?? '';
       if (!raw.trimLeft().startsWith('{')) {
+        if (RegExp(
+          r'login_slogin|authserver|用户登录|name=["\x27]password',
+          caseSensitive: false,
+        ).hasMatch(raw)) {
+          throw const AppException(AppFailure.auth, '课表登录已失效，请重新登录后重试');
+        }
         continue;
       }
-      final snapshot = parseKb(raw).copyWith(
-        currentWeek: currentWeek,
-        collegeName: userInfo?.college ?? '',
-      );
-      last = snapshot;
-      if (snapshot.courses.isNotEmpty) {
-        return snapshot;
-      }
+      final data = jsonDecode(raw);
+      if (data is! Map || data['kbList'] is! List) continue;
+      final snapshot = parseKb(raw);
+      // 正常的空课表也是结果，不能回退到旧学期寻找非空课程。
+      return includeExtras ? enrich(snapshot) : snapshot;
     }
-    return (last ?? _empty()).copyWith(
-      currentWeek: currentWeek,
-      collegeName: userInfo?.college ?? '',
+    throw const AppException(AppFailure.parse, '课表数据格式异常，请稍后重试');
+  }
+
+  Future<CourseSnapshot> enrich(CourseSnapshot snapshot) async {
+    final weekFuture = fetchCurrentWeek().timeout(
+      const Duration(seconds: 4),
+      onTimeout: () => null,
+    );
+    final infoFuture = _fetchUserInfo().timeout(
+      const Duration(seconds: 4),
+      onTimeout: () => null,
+    );
+    final week = await weekFuture;
+    final info = await infoFuture;
+    if (week == null && info == null) return snapshot;
+    return snapshot.copyWith(
+      currentWeek: week,
+      collegeName: info?.college,
+      className: snapshot.className.isEmpty ? info?.className : null,
     );
   }
 
   Future<Response<String>> _post(String url, Map<String, String> data) {
     return client.getJson(Uri.parse(url), data: data);
   }
-
-  static CourseSnapshot _empty() => CourseSnapshot(
-    termLabel: '',
-    xnm: '',
-    xqm: '',
-    courses: const <Course>[],
-    updatedAt: DateTime.now(),
-  );
 
   /// 解析正方课表 JSON（字段名来自 2026-10 实测抓包）。
   static CourseSnapshot parseKb(String raw) {

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
@@ -12,6 +13,10 @@ import 'models.dart';
 abstract class NoticeSource {
   /// [force] 为 true 时忽略本地缓存（下拉刷新用）。
   Future<NoticeFeed> fetch({bool force = false});
+}
+
+abstract interface class NoticeUpdates {
+  Stream<NoticeFeed> fetchUpdates({bool force = false});
 }
 
 /// 一次抓取的结果（比裸 List 多带一点元信息，UI 可以显示"数据时间/离线"）。
@@ -85,14 +90,34 @@ class DemoNoticeSource implements NoticeSource {
 /// 过期缓存 → 现抓教务处列表页 → 演示数据。
 ///
 /// 这样既不用每台设备去爬学校站点，也不会因为某一个源挂了就白屏。
-class RemoteNoticeSource implements NoticeSource {
+class RemoteNoticeSource implements NoticeSource, NoticeUpdates {
   RemoteNoticeSource({
     NoticeSource? fallback,
     this.cacheTtl = const Duration(hours: 6),
-  }) : _fallback = fallback ?? const DemoNoticeSource();
+    this.refreshBudget = const Duration(seconds: 12),
+    Dio? dio,
+  }) : _fallback = fallback ?? const DemoNoticeSource(),
+       _dio = dio ?? ApiClient.dio;
 
   final NoticeSource _fallback;
   final Duration cacheTtl;
+  final Duration refreshBudget;
+  final Dio _dio;
+  Future<NoticeFeed>? _refreshInFlight;
+  Future<void>? _pendingWrite;
+
+  Future<void> flushCacheWrites() async {
+    await _pendingWrite;
+  }
+
+  @override
+  Stream<NoticeFeed> fetchUpdates({bool force = false}) async* {
+    final cached = await _readCache();
+    if (cached != null) yield cached.feed;
+    if (force || cached == null || cached.age >= cacheTtl) {
+      yield await _refresh(cached);
+    }
+  }
 
   static const String _cacheKey = 'notices_feed_v2';
 
@@ -109,25 +134,46 @@ class RemoteNoticeSource implements NoticeSource {
     // 不能把缓存丢掉：离线时如果连缓存都没了，首页会退化成演示数据，
     // 再叠上学院/分类筛选就看起来像“没有任何通知”。
     final cached = await _readCache();
-    if (!force && cached != null && cached.age < cacheTtl) {
+    if (!force && cached != null) {
+      if (cached.age >= cacheTtl) unawaited(_refresh(cached));
       return cached.feed;
     }
+    return _refresh(cached);
+  }
+
+  Future<NoticeFeed> _refresh(_CachedFeed? cached) {
+    if (_refreshInFlight != null) return _refreshInFlight!;
+    return _refreshInFlight = _refreshRemote(cached)
+        .whenComplete(() => _refreshInFlight = null);
+  }
+
+  Future<NoticeFeed> _refreshRemote(_CachedFeed? cached) async {
+    final clock = Stopwatch()..start();
 
     // 镜像可能各自停滞（GitHub 有新数据、Gitee 还停在几天前），
     // 所以「能解析」还不够，得是「够新」的才算数；都不新就用最新的那个。
     NoticeFeed? stale;
     final now = DateTime.now();
     for (final url in mirrors) {
-      final feed = await _download(url);
+      final remaining = refreshBudget - clock.elapsed;
+      if (remaining <= Duration.zero) break;
+      final feed = await _download(
+        url,
+        remaining < const Duration(seconds: 3)
+            ? remaining
+            : const Duration(seconds: 3),
+      );
       if (feed == null || feed.notices.isEmpty) continue;
       if (isFreshEnough(feed, now)) {
-        await _writeCache(feed);
+        if (cached != null && _newer(cached.feed, feed)) return cached.feed;
+        _persistLater(feed);
         return feed;
       }
       if (stale == null || _newer(feed, stale)) stale = feed;
     }
     if (stale != null) {
-      await _writeCache(stale);
+      if (cached != null && _newer(cached.feed, stale)) return cached.feed;
+      _persistLater(stale);
       return stale;
     }
 
@@ -141,7 +187,10 @@ class RemoteNoticeSource implements NoticeSource {
     }
 
     // 再退一步：现抓教务处（列表页很小，几 KB）
-    final live = await _liveFallback();
+    final remaining = refreshBudget - clock.elapsed;
+    final live = remaining > Duration.zero
+        ? await _liveFallback(remaining)
+        : null;
     if (live != null && live.notices.isNotEmpty) return live;
 
     return _fallback.fetch();
@@ -165,13 +214,17 @@ class RemoteNoticeSource implements NoticeSource {
     return x.isAfter(y);
   }
 
-  Future<NoticeFeed?> _download(String url) async {
+  Future<NoticeFeed?> _download(String url, Duration budget) async {
+    final token = CancelToken();
+    final timer = Timer(budget, () => token.cancel('通知刷新时间预算已用完'));
     try {
-      final res = await ApiClient.dio.get<String>(
+      final res = await _dio.get<String>(
         url,
+        cancelToken: token,
         options: Options(
+          extra: {'skipRetry': true},
           responseType: ResponseType.plain,
-          receiveTimeout: const Duration(seconds: 20),
+          receiveTimeout: budget,
         ),
       );
       if (res.statusCode != 200 || res.data == null) return null;
@@ -180,14 +233,21 @@ class RemoteNoticeSource implements NoticeSource {
       return await compute(parseFeed, res.data!);
     } catch (_) {
       return null;
+    } finally {
+      timer.cancel();
     }
   }
 
-  Future<NoticeFeed?> _liveFallback() async {
+  Future<NoticeFeed?> _liveFallback(Duration budget) async {
+    final token = CancelToken();
+    final timer = Timer(budget, () => token.cancel('通知刷新时间预算已用完'));
     try {
-      return await JwcNoticeSource().fetch();
+      return await JwcNoticeSource().fetch(cancelToken: token).timeout(budget);
     } catch (_) {
       return null;
+    } finally {
+      token.cancel();
+      timer.cancel();
     }
   }
 
@@ -249,8 +309,23 @@ class RemoteNoticeSource implements NoticeSource {
     return _CachedFeed(feed, DateTime.now().difference(savedAt));
   }
 
-  Future<void> _writeCache(NoticeFeed feed) async {
-    await CacheStore.write(_cacheKey, <String, dynamic>{
+  void _persistLater(NoticeFeed feed) {
+    _pendingWrite = (_pendingWrite ?? Future<void>.value())
+        .then((_) async {
+          final raw = await compute(_encodeFeed, (
+            feed: feed,
+            at: DateTime.now(),
+          ));
+          await CacheStore.writeEncoded(_cacheKey, raw);
+        })
+        .catchError((Object error) {
+          debugPrint('[notice] 通知缓存更新失败: $error');
+        });
+  }
+
+  static String _encodeFeed(({NoticeFeed feed, DateTime at}) value) {
+    final feed = value.feed;
+    return CacheStore.encode(<String, dynamic>{
       'fetchedAt': feed.fetchedAt?.toIso8601String(),
       'notices': <Map<String, dynamic>>[
         for (final n in feed.notices)
@@ -263,7 +338,7 @@ class RemoteNoticeSource implements NoticeSource {
             'date': n.publishedAt?.toIso8601String().substring(0, 10),
           },
       ],
-    });
+    }, value.at);
   }
 
   static NoticeFeed? _feedFromCache(Object? data) {
@@ -324,13 +399,19 @@ class JwcNoticeSource implements NoticeSource {
   };
 
   @override
-  Future<NoticeFeed> fetch({bool force = false}) async {
+  Future<NoticeFeed> fetch({
+    bool force = false,
+    CancelToken? cancelToken,
+  }) async {
     final result = <Notice>[];
     for (final entry in _listUrls.entries) {
+      if (cancelToken?.isCancelled ?? false) break;
       try {
         final res = await ApiClient.dio.get<String>(
           entry.value,
+          cancelToken: cancelToken,
           options: Options(
+            extra: {'skipRetry': true},
             responseType: ResponseType.plain,
             receiveTimeout: const Duration(seconds: 8),
           ),

@@ -47,6 +47,21 @@ class CacheStore {
   /// 进程内一级缓存，避免反复读磁盘 / Keystore。
   static int maxMemoryEntries = 64;
   static final Map<String, CacheEntry> _memory = <String, CacheEntry>{};
+  static final Map<String, Future<void>> _writes = {};
+  static final Map<String, Object> _reads = {};
+
+  static Future<void> _queue(String key, Future<void> Function() operation) {
+    late final Future<void> future;
+    future = (_writes[key] ?? Future<void>.value())
+        .then((_) => operation(), onError: (Object _) => operation())
+        .whenComplete(() {
+          if (identical(_writes[key], future)) {
+            _writes.remove(key);
+          }
+        });
+    _writes[key] = future;
+    return future;
+  }
 
   static void _touchMemory(String mKey, CacheEntry entry) {
     _memory.remove(mKey);
@@ -89,16 +104,29 @@ class CacheStore {
       _touchMemory(mKey, cached);
       return cached;
     }
+    final token = Object();
+    _reads[mKey] = token;
     try {
+      while (_writes[mKey] != null) {
+        try {
+          await _writes[mKey];
+        } catch (_) {
+          // A failed durable write leaves the previous disk snapshot readable.
+        }
+      }
+      final latest = _memory[mKey];
+      if (latest != null) return latest;
       final raw = secure ? await _secure.read(key: key) : await _readFile(key);
       if (raw == null || raw.isEmpty) return null;
       final entry = decode(raw);
-      if (entry != null) {
+      if (entry != null && identical(_reads[mKey], token)) {
         _touchMemory(mKey, entry);
       }
       return entry;
     } catch (_) {
       return null;
+    } finally {
+      if (identical(_reads[mKey], token)) _reads.remove(mKey);
     }
   }
 
@@ -108,6 +136,7 @@ class CacheStore {
   /// 丢进 `compute()` 到后台 isolate 解析，避免卡住 UI 线程。
   static Future<String?> readRaw(String key, {bool secure = false}) async {
     try {
+      await _writes[_memoryKey(key, secure)];
       return secure ? await _secure.read(key: key) : await _readFile(key);
     } catch (_) {
       return null;
@@ -119,36 +148,89 @@ class CacheStore {
     String key,
     Object data, {
     bool secure = false,
+    bool requirePersistence = false,
   }) async {
     final now = DateTime.now();
-    _touchMemory(_memoryKey(key, secure), CacheEntry(data: data, savedAt: now));
+    final mKey = _memoryKey(key, secure);
+    final entry = CacheEntry(data: data, savedAt: now);
+    final raw = encode(data, now);
+    _reads.remove(mKey);
+    _touchMemory(mKey, entry);
     try {
-      final raw = encode(data, now);
+      await _queue(
+        mKey,
+        () => _persistEncoded(key, raw, secure, requirePersistence),
+      );
+    } catch (_) {
+      if (identical(_memory[mKey], entry)) _memory.remove(mKey);
+      rethrow;
+    }
+  }
+
+  /// Large payloads can be serialized in an isolate without decoding them again
+  /// on the UI isolate. All writes for a key keep their original order.
+  static Future<void> writeEncoded(
+    String key,
+    String raw, {
+    bool secure = false,
+  }) {
+    _memory.remove(_memoryKey(key, secure));
+    _reads.remove(_memoryKey(key, secure));
+    return _queue(
+      _memoryKey(key, secure),
+      () => _persistEncoded(key, raw, secure, false),
+    );
+  }
+
+  static Future<void> _persistEncoded(
+    String key,
+    String raw,
+    bool secure,
+    bool requirePersistence,
+  ) async {
+    File? temporary;
+    try {
       if (secure) {
         await _secure.write(key: key, value: raw);
       } else {
         final file = await _file(key);
-        await file.writeAsString(raw, flush: true);
+        temporary = File(
+          '${file.path}.$pid.${DateTime.now().microsecondsSinceEpoch}.tmp',
+        );
+        await temporary.writeAsString(raw, flush: true);
+        await temporary.rename(file.path);
       }
-    } catch (_) {
-      // 缓存失败不影响功能
+    } catch (e) {
+      if (requirePersistence) rethrow;
+      debugPrint('[cache] 写入失败: $key ($e)');
+    } finally {
+      if (temporary != null && await temporary.exists()) {
+        await temporary.delete();
+      }
     }
   }
 
-  static Future<void> remove(String key, {bool secure = false}) async {
+  static Future<void> remove(
+    String key, {
+    bool secure = false,
+    bool requirePersistence = false,
+  }) async {
     _memory.remove(_memoryKey(key, secure));
-    try {
-      if (secure) {
-        await _secure.delete(key: key);
-      } else {
-        final file = await _file(key);
-        if (await file.exists()) {
-          await file.delete();
+    _reads.remove(_memoryKey(key, secure));
+    await _queue(_memoryKey(key, secure), () async {
+      try {
+        if (secure) {
+          await _secure.delete(key: key);
+        } else {
+          final file = await _file(key);
+          if (await file.exists()) {
+            await file.delete();
+          }
         }
+      } catch (_) {
+        if (requirePersistence) rethrow;
       }
-    } catch (_) {
-      // 忽略
-    }
+    });
   }
 
   /// 只清内存（测试用）。
@@ -162,7 +244,6 @@ class CacheStore {
   }
 
   /// 序列化成 `{savedAt, data}`。
-  @visibleForTesting
   static String encode(Object data, DateTime savedAt) => jsonEncode(
     <String, dynamic>{'savedAt': savedAt.toIso8601String(), 'data': data},
   );

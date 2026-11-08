@@ -34,6 +34,13 @@ class _TronCourseDetailPageState extends State<TronCourseDetailPage> {
   String? _error;
   bool _loading = true;
   int? _openingAttachmentId;
+  String? _downloadKey;
+
+  @override
+  void dispose() {
+    if (_downloadKey != null) AttachmentCache.cancel(_downloadKey!);
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -343,10 +350,14 @@ class _TronCourseDetailPageState extends State<TronCourseDetailPage> {
             ),
             const SizedBox(width: 6),
             if (opening)
-              const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2),
+              IconButton(
+                tooltip: '取消下载',
+                icon: const Icon(Icons.close, size: 16),
+                onPressed: () {
+                  if (_downloadKey != null) {
+                    AttachmentCache.cancel(_downloadKey!);
+                  }
+                },
               )
             else
               const Icon(
@@ -367,12 +378,14 @@ class _TronCourseDetailPageState extends State<TronCourseDetailPage> {
       await TronclassAuth.instance.ensureLoggedIn();
       final client = JwglAuth.instance.client;
       if (client == null) throw Exception('登录已失效');
-      final path =
-          await AttachmentCache.existing(attachment.name) ??
-          await AttachmentCache.save(
-            attachment.name,
-            await HomeworkApi(client).fetchBlob(attachment.id),
-          );
+      final api = HomeworkApi(client);
+      _downloadKey = api.attachmentKey(attachment.id, size: attachment.size);
+      final path = await api.cachedAttachment(
+        attachment.id,
+        attachment.name,
+        size: attachment.size,
+      );
+      _downloadKey = null;
       if (!mounted) return;
       final result = await OpenFilex.open(path);
       if (!mounted) return;
@@ -392,6 +405,7 @@ class _TronCourseDetailPageState extends State<TronCourseDetailPage> {
             .showSnackBar(const SnackBar(content: Text('附件下载失败，请稍后重试')));
       }
     } finally {
+      _downloadKey = null;
       if (mounted) setState(() => _openingAttachmentId = null);
     }
   }

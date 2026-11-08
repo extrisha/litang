@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'dart:async';
+
 import '../app_theme.dart';
 import '../data/models.dart';
 import '../data/notice_prefs.dart';
@@ -26,6 +28,13 @@ class _HomePageState extends State<HomePage> {
   NoticeFeed? _feed;
   Object? _error;
   bool _loading = true;
+  int _generation = 0;
+
+  @override
+  void dispose() {
+    _generation++;
+    super.dispose();
+  }
 
   List<Notice> _ranked = const <Notice>[];
   List<String> _kinds = const <String>[];
@@ -45,31 +54,26 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _load({bool force = false}) async {
+    final generation = ++_generation;
     if (!force) setState(() => _loading = true);
     try {
-      final feed = await widget.source.fetch(force: force);
-      if (!mounted) return;
-      setState(() {
-        _feed = feed;
-        _error = null;
-        _kinds = NoticeRanker.kindsIn(feed.notices);
-        _loading = false;
-        _recompute();
-      });
-
-      // 学院偏好单独读：存储偶尔会慢（甚至没有实现），不该把首屏卡在白屏上
-      final depts = <String>{for (final n in feed.notices) n.dept};
-      final detected = await NoticePrefs.detected(depts);
-      final selected = await NoticePrefs.selected();
-      if (!mounted) return;
-      if (detected == _detectedCollege && selected == _selectedCollege) return;
-      setState(() {
-        _detectedCollege = detected;
-        _selectedCollege = selected;
-        _recompute();
-      });
+      final source = widget.source;
+      final updates = source is NoticeUpdates
+          ? (source as NoticeUpdates).fetchUpdates(force: force)
+          : Stream.fromFuture(source.fetch(force: force));
+      await for (final feed in updates) {
+        if (!mounted || generation != _generation) return;
+        setState(() {
+          _feed = feed;
+          _error = null;
+          _kinds = NoticeRanker.kindsIn(feed.notices);
+          _loading = false;
+          _recompute();
+        });
+        unawaited(_loadPreferences(feed, generation));
+      }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       debugPrint('[home] 通知加载失败: $e');
       setState(() {
         _error = e;
@@ -80,6 +84,25 @@ class _HomePageState extends State<HomePage> {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('刷新失败，当前显示的是上次加载的数据')));
       }
+    }
+  }
+
+  Future<void> _loadPreferences(NoticeFeed feed, int generation) async {
+    try {
+      final depts = <String>{for (final n in feed.notices) n.dept};
+      final detected = await NoticePrefs.detected(depts);
+      final selected = await NoticePrefs.selected();
+      if (!mounted || generation != _generation || !identical(_feed, feed)) {
+        return;
+      }
+      if (detected == _detectedCollege && selected == _selectedCollege) return;
+      setState(() {
+        _detectedCollege = detected;
+        _selectedCollege = selected;
+        _recompute();
+      });
+    } catch (e) {
+      debugPrint('[home] 学院偏好读取失败: $e');
     }
   }
 

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../bounded_requests.dart';
+
 import '../app_exception.dart';
 import 'chaoxing_client.dart';
 
@@ -325,8 +327,9 @@ class ChaoxingCourseDetailApi {
         if (_graded(works[i].statusText)) i,
     ];
     if (targets.isEmpty) return works;
-    final scores = await Future.wait(
-      targets.map((i) => client.fetchWorkScore(works[i])),
+    final scores = await mapWithConcurrency(
+      targets,
+      (i) => client.fetchWorkScore(works[i]),
     );
     final out = List<ChaoxingWork>.of(works);
     for (var k = 0; k < targets.length; k++) {

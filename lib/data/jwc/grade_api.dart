@@ -253,9 +253,10 @@ class GradeApi {
   static const String _fxcjPath =
       'https://jwgl.usst.edu.cn/jwglxt/cjcx/cjcx_cxXsfxcjIndex.html?gnmkdm=N305004&layout=default&doType=query';
 
-  /// 拉取全部学期成绩（含平时/期末分项）。
-  Future<GradeSnapshot> fetchAll({bool withDetails = true}) async {
+  /// 总评先返回；分项可由 enrich 在后台补齐。
+  Future<GradeSnapshot> fetchAll({bool withDetails = false}) async {
     final grades = <Grade>[];
+    final seenPages = <String>{};
     var page = 1;
     var total = 0;
     String studentName = '';
@@ -275,15 +276,26 @@ class GradeApi {
       );
       final raw = resp.data ?? '';
       if (!raw.trimLeft().startsWith('{')) {
-        break;
+        throw StateError('成绩接口未返回有效数据，请刷新登录状态');
+      }
+      final body = jsonDecode(raw);
+      if (body is! Map || body['items'] is! List) {
+        throw StateError('成绩列表缺失');
+      }
+      if (!seenPages.add(jsonEncode(body['items']))) {
+        throw StateError('成绩分页重复，请稍后重试');
       }
       final parsed = parsePage(raw);
       grades.addAll(parsed.grades);
       studentName = parsed.studentName;
       className = parsed.className;
       total = parsed.totalCount;
+      if (parsed.grades.isEmpty && grades.length < total) {
+        throw StateError('成绩分页不完整');
+      }
       page++;
     } while (grades.length < total && page <= 5);
+    if (grades.length < total) throw StateError('成绩分页不完整，请稍后重试');
 
     final deduped = <String, Grade>{};
     for (final g in grades) {
@@ -307,8 +319,16 @@ class GradeApi {
   }
 
   /// 优先用「分项成绩查询」按学期批量拿（每学期 1 个请求）；
+  Future<GradeSnapshot> enrich(GradeSnapshot snapshot) async => GradeSnapshot(
+    grades: await _fillBreakdowns(snapshot.grades),
+    updatedAt: snapshot.updatedAt,
+    studentName: snapshot.studentName,
+    className: snapshot.className,
+  );
+
   /// 某学期接口没数据时，再退回按课程逐门查明细。
   Future<List<Grade>> _fillBreakdowns(List<Grade> grades) async {
+    if (grades.isEmpty) return grades;
     final result = List<Grade>.from(grades);
     final termKeys = <String>{};
     for (final g in grades) {
@@ -607,8 +627,8 @@ class GradeApi {
       );
     }
     final total =
-        int.tryParse('${map['totalCount'] ?? '0'}') ??
-        int.tryParse('${map['totalResult'] ?? '0'}') ??
+        int.tryParse('${map['totalCount']}') ??
+        int.tryParse('${map['totalResult']}') ??
         0;
     return (
       grades: grades,

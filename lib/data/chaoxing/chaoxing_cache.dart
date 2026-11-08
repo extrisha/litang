@@ -11,12 +11,14 @@ class ChaoxingCacheData {
     required this.works,
     required this.activities,
     this.savedAt,
+    this.failedCourses = const [],
   });
 
   final List<ChaoxingCourse> courses;
   final List<ChaoxingWork> works;
   final List<ChaoxingActivity> activities;
   final DateTime? savedAt;
+  final List<String> failedCourses;
 
   bool get isEmpty => courses.isEmpty && works.isEmpty && activities.isEmpty;
 }
@@ -53,6 +55,11 @@ class ChaoxingCache {
       courses: courses ?? const <ChaoxingCourse>[],
       works: works ?? const <ChaoxingWork>[],
       activities: activities ?? const <ChaoxingActivity>[],
+      failedCourses: {
+        ...await _failures(_key(_worksKey, username)),
+        ...await _failures(_key(_activitiesKey, username)),
+      }.toList(),
+      savedAt: await _completeAt(_key(_worksKey, username)),
     );
   }
 
@@ -64,18 +71,24 @@ class ChaoxingCache {
     value.map((e) => e.toCacheJson()).toList(),
   );
 
-  static Future<void> writeWorks(String username, List<ChaoxingWork> value) =>
-      _writeList(
-        _key(_worksKey, username),
-        value.map((e) => e.toCacheJson()).toList(),
-      );
+  static Future<void> writeWorks(
+    String username,
+    List<ChaoxingWork> value, {
+    List<String> failedCourses = const [],
+  }) => _writeList(
+    _key(_worksKey, username),
+    value.map((e) => e.toCacheJson()).toList(),
+    failedCourses: failedCourses,
+  );
 
   static Future<void> writeActivities(
     String username,
-    List<ChaoxingActivity> value,
-  ) => _writeList(
+    List<ChaoxingActivity> value, {
+    List<String> failedCourses = const [],
+  }) => _writeList(
     _key(_activitiesKey, username),
     value.map((e) => e.toCacheJson()).toList(),
+    failedCourses: failedCourses,
   );
 
   static Future<List<T>?> _readList<T>(
@@ -83,12 +96,18 @@ class ChaoxingCache {
     T? Function(Map<String, dynamic>) parse,
   ) async {
     final entry = await CacheStore.read(key);
-    final data = entry?.data;
+    final payload = entry?.data;
+    final data = payload is Map ? payload['items'] : payload;
     if (data is! List) return null;
     final out = <T>[];
     for (final raw in data) {
       if (raw is! Map) continue;
-      final parsed = parse(Map<String, dynamic>.from(raw));
+      final map = Map<String, dynamic>.from(raw);
+      // Anchor legacy relative text to its original cache timestamp, never now.
+      map['fetchedAt'] ??= entry != null && entry.savedAt.year >= 2000
+          ? entry.savedAt.toIso8601String()
+          : null;
+      final parsed = parse(map);
       if (parsed != null) out.add(parsed);
     }
     return out;
@@ -96,6 +115,31 @@ class ChaoxingCache {
 
   static Future<void> _writeList(
     String key,
-    List<Map<String, dynamic>> value,
-  ) => CacheStore.write(key, value);
+    List<Map<String, dynamic>> value, {
+    List<String> failedCourses = const [],
+  }) async {
+    final completeAt = failedCourses.isEmpty
+        ? DateTime.now()
+        : await _completeAt(key);
+    await CacheStore.write(key, {
+      'items': value,
+      'failedCourses': failedCourses,
+      'completeAt': completeAt?.toIso8601String(),
+    });
+  }
+
+  static Future<List<String>> _failures(String key) async {
+    final data = (await CacheStore.read(key))?.data;
+    return data is Map && data['failedCourses'] is List
+        ? (data['failedCourses'] as List).map((e) => '$e').toList()
+        : [];
+  }
+
+  static Future<DateTime?> _completeAt(String key) async {
+    final entry = await CacheStore.read(key);
+    final data = entry?.data;
+    return data is Map
+        ? DateTime.tryParse('${data['completeAt'] ?? ''}')
+        : entry?.savedAt;
+  }
 }

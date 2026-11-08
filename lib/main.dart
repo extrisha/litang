@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
+import 'data/auth/jwgl_auth.dart';
 import 'data/calendar/calendar_service.dart';
 import 'data/chaoxing/chaoxing_client.dart';
 import 'data/lms/todo_api.dart';
@@ -16,6 +17,7 @@ import 'pages/update_page.dart';
 import 'services/reminder_service.dart';
 import 'services/update_service.dart';
 import 'services/widget_sync_service.dart';
+import 'data/jwc/course_repository.dart';
 
 import 'package:home_widget/home_widget.dart';
 
@@ -25,9 +27,20 @@ import 'pages/forum_page.dart';
 import 'pages/profile_page.dart';
 import 'pages/today_page.dart';
 import 'widgets/usst_today_icon.dart';
+import 'widgets/lazy_indexed_stack.dart';
 
 /// 全局导航 key：点通知时要能从任意位置跳转。
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+
+/// Decode the same task snapshot that the background widget published.
+Map<String, dynamic> todoTargetFromWidgetUri(Uri uri) => <String, dynamic>{
+  ...uri.queryParameters,
+  'kind': uri.queryParameters['kind'] ?? 'tron',
+  'id': int.tryParse(uri.queryParameters['id'] ?? '') ?? 0,
+  'courseId': int.tryParse(uri.queryParameters['courseId'] ?? '') ?? 0,
+  'type': uri.queryParameters['type'] ?? 'homework',
+  'expired': uri.queryParameters['expired'] == 'true',
+};
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,7 +72,10 @@ class CampusApp extends StatelessWidget {
 Future<void> backgroundWidgetCallback(Uri? uri) async {
   WidgetsFlutterBinding.ensureInitialized();
   if (uri?.host == 'refresh' || uri?.toString().contains('refresh') == true) {
-    await WidgetSyncService.instance.syncTodayWidget(forceWeather: true);
+    await WidgetSyncService.instance.syncTodayWidget(
+      forceWeather: true,
+      awaitWeather: true,
+    );
   }
 }
 
@@ -80,6 +96,12 @@ class _RootScaffoldState extends State<RootScaffold>
   @override
   void initState() {
     super.initState();
+    CourseRepository.changes.addListener(_courseCacheChanged);
+    unawaited(
+      JwglAuth.instance.restore().catchError((Object error) {
+        debugPrint('[auth] 恢复登录失败：$error');
+      }),
+    );
     WidgetsBinding.instance.addObserver(this);
     MapFocus.target.addListener(_onMapFocus);
     ReminderService.pendingTarget.addListener(_onReminderTap);
@@ -115,11 +137,16 @@ class _RootScaffoldState extends State<RootScaffold>
 
   @override
   void dispose() {
+    CourseRepository.changes.removeListener(_courseCacheChanged);
     WidgetsBinding.instance.removeObserver(this);
     MapFocus.target.removeListener(_onMapFocus);
     ReminderService.pendingTarget.removeListener(_onReminderTap);
     _widgetSubscription?.cancel();
     super.dispose();
+  }
+
+  void _courseCacheChanged() {
+    unawaited(WidgetSyncService.instance.syncTodayWidget());
   }
 
   void _onMapFocus() {
@@ -152,18 +179,7 @@ class _RootScaffoldState extends State<RootScaffold>
     if (uri == null || !mounted) return;
     if (uri.scheme == 'litang') {
       if (uri.host == 'todo') {
-        final target = <String, dynamic>{
-          'kind': uri.queryParameters['kind'] ?? 'tron',
-          'id': int.tryParse(uri.queryParameters['id'] ?? '0') ?? 0,
-          'courseId': int.tryParse(uri.queryParameters['courseId'] ?? '0') ?? 0,
-          'title': uri.queryParameters['title'] ?? '',
-          'courseName': uri.queryParameters['courseName'] ?? '',
-          'type': uri.queryParameters['type'] ?? 'homework',
-          'taskUrl': uri.queryParameters['taskUrl'] ?? '',
-          'workId': uri.queryParameters['workId'] ?? '',
-          'statusText': uri.queryParameters['statusText'] ?? '',
-          'deadline': uri.queryParameters['deadline'] ?? '',
-        };
+        final target = todoTargetFromWidgetUri(uri);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           final page = _pageForReminder(target);
@@ -220,6 +236,8 @@ class _RootScaffoldState extends State<RootScaffold>
             courseName: '${target['courseName'] ?? ''}',
             statusText: '${target['statusText'] ?? ''}',
             deadline: '${target['deadline'] ?? ''}',
+            fetchedAt: DateTime.tryParse('${target['fetchedAt'] ?? ''}'),
+            deadlineAt: DateTime.tryParse('${target['deadlineAt'] ?? ''}'),
             expired: target['expired'] == true,
             taskUrl: taskUrl,
           ),
@@ -241,7 +259,7 @@ class _RootScaffoldState extends State<RootScaffold>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _index, children: _pages),
+      body: LazyIndexedStack(index: _index, children: _pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),

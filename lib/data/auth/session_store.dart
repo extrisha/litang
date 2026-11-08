@@ -46,6 +46,20 @@ class SessionStore {
     String? password,
   }) async {
     try {
+      String previous;
+      try {
+        previous = await loadUsername();
+      } catch (_) {
+        previous = '';
+      }
+      if (previous != username.trim()) {
+        // Legacy schedules had no owner; never carry one into another account.
+        await CacheStore.remove(
+          'usst_course_snapshot_v2',
+          secure: true,
+          requirePersistence: true,
+        );
+      }
       final payload = encode(
         StoredSession(
           cookies: client.jar.cookies,
@@ -70,6 +84,15 @@ class SessionStore {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Background widgets need the local account key, not a network login.
+  Future<String> loadUsername() async {
+    final raw = await _storage.read(key: _key);
+    if (raw == null || raw.isEmpty) return '';
+    final value = jsonDecode(raw);
+    if (value is! Map) throw const FormatException('本地账号记录无法解析');
+    return (value['username'] ?? '').toString().trim();
   }
 
   Future<void> clear() async {

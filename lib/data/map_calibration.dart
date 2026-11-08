@@ -35,11 +35,27 @@ class MapCalibrationSample {
   };
 
   static MapCalibrationSample? fromJson(Map<String, dynamic> json) {
-    final gpsLat = (json['gpsLat'] as num?)?.toDouble();
-    final gpsLng = (json['gpsLng'] as num?)?.toDouble();
-    final mapLat = (json['mapLat'] as num?)?.toDouble();
-    final mapLng = (json['mapLng'] as num?)?.toDouble();
+    double? number(Object? value) => value is num ? value.toDouble() : null;
+    final gpsLat = number(json['gpsLat']);
+    final gpsLng = number(json['gpsLng']);
+    final mapLat = number(json['mapLat']);
+    final mapLng = number(json['mapLng']);
     if (gpsLat == null || gpsLng == null || mapLat == null || mapLng == null) {
+      return null;
+    }
+    final accuracy = number(json['accuracy']) ?? 20;
+    if (![
+          gpsLat,
+          gpsLng,
+          mapLat,
+          mapLng,
+          accuracy,
+        ].every((value) => value.isFinite) ||
+        gpsLat.abs() > 90 ||
+        mapLat.abs() > 90 ||
+        gpsLng.abs() > 180 ||
+        mapLng.abs() > 180 ||
+        accuracy < 0) {
       return null;
     }
     return MapCalibrationSample(
@@ -47,9 +63,10 @@ class MapCalibrationSample {
       gpsLng: gpsLng,
       mapLat: mapLat,
       mapLng: mapLng,
-      accuracy: (json['accuracy'] as num?)?.toDouble() ?? 20,
+      accuracy: accuracy,
       savedAt:
-          DateTime.tryParse(json['savedAt'] as String? ?? '') ?? DateTime.now(),
+          DateTime.tryParse(json['savedAt']?.toString() ?? '') ??
+          DateTime.now(),
     );
   }
 }
@@ -67,12 +84,24 @@ class MapCalibration {
   static const double _mPerDegLng = 95124.9;
 
   static List<MapCalibrationSample> _samples = <MapCalibrationSample>[];
+  static Future<void>? _operations;
+
+  static Future<void> _queue(Future<void> Function() operation) {
+    late final Future<void> future;
+    future = (_operations ?? Future<void>.value())
+        .then((_) => operation(), onError: (Object _) => operation())
+        .whenComplete(() {
+          if (identical(_operations, future)) _operations = null;
+        });
+    _operations = future;
+    return future;
+  }
 
   static List<MapCalibrationSample> get samples => List.unmodifiable(_samples);
   static bool get active => _samples.isNotEmpty;
   static int get count => _samples.length;
 
-  static Future<void> load() async {
+  static Future<void> load() => _queue(() async {
     final entry = await CacheStore.read(_key);
     final raw = entry?.data;
     if (raw is! List) {
@@ -84,19 +113,27 @@ class MapCalibration {
         .map((e) => MapCalibrationSample.fromJson(Map<String, dynamic>.from(e)))
         .whereType<MapCalibrationSample>()
         .toList();
-  }
+  });
 
-  static Future<void> add(MapCalibrationSample sample) async {
-    _samples = <MapCalibrationSample>[..._samples, sample];
-    await _save();
-  }
+  static Future<void> add(MapCalibrationSample sample) => _queue(() async {
+    if (MapCalibrationSample.fromJson(sample.toJson()) == null) return;
+    // 同一位置反复点校准不能无限增加权重；保留最近一次测量。
+    var next = _samples.where((previous) {
+      final north = (previous.gpsLat - sample.gpsLat) * _mPerDegLat;
+      final east = (previous.gpsLng - sample.gpsLng) * _mPerDegLng;
+      return math.sqrt(north * north + east * east) >= 3;
+    }).toList()..add(sample);
+    if (next.length > 100) {
+      next = next.sublist(next.length - 100);
+    }
+    await _save(next);
+  });
 
   /// 删除单个标定点（有些位置吸不准，需要单独剔除）。
-  static Future<void> removeAt(int index) async {
+  static Future<void> removeAt(int index) => _queue(() async {
     if (index < 0 || index >= _samples.length) return;
-    _samples = <MapCalibrationSample>[..._samples]..removeAt(index);
-    await _save();
-  }
+    await _save(<MapCalibrationSample>[..._samples]..removeAt(index));
+  });
 
   /// 单个标定点的偏移（米）：东向、北向。
   static (double east, double north) offsetOf(MapCalibrationSample sample) => (
@@ -104,13 +141,15 @@ class MapCalibration {
     (sample.mapLat - sample.gpsLat) * _mPerDegLat,
   );
 
-  static Future<void> clear() async {
+  static Future<void> clear() => _queue(() async {
+    await CacheStore.remove(_key, requirePersistence: true);
     _samples = <MapCalibrationSample>[];
-    await CacheStore.remove(_key);
-  }
+  });
 
-  static Future<void> _save() async {
-    await CacheStore.write(_key, _samples.map((s) => s.toJson()).toList());
+  static Future<void> _save(List<MapCalibrationSample> samples) async {
+    final data = samples.map((s) => s.toJson()).toList();
+    await CacheStore.write(_key, data, requirePersistence: true);
+    _samples = samples;
   }
 
   /// 当前的平均偏移（米）：东向、北向。

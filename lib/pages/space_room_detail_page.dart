@@ -1460,6 +1460,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
   final TextEditingController _remarkCtrl = TextEditingController();
 
   bool _submitting = false;
+  bool _submissionUnconfirmed = false;
   String? _formError;
 
   /// 当前用途允许的最长整点小时数；null 表示不限。
@@ -1610,6 +1611,7 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
     setState(() {
       _formError = null;
     });
@@ -1670,19 +1672,27 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
     final fullEnd = '$dateStr ${selection.endLabel}:00';
     final dictId = _selectedPurpose?.id ?? 1;
 
-    final result = await widget.api.submitReservation(
-      roomId: widget.room.id,
-      startTime: fullStart,
-      endTime: fullEnd,
-      dictId: dictId,
-      memberIds: _memberIds,
-      mobile: mobile,
-      remark: _remarkCtrl.text.trim(),
-    );
+    late ReservationResult result;
+    try {
+      result = await widget.api.submitReservation(
+        roomId: widget.room.id,
+        startTime: fullStart,
+        endTime: fullEnd,
+        dictId: dictId,
+        memberIds: _memberIds,
+        mobile: mobile,
+        remark: _remarkCtrl.text.trim(),
+      );
+    } catch (e) {
+      if (mounted) _showFormError('无法提交预约，请检查登录状态和网络后重试');
+      return;
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
 
     if (!mounted) return;
     setState(() {
-      _submitting = false;
+      _submissionUnconfirmed = result.outcomeUnknown;
     });
 
     if (result.success) {
@@ -2198,9 +2208,9 @@ class _NativeBookingBottomSheetState extends State<_NativeBookingBottomSheet> {
                               strokeWidth: 2,
                             ),
                           )
-                        : const Text(
-                            '确认提交预约',
-                            style: TextStyle(
+                        : Text(
+                            _submissionUnconfirmed ? '查询预约结果' : '确认提交预约',
+                            style: const TextStyle(
                               fontSize: 14.5,
                               fontWeight: FontWeight.bold,
                             ),
