@@ -5,12 +5,14 @@ import '../../data/app_exception.dart';
 import '../../data/auth/jwgl_auth.dart';
 import '../../data/calendar/calendar_service.dart';
 import '../../data/jwc/classroom_api.dart';
+import '../../data/request_guard.dart';
 import 'widgets/school_course_card.dart';
 import 'widgets/school_course_filter_sheet.dart';
 
 /// 全校课表检索 Tab 页面
 class SchoolCourseTab extends StatefulWidget {
-  const SchoolCourseTab({super.key});
+  const SchoolCourseTab({super.key, this.api});
+  final ClassroomApi? api;
 
   @override
   State<SchoolCourseTab> createState() => _SchoolCourseTabState();
@@ -21,6 +23,7 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
   bool _loading = false;
   bool _searched = false;
   String? _error;
+  final RequestGuard _guard = RequestGuard();
   List<SchoolCourse> _schoolCourses = const <SchoolCourse>[];
   List<String> _colleges = ClassroomApi.defaultColleges;
 
@@ -37,6 +40,7 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
 
   @override
   void dispose() {
+    _guard.invalidate();
     _searchController.dispose();
     super.dispose();
   }
@@ -54,6 +58,12 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
   }
 
   Future<void> _searchSchoolCourses({bool forceRefresh = false}) async {
+    final request = _guard.begin();
+    final client = JwglAuth.instance.client;
+    bool current() =>
+        mounted &&
+        _guard.isCurrent(request) &&
+        identical(client, JwglAuth.instance.client);
     final keyword = _searchController.text.trim();
     if (keyword.isEmpty && _selectedCollege == '全部学院') {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -73,8 +83,7 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
       _searched = true;
     });
 
-    final client = JwglAuth.instance.client;
-    if (client == null) {
+    if (client == null && widget.api == null) {
       setState(() {
         _error = '请先登录统一身份认证后查询全校排课';
         _loading = false;
@@ -83,7 +92,7 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
     }
 
     try {
-      final api = ClassroomApi(client);
+      final api = widget.api ?? ClassroomApi(client!);
       final termId = CalendarService.instance.termId;
       String xn = '';
       String xq = '';
@@ -102,11 +111,13 @@ class _SchoolCourseTabState extends State<SchoolCourseTab> {
         forceRefresh: forceRefresh,
       );
 
+      if (!current()) return;
       setState(() {
         _schoolCourses = courses;
         _loading = false;
       });
     } catch (e) {
+      if (!current()) return;
       setState(() {
         _error = e is AppException ? e.message : '全校排课查询失败：$e';
         _loading = false;

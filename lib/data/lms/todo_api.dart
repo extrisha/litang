@@ -195,33 +195,45 @@ class LmsApi {
 
   /// 1906 的数值 user id 不会变，缓存住就不用每次刷新都拉
   /// /user/index —— 那个页面有 800KB+，纯为了正则抠一个 id。
-  static String? _uidCache;
+  static final Expando<Future<String>> _userIds = Expando<Future<String>>();
 
   static const String _todosUrl = 'https://1906.usst.edu.cn/api/todos';
   static const String _examsUrl =
       'https://jwgl.usst.edu.cn/jwglxt/kwgl/kscx_cxXsksxxIndex.html?doType=query&gnmkdm=N358105';
 
+  Future<String> _userId() {
+    return _userIds[client] ??= _fetchUserId().catchError((
+      Object error,
+      StackTrace stack,
+    ) {
+      _userIds[client] = null;
+      Error.throwWithStackTrace(error, stack);
+    });
+  }
+
+  Future<String> _fetchUserId() async {
+    final Response<dynamic> index;
+    try {
+      index = await client.getApi(
+        Uri.parse('https://1906.usst.edu.cn/user/index'),
+      );
+    } catch (e) {
+      throw AppException(AppFailure.network, '课程信息拉取失败，请检查网络', e);
+    }
+    _checkStatus(index, '课程信息');
+    final uid = RegExp(r'id="userId"[^>]*value="([^"]+)"')
+        .firstMatch(index.data ?? '')
+        ?.group(1);
+    if (uid == null || uid.isEmpty) {
+      // 用户首页里没有 userId：拿到的是登录页/错误页
+      throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
+    }
+    return uid;
+  }
+
   /// 一网畅学课程列表（含教师、学期）。
   Future<List<LmsCourseInfo>> fetchCourseInfos() async {
-    var uid = _uidCache;
-    if (uid == null || uid.isEmpty) {
-      final Response<dynamic> index;
-      try {
-        index = await client.getApi(
-          Uri.parse('https://1906.usst.edu.cn/user/index'),
-        );
-      } catch (e) {
-        throw AppException(AppFailure.network, '课程信息拉取失败，请检查网络', e);
-      }
-      uid = RegExp(r'id="userId"[^>]*value="([^"]+)"')
-          .firstMatch(index.data ?? '')
-          ?.group(1);
-      if (uid == null || uid.isEmpty) {
-        // 用户首页里没有 userId：拿到的是登录页/错误页
-        throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
-      }
-      _uidCache = uid;
-    }
+    final uid = await _userId();
     final Response<dynamic> response;
     try {
       response = await client.getApi(
@@ -232,12 +244,7 @@ class LmsApi {
     } catch (e) {
       throw AppException(AppFailure.network, '课程信息拉取失败，请检查网络', e);
     }
-    final raw = response.data ?? '';
-    if (!raw.trim().startsWith('{')) {
-      throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
-    }
-    final map = jsonDecode(raw) as Map<String, dynamic>;
-    final list = (map['courses'] as List<dynamic>? ?? <dynamic>[]);
+    final list = _responseList(response, 'courses', '课程信息');
     final out = <LmsCourseInfo>[];
     for (final item in list) {
       if (item is! Map) continue;
@@ -280,11 +287,7 @@ class LmsApi {
     } catch (e) {
       throw AppException(AppFailure.network, '待办列表拉取失败，请检查网络', e);
     }
-    final raw = resp.data ?? '';
-    if (raw.trim().isNotEmpty && !raw.trim().startsWith('{')) {
-      throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
-    }
-    final list = parseTodos(raw);
+    final list = _parseTodoItems(_responseList(resp, 'todo_list', '待办列表'));
     list.sort((a, b) {
       final da = a.deadline;
       final db = b.deadline;
@@ -321,12 +324,40 @@ class LmsApi {
     } catch (e) {
       throw AppException(AppFailure.network, '考试安排拉取失败，请检查网络', e);
     }
-    final raw = resp.data ?? '';
-    if (raw.trim().isNotEmpty && !raw.trim().startsWith('{')) {
-      // 拿到 HTML（登录页）而不是 JSON：不能当成「没有考试」
-      throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
+    return _parseExamItems(_responseList(resp, 'items', '考试安排'));
+  }
+
+  static void _checkStatus(Response<dynamic> response, String label) {
+    final status = response.statusCode ?? 0;
+    if (status == 401 || status == 403) {
+      throw AppException(AppFailure.auth, '$label登录已失效，请重新登录后重试');
     }
-    return parseExams(raw);
+    if (status < 200 || status >= 300) {
+      throw AppException(AppFailure.server, '$label拉取失败（HTTP $status）');
+    }
+  }
+
+  /// Only an explicit list proves that an empty result can replace old data.
+  static List<dynamic> _responseList(
+    Response<dynamic> response,
+    String key,
+    String label,
+  ) {
+    _checkStatus(response, label);
+    final raw = (response.data ?? '').toString().trim();
+    if (raw.startsWith('<')) {
+      throw AppException(AppFailure.auth, '$label登录已失效，请重新登录后重试');
+    }
+    try {
+      final map = jsonDecode(raw);
+      if (map is Map && map[key] is List && map['success'] != false) {
+        final list = map[key] as List<dynamic>;
+        if (list.every((item) => item is Map)) return list;
+      }
+    } on FormatException catch (e) {
+      throw AppException(AppFailure.parse, '$label返回数据无法解析，请稍后重试', e);
+    }
+    throw AppException(AppFailure.parse, '$label列表缺失或不完整，请稍后重试');
   }
 
   static List<LmsTodo> parseTodos(String raw) {
@@ -336,6 +367,10 @@ class LmsApi {
     }
     final map = jsonDecode(trimmed) as Map<String, dynamic>;
     final list = (map['todo_list'] as List<dynamic>? ?? <dynamic>[]);
+    return _parseTodoItems(list);
+  }
+
+  static List<LmsTodo> _parseTodoItems(List<dynamic> list) {
     final out = <LmsTodo>[];
     for (final item in list) {
       if (item is Map) {
@@ -355,6 +390,10 @@ class LmsApi {
     }
     final map = jsonDecode(trimmed) as Map<String, dynamic>;
     final items = (map['items'] as List<dynamic>? ?? <dynamic>[]);
+    return _parseExamItems(items);
+  }
+
+  static List<LmsExam> _parseExamItems(List<dynamic> items) {
     final out = <LmsExam>[];
     for (final item in items) {
       if (item is Map) {

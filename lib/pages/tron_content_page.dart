@@ -33,6 +33,13 @@ class _TronContentPageState extends State<TronContentPage> {
   TronActivityDetail? _detail;
   String? _error;
   int? _openingId;
+  String? _downloadKey;
+
+  @override
+  void dispose() {
+    if (_downloadKey != null) AttachmentCache.cancel(_downloadKey!);
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -76,13 +83,14 @@ class _TronContentPageState extends State<TronContentPage> {
       await TronclassAuth.instance.ensureLoggedIn();
       final client = JwglAuth.instance.client;
       if (client == null) throw Exception('登录已失效');
-      final cached = await AttachmentCache.existing(attachment.name);
-      final path =
-          cached ??
-          await AttachmentCache.save(
-            attachment.name,
-            await HomeworkApi(client).fetchBlob(attachment.id),
-          );
+      final api = HomeworkApi(client);
+      _downloadKey = api.attachmentKey(attachment.id, size: attachment.size);
+      final path = await api.cachedAttachment(
+        attachment.id,
+        attachment.name,
+        size: attachment.size,
+      );
+      _downloadKey = null;
       if (!mounted) return;
       final lower = attachment.name.toLowerCase();
       if (isImageName(attachment.name)) {
@@ -135,6 +143,7 @@ class _TronContentPageState extends State<TronContentPage> {
             .showSnackBar(const SnackBar(content: Text('附件下载失败，请稍后重试')));
       }
     } finally {
+      _downloadKey = null;
       if (mounted) setState(() => _openingId = null);
     }
   }
@@ -214,12 +223,14 @@ class _TronContentPageState extends State<TronContentPage> {
                           ),
                         ),
                         trailing: _openingId == attachment.id
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
+                            ? IconButton(
+                                tooltip: '取消下载',
+                                icon: const Icon(Icons.close),
+                                onPressed: () {
+                                  if (_downloadKey != null) {
+                                    AttachmentCache.cancel(_downloadKey!);
+                                  }
+                                },
                               )
                             : const Icon(
                                 Icons.chevron_right,

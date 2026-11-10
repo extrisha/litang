@@ -1,5 +1,8 @@
 import 'dart:convert';
-import 'dart:math';
+
+import '../upload_file.dart';
+import '../task_deadline.dart';
+import '../bounded_requests.dart';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -152,6 +155,10 @@ class ChaoxingWork {
     required this.expired,
     required this.taskUrl,
     this.score = '',
+    this.courseId = '',
+    this.classId = '',
+    this.fetchedAt,
+    this.deadlineAt,
   });
 
   final String workId;
@@ -159,6 +166,24 @@ class ChaoxingWork {
   final String courseName;
   final String statusText;
   final String deadline;
+  final String courseId;
+  final String classId;
+  final DateTime? fetchedAt;
+  final DateTime? deadlineAt;
+
+  DateTime? get dueAt =>
+      deadlineAt ??
+      TaskDeadline.parse(
+        deadline,
+        now: fetchedAt,
+        allowRelative: fetchedAt != null,
+      );
+
+  String get courseKey {
+    final query =
+        Uri.tryParse(taskUrl)?.queryParameters ?? const <String, String>{};
+    return '${courseId.isEmpty ? query['courseId'] ?? '' : courseId}:${classId.isEmpty ? query['classId'] ?? query['clazzid'] ?? '' : classId}';
+  }
 
   /// 页面用灰色图标（icon-zy-g）标记的已截止作业。
   final bool expired;
@@ -178,9 +203,16 @@ class ChaoxingWork {
     'expired': expired,
     'taskUrl': taskUrl,
     'score': score,
+    'courseId': courseId,
+    'classId': classId,
+    'fetchedAt': fetchedAt?.toIso8601String(),
+    'deadlineAt': dueAt?.toIso8601String(),
   };
 
-  static ChaoxingWork? fromCacheJson(Map<String, dynamic> json) {
+  static ChaoxingWork? fromCacheJson(
+    Map<String, dynamic> json, {
+    DateTime? fetchedAt,
+  }) {
     final id = (json['workId'] ?? '').toString();
     if (id.isEmpty) return null;
     return ChaoxingWork(
@@ -192,6 +224,10 @@ class ChaoxingWork {
       expired: json['expired'] == true,
       taskUrl: (json['taskUrl'] ?? '').toString(),
       score: (json['score'] ?? '').toString(),
+      courseId: (json['courseId'] ?? '').toString(),
+      classId: (json['classId'] ?? '').toString(),
+      fetchedAt: DateTime.tryParse('${json['fetchedAt'] ?? ''}') ?? fetchedAt,
+      deadlineAt: DateTime.tryParse('${json['deadlineAt'] ?? ''}'),
     );
   }
 
@@ -211,20 +247,23 @@ class ChaoxingWork {
     expired: expired,
     taskUrl: taskUrl,
     score: value,
+    courseId: courseId,
+    classId: classId,
+    fetchedAt: fetchedAt,
+    deadlineAt: dueAt,
   );
 }
 
 /// 学习通提交附件。
 class ChaoxingAttachment {
   const ChaoxingAttachment({
-    required this.name,
-    required this.bytes,
+    required this.file,
     required this.isVideo,
     this.isFile = false,
   });
 
-  final String name;
-  final List<int> bytes;
+  final UploadFile file;
+  String get name => file.name;
   final bool isVideo;
   final bool isFile;
 }
@@ -513,35 +552,49 @@ class ChaoxingClient {
   }
 
   /// 各课程进行中的活动（签到）。
-  Future<List<ChaoxingActivity>> fetchActivities(List<ChaoxingCourse> courses) {
-    return _concurrentMap(courses, (course) async {
-      final out = <ChaoxingActivity>[];
-      try {
-        final uri =
-            Uri.parse(
-              'https://mobilelearn.chaoxing.com/v2/apis/active/student/activelist',
-            ).replace(
-              queryParameters: <String, String>{
-                'fid': _fid,
-                'courseId': course.courseId,
-                'classId': course.classId,
-                'showNotStartedActive': '1',
-              },
-            );
-        final response = await _send(
-          uri,
-          headers: <String, String>{
-            'Accept': 'application/json, text/plain, */*',
-            'Referer': 'https://i.chaoxing.com/',
-          },
-        );
-        out.addAll(parseActivities((response.data as String?) ?? '', course));
-      } catch (_) {
-        // 单门课失败不影响其他课程
+  Future<List<ChaoxingActivity>> fetchActivities(
+    List<ChaoxingCourse> courses,
+  ) async => (await fetchActivitiesBatch(courses)).requireComplete();
+
+  Future<CourseBatch<ChaoxingActivity>> fetchActivitiesBatch(
+    List<ChaoxingCourse> courses,
+  ) => CourseBatch.fetch(
+    courses,
+    key: (c) => '${c.courseId}:${c.classId}',
+    name: (c) => c.name,
+    task: (course) async {
+      final uri =
+          Uri.parse(
+            'https://mobilelearn.chaoxing.com/v2/apis/active/student/activelist',
+          ).replace(
+            queryParameters: {
+              'fid': _fid,
+              'courseId': course.courseId,
+              'classId': course.classId,
+              'showNotStartedActive': '1',
+            },
+          );
+      final response = await _send(
+        uri,
+        headers: {
+          'Accept': 'application/json, text/plain, */*',
+          'Referer': 'https://i.chaoxing.com/',
+        },
+      );
+      final raw = (response.data as String?) ?? '';
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map ||
+          decoded['result'] == 0 ||
+          decoded['result'] == false) {
+        throw StateError('活动响应无效');
       }
-      return out;
-    });
-  }
+      final data = decoded['data'];
+      final list =
+          (data is Map ? data['activeList'] : null) ?? decoded['activeList'];
+      if (list is! List) throw StateError('活动列表缺失');
+      return parseActivities(raw, course);
+    },
+  );
 
   /// 解析 activelist 响应（公开以便单测）。
   ///
@@ -836,35 +889,42 @@ class ChaoxingClient {
   }
 
   /// 各课程作业列表。
-  Future<List<ChaoxingWork>> fetchWorks(List<ChaoxingCourse> courses) {
-    return _concurrentMap(courses, (course) async {
-      final out = <ChaoxingWork>[];
-      try {
-        final middle = await _send(
-          Uri.parse(
-            'https://mooc1-1.chaoxing.com/mooc-ans/visit/stucoursemiddle'
-            '?courseid=${course.courseId}&clazzid=${course.classId}'
-            '&vc=1&cpi=${course.cpi}&ismooc2=1&v=2',
-          ),
-        );
-        final middleHtml = (middle.data as String?) ?? '';
-        final workEnc = _hidden(middleHtml, 'workEnc') ?? '';
-        if (workEnc.isEmpty) return out;
-        final list = await _send(
-          Uri.parse(
-            'https://mooc1.chaoxing.com/mooc2/work/list'
-            '?courseId=${course.courseId}&classId=${course.classId}'
-            '&enc=$workEnc&cpi=${course.cpi}&ut=s',
-          ),
-        );
-        final html = (list.data as String?) ?? '';
-        out.addAll(parseWorkListHtml(html, course));
-      } catch (_) {
-        // 单门课失败不影响其他课程
+  Future<List<ChaoxingWork>> fetchWorks(List<ChaoxingCourse> courses) async =>
+      (await fetchWorksBatch(courses)).requireComplete();
+
+  Future<CourseBatch<ChaoxingWork>> fetchWorksBatch(
+    List<ChaoxingCourse> courses,
+  ) => CourseBatch.fetch(
+    courses,
+    key: (c) => '${c.courseId}:${c.classId}',
+    name: (c) => c.name,
+    task: (course) async {
+      final middle = await _send(
+        Uri.parse(
+          'https://mooc1-1.chaoxing.com/mooc-ans/visit/stucoursemiddle'
+          '?courseid=${course.courseId}&clazzid=${course.classId}'
+          '&vc=1&cpi=${course.cpi}&ismooc2=1&v=2',
+        ),
+      );
+      final workEnc = _hidden((middle.data as String?) ?? '', 'workEnc') ?? '';
+      if (workEnc.isEmpty) throw StateError('作业入口未取得，请刷新登录状态');
+      final response = await _send(
+        Uri.parse(
+          'https://mooc1.chaoxing.com/mooc2/work/list'
+          '?courseId=${course.courseId}&classId=${course.classId}'
+          '&enc=$workEnc&cpi=${course.cpi}&ut=s',
+        ),
+      );
+      final html = (response.data as String?) ?? '';
+      final works = parseWorkListHtml(html, course);
+      if (works.isEmpty &&
+          !RegExp(r'暂无作业|没有作业|暂无数据|noWork|workList|work-list|list-con')
+              .hasMatch(html)) {
+        throw StateError('无法确认作业列表');
       }
-      return out;
-    });
-  }
+      return works;
+    },
+  );
 
   /// 解析作业列表页。
   ///
@@ -884,8 +944,10 @@ class ChaoxingClient {
   @visibleForTesting
   static List<ChaoxingWork> parseWorkListHtml(
     String html,
-    ChaoxingCourse course,
-  ) {
+    ChaoxingCourse course, {
+    DateTime? fetchedAt,
+  }) {
+    final observedAt = fetchedAt ?? DateTime.now();
     final out = <ChaoxingWork>[];
     if (html.isEmpty) return out;
 
@@ -947,6 +1009,10 @@ class ChaoxingClient {
           courseName: course.name,
           statusText: status,
           deadline: timeText,
+          fetchedAt: observedAt,
+          deadlineAt: TaskDeadline.parse(timeText, now: observedAt),
+          courseId: course.courseId,
+          classId: course.classId,
           expired: body.contains('icon-zy-g'),
           taskUrl: dataUrl.replaceAll('&amp;', '&'),
         ),
@@ -960,34 +1026,6 @@ class ChaoxingClient {
     final match = RegExp('$name="([^"]*)"').firstMatch(tag);
     final raw = match?.group(1);
     return raw?.replaceAll('&amp;', '&').replaceAll('&#39;', "'");
-  }
-
-  /// 多门课并发请求；每个 worker 按课程取数据，单门失败只返回空列表。
-  Future<List<R>> _concurrentMap<T, R>(
-    List<T> items,
-    Future<List<R>> Function(T) task, {
-    int limit = 4,
-  }) async {
-    if (items.isEmpty) return <R>[];
-    final results = List<List<R>?>.filled(items.length, null);
-    var next = 0;
-    Future<void> worker() async {
-      while (true) {
-        final index = next;
-        next++;
-        if (index >= items.length) return;
-        try {
-          results[index] = await task(items[index]);
-        } catch (_) {
-          results[index] = <R>[];
-        }
-      }
-    }
-
-    await Future.wait(
-      List<Future<void>>.generate(min(limit, items.length), (_) => worker()),
-    );
-    return <R>[for (final result in results) ...?result];
   }
 
   /// 已批阅作业的分数；没批阅返回空串。
@@ -1186,9 +1224,11 @@ class ChaoxingClient {
   /// 上传作业图片，返回可插入答案的图片 URL。
   Future<Uri> uploadWorkImage(
     ChaoxingWork work,
-    String filename,
-    List<int> bytes,
-  ) async {
+    UploadFile file, {
+    CancelToken? cancelToken,
+    ProgressCallback? onSendProgress,
+  }) async {
+    if (cancelToken?.isCancelled ?? false) throw cancelToken!.cancelError!;
     final page = await _send(Uri.parse(work.taskUrl));
     final html = (page.data as String?) ?? '';
     final uid =
@@ -1219,12 +1259,12 @@ class ChaoxingClient {
             );
     final cookie = jar.headerFor(uri);
     final form = FormData();
-    form.files.add(
-      MapEntry('upfile', MultipartFile.fromBytes(bytes, filename: filename)),
-    );
+    form.files.add(MapEntry('upfile', file.multipart()));
     final response = await _dio.postUri<dynamic>(
       uri,
       data: form,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
       options: Options(
         contentType: 'multipart/form-data',
         headers: <String, String>{'Referer': work.taskUrl, 'Cookie': ?cookie},
@@ -1245,7 +1285,13 @@ class ChaoxingClient {
     ChaoxingQuestion question, {
     String text = '',
     List<ChaoxingAttachment> attachments = const <ChaoxingAttachment>[],
+    CancelToken? cancelToken,
+    void Function(double)? onProgress,
+    void Function()? onSubmitting,
   }) async {
+    await UploadFile.validateAll(attachments.map((a) => a.file));
+    final total = attachments.fold<int>(0, (sum, a) => sum + a.file.length);
+    var sent = 0;
     final buffer = StringBuffer();
     if (text.trim().isNotEmpty) {
       for (final line in text.trim().split('\n')) {
@@ -1259,9 +1305,18 @@ class ChaoxingClient {
     for (final attachment in attachments) {
       final url = await uploadWorkImage(
         work,
-        attachment.name,
-        attachment.bytes,
+        attachment.file,
+        cancelToken: cancelToken,
+        onSendProgress: (current, count) {
+          if (count > 0 && total > 0) {
+            onProgress?.call(
+              (sent + attachment.file.length * (current / count).clamp(0, 1)) /
+                  total,
+            );
+          }
+        },
       );
+      sent += attachment.file.length;
       if (attachment.isVideo) {
         buffer.write('<p><video controls="controls" src="$url"></video></p>');
       } else if (attachment.isFile) {
@@ -1274,6 +1329,8 @@ class ChaoxingClient {
         buffer.write('<p><img src="$url" /></p>');
       }
     }
+    if (cancelToken?.isCancelled ?? false) throw cancelToken!.cancelError!;
+    onSubmitting?.call();
     await _submitAnswerHtml(work, question, buffer.toString());
   }
 

@@ -48,9 +48,14 @@ class _MapDiagnosticsPageState extends State<MapDiagnosticsPage> {
     MapCalibration.load().then((_) {
       if (mounted) setState(() {});
     });
-    MapTraces.load().then((_) {
-      if (mounted) setState(() {});
-    });
+    MapTraces.load().then(
+      (_) {
+        if (mounted) setState(() {});
+      },
+      onError: (Object _) {
+        if (mounted) setState(() => _error = '路线历史读取失败，请检查本地存储后重试');
+      },
+    );
   }
 
   @override
@@ -67,6 +72,7 @@ class _MapDiagnosticsPageState extends State<MapDiagnosticsPage> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
+      if (!mounted) return;
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         setState(() => _error = '没有定位权限');
@@ -83,10 +89,13 @@ class _MapDiagnosticsPageState extends State<MapDiagnosticsPage> {
             ),
           ).listen(
             (p) {
+              if (!mounted) return;
               setState(() => _gps = p);
               if (_sampling) _gpsSamples.add(p);
             },
-            onError: (_) {},
+            onError: (Object _) {
+              if (mounted) setState(() => _error = 'GPS 定位中断，请检查系统定位服务');
+            },
             cancelOnError: false,
           );
 
@@ -98,14 +107,17 @@ class _MapDiagnosticsPageState extends State<MapDiagnosticsPage> {
             ),
           ).listen(
             (p) {
+              if (!mounted) return;
               setState(() => _fused = p);
               if (_sampling) _fusedSamples.add(p);
             },
-            onError: (_) {},
+            onError: (Object _) {
+              if (mounted) setState(() => _error = '融合定位中断，请检查系统定位服务');
+            },
             cancelOnError: false,
           );
     } catch (e) {
-      setState(() => _error = '订阅定位失败：$e');
+      if (mounted) setState(() => _error = '订阅定位失败：$e');
     }
   }
 
@@ -288,7 +300,14 @@ class _MapDiagnosticsPageState extends State<MapDiagnosticsPage> {
                       ),
                       TextButton(
                         onPressed: () async {
-                          await MapCalibration.clear();
+                          try {
+                            await MapCalibration.clear();
+                          } catch (_) {
+                            if (mounted) {
+                              setState(() => _error = '标定点清除失败，请检查存储后重试');
+                            }
+                            return;
+                          }
                           if (!mounted) return;
                           setState(() {});
                         },
@@ -332,9 +351,20 @@ class _MapDiagnosticsPageState extends State<MapDiagnosticsPage> {
                     child: TextButton.icon(
                       onPressed: () async {
                         final messenger = ScaffoldMessenger.of(context);
-                        await Clipboard.setData(
-                          ClipboardData(text: MapTraces.exportText()),
-                        );
+                        try {
+                          await Clipboard.setData(
+                            ClipboardData(text: await MapTraces.exportText()),
+                          );
+                        } catch (_) {
+                          if (mounted) {
+                            messenger.showSnackBar(
+                              const SnackBar(
+                                content: Text('路线导出失败，请检查本地存储后重试'),
+                              ),
+                            );
+                          }
+                          return;
+                        }
                         if (!mounted) return;
                         messenger.showSnackBar(
                           const SnackBar(content: Text('路线记录已复制，可直接粘贴发送')),
@@ -404,7 +434,12 @@ class _MapDiagnosticsPageState extends State<MapDiagnosticsPage> {
           constraints: const BoxConstraints(),
           tooltip: '删除这个标定点',
           onPressed: () async {
-            await MapCalibration.removeAt(index);
+            try {
+              await MapCalibration.removeAt(index);
+            } catch (_) {
+              if (mounted) setState(() => _error = '标定点删除失败，请检查存储后重试');
+              return;
+            }
             if (!mounted) return;
             setState(() {});
           },

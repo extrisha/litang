@@ -39,11 +39,11 @@ class CalendarService {
     return AcademicCalendar.fallbackTermId(date ?? DateTime.now());
   }
 
-  Future<void> load() async {
+  Future<void> load({bool refreshRemote = true}) async {
     final cached = await _readCache();
     final asset = cached ?? await _readAsset();
     notifier.value = asset;
-    unawaited(_refreshRemote());
+    if (refreshRemote) unawaited(_refreshRemote());
   }
 
   Future<AcademicCalendar?> _readAsset() async {

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../bounded_requests.dart';
+
 import '../auth/cas_client.dart';
 
 /// 一网畅学课程详情数据（原生页面用）。
@@ -323,7 +325,7 @@ class TronCourseDetailApi {
       );
     }
     // 分数是每场考试单独一个接口，并发拉，避免串行把整页首屏拖住。
-    final scores = await Future.wait(seeds.map((e) => _examScore(e.id)));
+    final scores = await mapWithConcurrency(seeds, (e) => _examScore(e.id));
     return <TronCourseExam>[
       for (var i = 0; i < seeds.length; i++)
         TronCourseExam(

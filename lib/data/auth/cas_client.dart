@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -304,8 +306,12 @@ class CasLoginResult {
 /// 复刻 usst-jwgl-client 的 CAS SSO 流程：
 /// 入口 /sso/jziotlogin → ehall 适配器 → ids6 authserver → 回跳 jwglxt。
 class CasClient {
-  CasClient({Dio? dio, List<CasCookie> initialCookies = const <CasCookie>[]})
-    : _dio = dio ?? _sharedDio {
+  CasClient({
+    Dio? dio,
+    List<CasCookie> initialCookies = const <CasCookie>[],
+    this.authenticationTimeout = const Duration(seconds: 35),
+    this.sessionCheckTimeout = const Duration(seconds: 8),
+  }) : _dio = dio ?? _sharedDio {
     jar.cookies.addAll(initialCookies);
   }
 
@@ -325,8 +331,55 @@ class CasClient {
 
   final Dio _dio;
   final CasCookieJar jar = CasCookieJar();
+  final Duration authenticationTimeout;
+  final Duration sessionCheckTimeout;
+  CancelToken? _authenticationCancelToken;
 
   String? studentId;
+
+  /// 取消认证链路，不影响共享连接或正在进行的业务请求。
+  void cancelAuthentication() {
+    final token = _authenticationCancelToken;
+    if (token != null && !token.isCancelled) {
+      token.cancel('本次登录已被新的操作取消');
+    }
+  }
+
+  static void _checkCancelled(CancelToken? token) {
+    if (token?.isCancelled ?? false) throw token!.cancelError!;
+  }
+
+  Future<T> _authenticate<T>(
+    Future<T> Function(CancelToken) action, {
+    Duration? timeout,
+  }) async {
+    cancelAuthentication();
+    final cancelToken = CancelToken();
+    _authenticationCancelToken = cancelToken;
+    final timer = Timer(timeout ?? authenticationTimeout, () {
+      cancelToken.cancel('学校登录响应超时，请检查网络后重试');
+    });
+    try {
+      final result = await Future.any<T>([
+        Future<T>.sync(() => action(cancelToken)),
+        cancelToken.whenCancel.then<T>((error) => throw error),
+      ]);
+      _checkCancelled(cancelToken);
+      return result;
+    } on DioException {
+      if (cancelToken.isCancelled) {
+        throw CasLoginException(cancelToken.cancelError!.error.toString());
+      }
+      rethrow;
+    } finally {
+      timer.cancel();
+      if (identical(_authenticationCancelToken, cancelToken)) {
+        _authenticationCancelToken = null;
+      }
+      // 失败或截止后，迟到的响应不得再更新本 client 的 cookie。
+      if (!cancelToken.isCancelled) cancelToken.cancel('认证操作已结束');
+    }
+  }
 
   static Dio _buildDio() {
     return Dio(
@@ -342,27 +395,34 @@ class CasClient {
 
   /// 登录。成功后 [jar] 里持有 jwglxt 会话 cookie。
   /// 网络抖动时自动重试一次（不会重复输密码）。
-  Future<void> login(String username, String password) async {
-    for (var attempt = 0; attempt < 2; attempt++) {
-      try {
-        await _loginOnce(username, password);
-        return;
-      } on CasLoginException {
-        rethrow;
-      } on DioException {
-        if (attempt == 0) {
-          await Future<void>.delayed(const Duration(seconds: 2));
+  Future<void> login(String username, String password) =>
+      _authenticate((token) async {
+        for (var attempt = 0; attempt < 2; attempt++) {
+          _checkCancelled(token);
+          try {
+            await _loginOnce(username, password, token);
+            return;
+          } on CasLoginException {
+            rethrow;
+          } on DioException {
+            _checkCancelled(token);
+            if (attempt == 0) {
+              await Future<void>.delayed(const Duration(seconds: 2));
+            }
+          }
         }
-      }
-    }
-    throw CasLoginException('网络不稳定，登录失败，请稍后重试');
-  }
+        throw CasLoginException('网络不稳定，登录失败，请稍后重试');
+      });
 
-  Future<void> _loginOnce(String username, String password) async {
+  Future<void> _loginOnce(
+    String username,
+    String password,
+    CancelToken cancelToken,
+  ) async {
     jar.clear();
     studentId = null;
 
-    final entry = await _send(Uri.parse(entryUrl));
+    final entry = await _send(Uri.parse(entryUrl), cancelToken: cancelToken);
     final entryUri = entry.realUri;
     final entryHtml = entry.data ?? '';
     if (!entryUri.path.contains('authserver')) {
@@ -374,7 +434,12 @@ class CasClient {
     }
 
     // 账号已经被要求输入验证码了就直接抛给 UI，别白白再错一次密码
-    final preChallenge = await _captchaChallenge(username, entryUri, entryHtml);
+    final preChallenge = await _captchaChallenge(
+      username,
+      entryUri,
+      entryHtml,
+      cancelToken,
+    );
     if (preChallenge != null) {
       throw preChallenge;
     }
@@ -392,15 +457,17 @@ class CasClient {
         'rmShown': '1',
       },
       referer: entryUri.toString(),
+      cancelToken: cancelToken,
     );
 
-    if (!await checkSession()) {
+    if (!await _checkSession(cancelToken)) {
       // 密码错误次数多了 CAS 会要求验证码：这时候不能只报错，
       // 得把验证码图片拉下来交给 UI
       final challenge = await _captchaChallenge(
         username,
         entryUri,
         result.data ?? '',
+        cancelToken,
       );
       if (challenge != null) {
         throw challenge;
@@ -411,6 +478,7 @@ class CasClient {
           '登录失败，请检查学号和密码';
       throw CasLoginException(message);
     }
+    _checkCancelled(cancelToken);
     studentId = username.trim();
   }
 
@@ -423,7 +491,7 @@ class CasClient {
     required String password,
     required CasCaptchaRequired challenge,
     required String code,
-  }) async {
+  }) => _authenticate((cancelToken) async {
     final result = await _send(
       challenge.postUri,
       method: 'POST',
@@ -435,35 +503,39 @@ class CasClient {
         challenge.field: code.trim(),
       },
       referer: challenge.postUri.toString(),
+      cancelToken: cancelToken,
     );
 
-    if (!await checkSession()) {
+    if (!await _checkSession(cancelToken)) {
       final next = await _captchaChallenge(
         username,
         challenge.postUri,
         result.data ?? '',
+        cancelToken,
       );
       if (next != null) throw next;
       throw CasLoginException(
         _extractError(result.data ?? '') ?? '验证码错误或已过期，请重试',
       );
     }
+    _checkCancelled(cancelToken);
     studentId = username.trim();
-  }
+  });
 
   /// 学校这个 CAS 有个现成的策略接口：needCaptcha.html?username=xxx。
   /// 返回正文里带 true 就说明该账号当前需要验证码 —— 不用靠「猜」，
   /// 也不用先错一次密码。
-  Future<bool> needCaptcha(String username) async {
+  Future<bool> needCaptcha(String username, {CancelToken? cancelToken}) async {
     try {
       final uri = Uri.parse(
         'https://ids6.usst.edu.cn/authserver/needCaptcha.html?username='
         '${Uri.encodeQueryComponent(username.trim())}',
       );
-      final resp = await _send(uri);
+      final resp = await _send(uri, cancelToken: cancelToken);
       if ((resp.statusCode ?? 0) != 200) return false;
       return (resp.data ?? '').toLowerCase().contains('true');
     } catch (_) {
+      _checkCancelled(cancelToken);
       return false;
     }
   }
@@ -473,8 +545,9 @@ class CasClient {
     String username,
     Uri postUri,
     String html,
+    CancelToken cancelToken,
   ) async {
-    if (!await needCaptcha(username)) return null;
+    if (!await needCaptcha(username, cancelToken: cancelToken)) return null;
     if (CasTokens.parse(html) == null) return null;
 
     final parsed = parseCaptcha(html);
@@ -487,7 +560,7 @@ class CasClient {
           : 'captcha.html?ts=${DateTime.now().millisecondsSinceEpoch}',
     );
     try {
-      final bytes = await downloadBytes(imageUri);
+      final bytes = await downloadBytes(imageUri, cancelToken: cancelToken);
       if (bytes.isEmpty) return null;
       return CasCaptchaRequired(
         form: _hiddenFields(html),
@@ -497,6 +570,7 @@ class CasClient {
         message: _extractError(html),
       );
     } catch (_) {
+      _checkCancelled(cancelToken);
       return null;
     }
   }
@@ -559,48 +633,68 @@ class CasClient {
   }
 
   /// 从任意 CAS 入口登录（例如 webvpn 的 authserver），返回最终页面。
-  Future<CasLoginResult> loginAt(
-    Uri entry,
-    String username,
-    String password,
-  ) async {
-    final page = await _send(entry);
-    final html = page.data ?? '';
-    final tokens = CasTokens.parse(html);
-    if (tokens == null) {
-      throw CasLoginException('统一身份认证页面解析失败');
-    }
-    final result = await _send(
-      page.realUri,
-      method: 'POST',
-      form: <String, String>{
-        'username': username.trim(),
-        'password': password,
-        'lt': tokens.lt,
-        'dllt': 'userNamePasswordLogin',
-        'execution': tokens.execution,
-        '_eventId': tokens.eventId,
-        'rmShown': '1',
-      },
-      referer: page.realUri.toString(),
-    );
-    return CasLoginResult(
-      body: result.data ?? '',
-      uri: result.realUri,
-      statusCode: result.statusCode ?? 0,
-    );
-  }
+  Future<CasLoginResult> loginAt(Uri entry, String username, String password) =>
+      _authenticate((cancelToken) async {
+        final page = await _send(entry, cancelToken: cancelToken);
+        final html = page.data ?? '';
+        final tokens = CasTokens.parse(html);
+        if (tokens == null) {
+          throw CasLoginException('统一身份认证页面解析失败');
+        }
+        final result = await _send(
+          page.realUri,
+          method: 'POST',
+          form: <String, String>{
+            'username': username.trim(),
+            'password': password,
+            'lt': tokens.lt,
+            'dllt': 'userNamePasswordLogin',
+            'execution': tokens.execution,
+            '_eventId': tokens.eventId,
+            'rmShown': '1',
+          },
+          referer: page.realUri.toString(),
+          cancelToken: cancelToken,
+        );
+        return CasLoginResult(
+          body: result.data ?? '',
+          uri: result.realUri,
+          statusCode: result.statusCode ?? 0,
+        );
+      });
 
   /// 当前会话是否还能访问 jwglxt。
   Future<bool> checkSession() async {
     try {
-      final resp = await _send(Uri.parse(indexUrl));
+      return await _authenticate(_checkSession, timeout: sessionCheckTimeout);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _checkSession(CancelToken cancelToken) async {
+    try {
+      final resp = await _send(Uri.parse(indexUrl), cancelToken: cancelToken);
       final code = resp.statusCode ?? 0;
       final body = resp.data ?? '';
+      final uri = resp.realUri;
       return code == 200 &&
+          uri.host == Uri.parse(indexUrl).host &&
+          uri.path == Uri.parse(indexUrl).path &&
+          body.trim().isNotEmpty &&
           !body.contains('用户登录') &&
-          !body.contains('login_slogin');
+          !body.contains('login_slogin') &&
+          CasTokens.parse(body) == null &&
+          !RegExp(
+            r'''<input\b[^>]*(?:type\s*=\s*["']password["']|name\s*=\s*["'](?:username|password)["'])''',
+            caseSensitive: false,
+          ).hasMatch(body) &&
+          !RegExp(
+            r'<title[^>]*>[^<]*统一身份认证|校外\s*IP|IP\s*并非校内|仅允许校内|Bad Gateway|Service Unavailable|Gateway Time.?out|Access Denied',
+            caseSensitive: false,
+          ).hasMatch(body);
     } catch (_) {
+      _checkCancelled(cancelToken);
       return false;
     }
   }
@@ -608,17 +702,99 @@ class CasClient {
   /// 用已保存的 cookie 静默进入 jwglxt：CASTGC 没过期时不需要再输密码。
   Future<bool> silentLogin() async {
     try {
-      await _send(Uri.parse(entryUrl));
-      return await checkSession();
+      return await _authenticate((cancelToken) async {
+        await _send(Uri.parse(entryUrl), cancelToken: cancelToken);
+        return _checkSession(cancelToken);
+      }, timeout: const Duration(seconds: 18));
     } catch (_) {
       return false;
     }
   }
 
   /// 下载二进制文件（PDF 等），同样处理 cookie 与 http->https 跳转。
-  Future<List<int>> downloadBytes(Uri uri) async {
+  Future<void> downloadFile(
+    Uri uri,
+    String path, {
+    CancelToken? cancelToken,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    var current = uri;
+    final file = File(path);
+    try {
+      for (var hop = 0; hop < 25; hop++) {
+        if (cancelToken?.isCancelled ?? false) throw cancelToken!.cancelError!;
+        final cookie = jar.headerFor(current);
+        final response = await _dio.requestUri<ResponseBody>(
+          current,
+          cancelToken: cancelToken,
+          options: Options(
+            method: 'GET',
+            followRedirects: false,
+            responseType: ResponseType.stream,
+            headers: {
+              'Accept': '*/*',
+              'User-Agent': _userAgent,
+              'Cookie': ?cookie,
+            },
+          ),
+        );
+        _absorb(response);
+        final body = response.data;
+        if (body == null) throw StateError('附件响应为空');
+        final code = response.statusCode ?? 0;
+        final location = response.headers.value('location');
+        if (code >= 300 &&
+            code < 400 &&
+            location != null &&
+            location.isNotEmpty) {
+          await body.stream.listen((_) {}).cancel();
+          current = upgradeCasUrl(current.resolve(location));
+          continue;
+        }
+        if (code < 200 ||
+            code >= 300 ||
+            (response.headers.value('content-type') ?? '').contains(
+              'text/html',
+            )) {
+          await body.stream.listen((_) {}).cancel();
+          throw StateError('附件下载失败或登录已失效');
+        }
+        final total =
+            int.tryParse(response.headers.value('content-length') ?? '') ?? -1;
+        var received = 0;
+        final sink = file.openWrite();
+        try {
+          await sink.addStream(
+            body.stream.map((chunk) {
+              if (cancelToken?.isCancelled ?? false) {
+                throw cancelToken!.cancelError!;
+              }
+              received += chunk.length;
+              onReceiveProgress?.call(received, total);
+              return chunk;
+            }),
+          );
+          await sink.flush();
+        } finally {
+          await sink.close();
+        }
+        if (received == 0 || (total >= 0 && received != total)) {
+          throw StateError('附件未完整下载');
+        }
+        return;
+      }
+      throw StateError('附件跳转次数过多');
+    } catch (_) {
+      if (await file.exists()) await file.delete();
+      rethrow;
+    }
+  }
+
+  /// Small binary responses such as login captcha. Attachments use downloadFile.
+  Future<List<int>> downloadBytes(Uri uri, {CancelToken? cancelToken}) async {
     var current = uri;
     for (var hop = 0; hop < 25; hop++) {
+      _checkCancelled(cancelToken);
       final headers = <String, String>{
         'Accept': '*/*',
         'User-Agent': _userAgent,
@@ -629,12 +805,15 @@ class CasClient {
       }
       final resp = await _dio.requestUri<List<int>>(
         current,
+        cancelToken: cancelToken,
         options: Options(
           method: 'GET',
           headers: headers,
           responseType: ResponseType.bytes,
+          followRedirects: false,
         ),
       );
+      _checkCancelled(cancelToken);
       _absorb(resp);
       final code = resp.statusCode ?? 0;
       final location = resp.headers.value('location');
@@ -741,6 +920,7 @@ class CasClient {
     String accept =
         'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     Map<String, String> extraHeaders = const <String, String>{},
+    CancelToken? cancelToken,
   }) async {
     var current = url;
     var currentMethod = method;
@@ -750,6 +930,7 @@ class CasClient {
     Response<String>? last;
 
     for (var hop = 0; hop < 25; hop++) {
+      _checkCancelled(cancelToken);
       final headers = <String, String>{
         'Accept': accept,
         'User-Agent': _userAgent,
@@ -766,15 +947,19 @@ class CasClient {
 
       final resp = await _dio.requestUri<String>(
         current,
+        cancelToken: cancelToken,
         data: body ?? (currentJson == null ? null : jsonEncode(currentJson)),
         options: Options(
           method: currentMethod,
+          followRedirects: false,
+          responseType: ResponseType.plain,
           headers: headers,
           contentType: body != null
               ? Headers.formUrlEncodedContentType
               : (currentJson == null ? null : Headers.jsonContentType),
         ),
       );
+      _checkCancelled(cancelToken);
       _absorb(resp);
       last = resp;
 

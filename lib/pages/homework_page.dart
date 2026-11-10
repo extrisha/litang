@@ -34,6 +34,25 @@ class _HomeworkPageState extends State<HomeworkPage> {
   bool _loading = true;
   String? _error;
   int? _openingId;
+  String? _downloadKey;
+
+  @override
+  void dispose() {
+    if (_downloadKey != null) AttachmentCache.cancel(_downloadKey!);
+    super.dispose();
+  }
+
+  Future<String> _download(HomeworkAttachment file) async {
+    final client = JwglAuth.instance.client;
+    if (client == null) throw StateError('登录已失效');
+    final api = HomeworkApi(client);
+    _downloadKey = api.attachmentKey(file.id, size: file.size);
+    try {
+      return await api.cachedAttachment(file.id, file.name, size: file.size);
+    } finally {
+      _downloadKey = null;
+    }
+  }
 
   @override
   void initState() {
@@ -445,10 +464,14 @@ class _HomeworkPageState extends State<HomeworkPage> {
                       ),
                     ),
                     if (_openingId == file.id)
-                      const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                      IconButton(
+                        tooltip: '取消下载',
+                        icon: const Icon(Icons.close, size: 16),
+                        onPressed: () {
+                          if (_downloadKey != null) {
+                            AttachmentCache.cancel(_downloadKey!);
+                          }
+                        },
                       )
                     else
                       const Icon(
@@ -478,11 +501,15 @@ class _HomeworkPageState extends State<HomeworkPage> {
           title: widget.todo.title,
           subtitle: widget.todo.courseName,
           onSubmit: (payload) async {
-            final uploads = payload.attachments
-                .map((a) => HomeworkFile(name: a.name, bytes: a.bytes))
-                .toList();
-            await HomeworkApi(client)
-                .submitHomework(widget.todo.id, uploads, comment: payload.text);
+            final uploads = payload.attachments.map((a) => a.upload).toList();
+            await HomeworkApi(client).submitHomework(
+              widget.todo.id,
+              uploads,
+              comment: payload.text,
+              cancelToken: payload.cancelToken,
+              onProgress: payload.onProgress,
+              onSubmitting: payload.onSubmitting,
+            );
           },
         ),
       ),
@@ -575,10 +602,14 @@ class _HomeworkPageState extends State<HomeworkPage> {
                         ),
                       ),
                 trailing: _openingId == file.id
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                    ? IconButton(
+                        tooltip: '取消下载',
+                        icon: const Icon(Icons.close, size: 16),
+                        onPressed: () {
+                          if (_downloadKey != null) {
+                            AttachmentCache.cancel(_downloadKey!);
+                          }
+                        },
                       )
                     : const Icon(
                         Icons.open_in_new,
@@ -594,6 +625,7 @@ class _HomeworkPageState extends State<HomeworkPage> {
   }
 
   Future<void> _openAttachment(HomeworkAttachment file) async {
+    if (_openingId != null) return;
     final client = JwglAuth.instance.client;
     if (client == null) {
       return;
@@ -605,8 +637,7 @@ class _HomeworkPageState extends State<HomeworkPage> {
     if (isImage) {
       setState(() => _openingId = file.id);
       try {
-        final bytes = await HomeworkApi(client).fetchBlob(file.id);
-        final path = await AttachmentCache.save(file.name, bytes);
+        final path = await _download(file);
         if (!mounted) {
           return;
         }
@@ -654,8 +685,7 @@ class _HomeworkPageState extends State<HomeworkPage> {
       }
       setState(() => _openingId = file.id);
       try {
-        final bytes = await HomeworkApi(client).fetchBlob(file.id);
-        final path = await AttachmentCache.save(file.name, bytes);
+        final path = await _download(file);
         final result = await OpenFilex.open(path);
         if (result.type != ResultType.done && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -681,8 +711,7 @@ class _HomeworkPageState extends State<HomeworkPage> {
 
     setState(() => _openingId = file.id);
     try {
-      final bytes = await HomeworkApi(client).fetchBlob(file.id);
-      final path = await AttachmentCache.save(file.name, bytes);
+      final path = await _download(file);
       if (!mounted) {
         return;
       }

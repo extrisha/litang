@@ -406,13 +406,36 @@ class RollcallApi {
     } catch (e) {
       throw AppException(AppFailure.network, '签到信息拉取失败，请检查网络', e);
     }
+    final status = resp.statusCode ?? 0;
+    if (status == 401 || status == 403) {
+      throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
+    }
+    if (status < 200 || status >= 300) {
+      throw AppException(AppFailure.server, '签到信息拉取失败（HTTP $status）');
+    }
     final raw = resp.data ?? '';
-    final text = raw.trimLeft();
-    if (!text.startsWith('{') && !text.startsWith('[')) {
+    final text = raw.trim();
+    if (text.startsWith('<')) {
       // 拿到的是 HTML（登录页 / 错误页），说明会话已经失效
       throw const AppException(AppFailure.auth, '一网畅学登录已失效，请重新登录后重试');
     }
-    return parseOngoing(raw);
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(text);
+    } on FormatException catch (e) {
+      throw AppException(AppFailure.parse, '签到信息返回数据无法解析，请稍后重试', e);
+    }
+    final items = decoded is Map ? decoded['rollcalls'] : decoded;
+    if (items is! List ||
+        items.any((item) => item is! Map) ||
+        (decoded is Map && decoded['success'] == false)) {
+      throw const AppException(AppFailure.parse, '签到列表缺失或不完整，请稍后重试');
+    }
+    final records = parseOngoing(raw);
+    if (records.length != items.length) {
+      throw const AppException(AppFailure.parse, '签到记录不完整，请稍后重试');
+    }
+    return records;
   }
 
   /// 数字口令签到。

@@ -90,7 +90,8 @@ class _RetryInterceptor extends Interceptor {
     final method = options.method.toUpperCase();
     final attempt = (options.extra[_kAttempt] as int?) ?? 0;
 
-    if (!_idempotent.contains(method) ||
+    if (options.extra['skipRetry'] == true ||
+        !_idempotent.contains(method) ||
         attempt >= maxAttempts ||
         !_isRetryable(err)) {
       return handler.next(err);

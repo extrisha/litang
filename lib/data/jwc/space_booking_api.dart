@@ -303,11 +303,27 @@ class ReservationResult {
     required this.success,
     required this.message,
     this.reservationId,
+    this.outcomeUnknown = false,
   });
 
   final bool success;
   final String message;
   final String? reservationId;
+
+  /// 请求可能已送达，但服务端未确认；此时只能查询，不能盲目重发。
+  final bool outcomeUnknown;
+}
+
+class SpaceReservationPage {
+  const SpaceReservationPage({
+    required this.items,
+    required this.page,
+    required this.hasMore,
+  });
+
+  final List<SpaceReservation> items;
+  final int page;
+  final bool hasMore;
 }
 
 /// 空间预约订单记录
@@ -391,6 +407,8 @@ class SpaceBookingApi {
 
   /// 登录单飞：并发调用共享同一个 Future。
   Future<bool>? _loginInFlight;
+  final Map<String, Future<ReservationResult>> _submissions = {};
+  final Set<String> _uncertainSubmissions = {};
 
   /// 登录失败后的冷却截止时间，避免连续失败时反复捶 CAS / 令牌接口。
   DateTime? _loginCooldownUntil;
@@ -1065,130 +1083,158 @@ class SpaceBookingApi {
     }
   }
 
-  /// 获取当前预约与历史预约。
-  ///
-  /// 「当前预约」和「历史分页」是两个独立接口，任一失败不该让另一边的数据
-  /// 凭空消失：只要有一个成功就返回拿到的部分并记日志；两个都失败才抛
-  /// [SpaceBookingException]。原先整段 `catch (_) {}` 会把失败伪装成
-  /// 「你没有预约」。
-  Future<List<SpaceReservation>> fetchMyReservations() async {
+  Future<Map<String, String>> _reservationHeaders() async {
     await ensureAuthenticated();
-
     if (userId == null || accessToken == null) {
-      // 认证没建立起来：不能返回空列表，否则页面会显示「你没有预约」
       throw SpaceBookingException('空间预约登录已失效，请重新登录后重试', authRelated: true);
     }
-
-    final headers = <String, String>{
+    return <String, String>{
       'Authorization': accessToken!,
       'Accept': 'application/json;charset=UTF-8',
     };
+  }
 
-    final list = <SpaceReservation>[];
-    var succeeded = 0;
-    SpaceBookingException? firstError;
+  dynamic _reservationData(Response<String> response, String label) {
+    if (response.statusCode != 200) {
+      throw SpaceBookingException('$label失败（HTTP ${response.statusCode}）');
+    }
+    final body = response.data?.trim() ?? '';
+    if (body.isEmpty) throw SpaceBookingException('$label未返回有效数据');
+    final dynamic raw = jsonDecode(body);
+    if (raw is Map) {
+      final code = _parseInt(raw['code'], 200);
+      if (raw['success'] == false || (code != 200 && code != 0)) {
+        throw SpaceBookingException(
+          (raw['msg'] ?? raw['message'] ?? '$label失败').toString(),
+        );
+      }
+      if (raw.containsKey('data')) return raw['data'];
+    }
+    return raw;
+  }
 
-    // 1. 当前生效的预约 (reservationByUserId)
+  Future<List<SpaceReservation>> fetchCurrentReservations() async {
+    final headers = await _reservationHeaders();
     try {
-      final currentUri = Uri.parse(
+      final uri = Uri.parse(
         '$_libspaceBase/api/studyroom/v1/reservation/reservationByUserId',
       ).replace(queryParameters: <String, String>{'userId': userId!});
-      var cResp = await casClient.getApi(currentUri, headers: headers);
-      if (_isUnauthorized(cResp)) {
+      var response = await casClient.getApi(uri, headers: headers);
+      if (_isUnauthorized(response)) {
         if (await login()) {
           headers['Authorization'] = accessToken!;
-          cResp = await casClient.getApi(currentUri, headers: headers);
+          response = await casClient.getApi(uri, headers: headers);
         }
       }
-
-      if (cResp.statusCode != 200) {
-        throw SpaceBookingException('获取当前预约失败（HTTP ${cResp.statusCode}）');
+      final data = _reservationData(response, '获取当前预约');
+      if (data == null || (data is Map && data.isEmpty)) return [];
+      final records = data is Map && data.containsKey('id')
+          ? [data]
+          : data is List
+          ? data
+          : null;
+      if (records == null || records.any((item) => item is! Map)) {
+        throw SpaceBookingException('当前预约数据格式不正确');
       }
-
-      final body = cResp.data?.trim() ?? '';
-      if (body.isNotEmpty) {
-        final dynamic raw = jsonDecode(body);
-        final dynamic data = (raw is Map && raw.containsKey('data'))
-            ? raw['data']
-            : raw;
-        if (data is Map && data.isNotEmpty) {
-          list.add(_parseReservation(data.cast<String, dynamic>(), userId));
-        } else if (data is List && data.isNotEmpty) {
-          for (final item in data) {
-            if (item is Map) {
-              list.add(_parseReservation(item.cast<String, dynamic>(), userId));
-            }
-          }
-        }
-      }
-      // 解析成功才算这一路成功：只有 HTTP 200 但 body 不是 JSON 时，
-      // 不能悄悄当成「没有预约」。
-      succeeded++;
-    } on SpaceBookingException catch (e) {
-      firstError ??= e;
-      debugPrint('[space] 当前预约拉取失败：${e.message}');
+      return records
+          .map(
+            (item) => _parseReservation(
+              (item as Map).cast<String, dynamic>(),
+              userId,
+            ),
+          )
+          .toList();
+    } on SpaceBookingException {
+      rethrow;
     } catch (e) {
-      firstError ??= SpaceBookingException('获取当前预约失败：$e');
-      debugPrint('[space] 当前预约拉取失败：$e');
+      throw SpaceBookingException('获取当前预约失败：$e');
     }
+  }
 
-    // 2. 历史预约分页 (pageByUserId，必须使用 POST 提交 JSON body: {userId})
+  Future<SpaceReservationPage> fetchReservationHistory({
+    int page = 1,
+    int size = 20,
+  }) async {
+    if (page < 1 || size < 1) throw ArgumentError('页码和页大小必须大于零');
+    final headers = await _reservationHeaders();
     try {
-      final pageUri = Uri.parse(
+      final uri = Uri.parse(
         '$_libspaceBase/api/studyroom/v1/reservation/pageByUserId',
-      ).replace(queryParameters: <String, String>{'page': '1', 'size': '20'});
-      var pResp = await casClient.sendJsonWithHeaders(
-        pageUri,
+      ).replace(queryParameters: {'page': '$page', 'size': '$size'});
+      var response = await casClient.sendJsonWithHeaders(
+        uri,
         data: <String, dynamic>{'userId': userId},
         extraHeaders: headers,
       );
-      if (_isUnauthorized(pResp)) {
+      if (_isUnauthorized(response)) {
         if (await login()) {
           headers['Authorization'] = accessToken!;
-          pResp = await casClient.sendJsonWithHeaders(
-            pageUri,
+          response = await casClient.sendJsonWithHeaders(
+            uri,
             data: <String, dynamic>{'userId': userId},
             extraHeaders: headers,
           );
         }
       }
-
-      if (pResp.statusCode != 200) {
-        throw SpaceBookingException('获取历史预约失败（HTTP ${pResp.statusCode}）');
+      final data = _reservationData(response, '获取历史预约');
+      final records = data is Map ? data['records'] : null;
+      if (records is! List || records.any((item) => item is! Map)) {
+        throw SpaceBookingException('历史预约数据格式不正确');
       }
-
-      if (pResp.data != null) {
-        final dynamic raw = jsonDecode(pResp.data!);
-        final dynamic pData = (raw is Map && raw.containsKey('data'))
-            ? raw['data']
-            : raw;
-        final records = (pData is Map)
-            ? (pData['records'] as List<dynamic>?)
-            : null;
-        if (records != null) {
-          for (final rec in records) {
-            if (rec is! Map) continue;
-            final res = _parseReservation(rec.cast<String, dynamic>(), userId);
-            if (!list.any((existing) => existing.id == res.id)) {
-              list.add(res);
-            }
-          }
-        }
-      }
-      succeeded++;
-    } on SpaceBookingException catch (e) {
-      firstError ??= e;
-      debugPrint('[space] 历史预约拉取失败：${e.message}');
+      final total = _parseInt(data['total'], -1);
+      final pages = _parseInt(data['pages'], -1);
+      return SpaceReservationPage(
+        items: records
+            .map(
+              (item) => _parseReservation(
+                (item as Map).cast<String, dynamic>(),
+                userId,
+              ),
+            )
+            .toList(),
+        page: page,
+        hasMore:
+            records.isNotEmpty &&
+            (pages >= 0
+                ? page < pages
+                : total >= 0
+                ? page * size < total
+                : records.length >= size),
+      );
+    } on SpaceBookingException {
+      rethrow;
     } catch (e) {
-      firstError ??= SpaceBookingException('获取历史预约失败：$e');
-      debugPrint('[space] 历史预约拉取失败：$e');
+      throw SpaceBookingException('获取历史预约失败：$e');
+    }
+  }
+
+  /// 兼容旧调用；页面分别加载两路数据，以显示各自的加载/错误状态。
+  Future<List<SpaceReservation>> fetchMyReservations() async {
+    SpaceBookingException? firstError;
+    var succeeded = 0;
+    Future<List<SpaceReservation>> capture(
+      Future<List<SpaceReservation>> future,
+    ) async {
+      try {
+        final result = await future;
+        succeeded++;
+        return result;
+      } on SpaceBookingException catch (e) {
+        firstError ??= e;
+        return [];
+      }
     }
 
-    if (succeeded == 0) {
-      throw firstError ?? SpaceBookingException('获取预约记录失败，请稍后重试');
+    final results = await Future.wait([
+      capture(fetchCurrentReservations()),
+      capture(fetchReservationHistory().then((page) => page.items)),
+    ]);
+    if (succeeded == 0) throw firstError!;
+    final unique = <String, SpaceReservation>{};
+    for (final item in results.expand((items) => items)) {
+      unique.putIfAbsent(item.id, () => item);
     }
-
-    return list;
+    return unique.values.toList();
   }
 
   /// 原生提交预约
@@ -1204,7 +1250,75 @@ class SpaceBookingApi {
     String mobile = '',
     String remark = '',
     String filePath = '',
+  }) {
+    final key = '$userId|$roomId|$startTime|$endTime';
+    return _submissions.putIfAbsent(
+      key,
+      () =>
+          _submitReservation(
+            key: key,
+            roomId: roomId,
+            startTime: startTime,
+            endTime: endTime,
+            dictId: dictId,
+            memberIds: memberIds,
+            mobile: mobile,
+            remark: remark,
+            filePath: filePath,
+          ).whenComplete(() {
+            _submissions.remove(key);
+          }),
+    );
+  }
+
+  Future<ReservationResult> _reconcileSubmission(
+    String key,
+    String roomId,
+    String startTime,
+    String endTime,
+  ) async {
+    _uncertainSubmissions.add(key);
+    try {
+      final current = await fetchCurrentReservations();
+      for (final item in current) {
+        final start = DateTime.tryParse('${item.date} ${item.beginTime}');
+        final end = DateTime.tryParse('${item.date} ${item.endTime}');
+        if (item.roomId == roomId &&
+            !item.isCancelled &&
+            start == DateTime.tryParse(startTime) &&
+            end == DateTime.tryParse(endTime)) {
+          _uncertainSubmissions.remove(key);
+          return ReservationResult(
+            success: true,
+            message: '已确认预约成功',
+            reservationId: item.id,
+          );
+        }
+      }
+    } catch (_) {
+      // 查询失败不能证明预约失败；保留待确认状态。
+    }
+    return const ReservationResult(
+      success: false,
+      outcomeUnknown: true,
+      message: '提交结果尚未确认，请先到“我的预约”或网页端核对。再次点击只会查询结果，不会重复提交。',
+    );
+  }
+
+  Future<ReservationResult> _submitReservation({
+    required String key,
+    required String roomId,
+    required String startTime,
+    required String endTime,
+    required int dictId,
+    required List<String> memberIds,
+    required String mobile,
+    required String remark,
+    required String filePath,
   }) async {
+    if (_uncertainSubmissions.contains(key)) {
+      return _reconcileSubmission(key, roomId, startTime, endTime);
+    }
     await ensureAuthenticated();
     if (accessToken == null || userId == null) {
       return const ReservationResult(success: false, message: '未登录空间预约系统，请重试');
@@ -1251,15 +1365,13 @@ class SpaceBookingApi {
       }
 
       final body = resp.data ?? '';
-      if (body.isEmpty) {
-        return const ReservationResult(
-          success: false,
-          message: '服务器未返回响应，请稍后重试',
-        );
+      if (body.isEmpty || (resp.statusCode ?? 500) >= 500) {
+        return await _reconcileSubmission(key, roomId, startTime, endTime);
       }
 
       final dynamic raw = jsonDecode(body);
-      if (raw is Map) {
+      if (raw is Map &&
+          (raw.containsKey('code') || raw.containsKey('success'))) {
         final code = _parseInt(raw['code'], -1);
         final success = raw['success'] == true || code == 200 || code == 0;
         final msg =
@@ -1275,11 +1387,11 @@ class SpaceBookingApi {
           reservationId: resId,
         );
       }
-    } catch (e) {
-      return ReservationResult(success: false, message: '提交预约异常：$e');
+    } catch (_) {
+      return _reconcileSubmission(key, roomId, startTime, endTime);
     }
 
-    return const ReservationResult(success: false, message: '提交预约失败，请检查网络后重试');
+    return _reconcileSubmission(key, roomId, startTime, endTime);
   }
 
   /// 预约前成员冲突预检查 (reservationUserJudge)

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'cas_client.dart';
@@ -10,15 +12,36 @@ import 'session_store.dart';
 ///   2. 勾选「记住密码」时，学号密码也加密存本地；
 ///   3. cookie 过期先用 CAS 的 TGC 静默重登，TGC 也过期则用保存的密码后台重登。
 class JwglAuth extends ChangeNotifier {
-  JwglAuth._();
+  JwglAuth._()
+    : _store = SessionStore(),
+      _clientFactory = _newClient,
+      recoveryTimeout = const Duration(seconds: 20);
+
+  @visibleForTesting
+  JwglAuth.forTesting(
+    SessionStore store, {
+    CasClient Function(List<CasCookie>)? clientFactory,
+    this.recoveryTimeout = const Duration(seconds: 20),
+  }) : _store = store,
+       _clientFactory = clientFactory ?? _newClient;
 
   static final JwglAuth instance = JwglAuth._();
 
-  final SessionStore _store = SessionStore();
+  final SessionStore _store;
+  final CasClient Function(List<CasCookie>) _clientFactory;
+  final Duration recoveryTimeout;
+
+  static CasClient _newClient(List<CasCookie> cookies) =>
+      CasClient(initialCookies: cookies);
 
   CasClient? _client;
   String? _studentId;
   bool _restored = false;
+  Future<void>? _restoreInFlight;
+  int _generation = 0;
+  Future<void> _writes = Future<void>.value();
+  Future<void>? _loginInFlight;
+  CasClient? _authenticatingClient;
   DateTime? _sessionCheckedAt;
 
   /// 在途的 [ensureSession] 调用，用来把并发请求合并成一次。
@@ -43,6 +66,8 @@ class JwglAuth extends ChangeNotifier {
 
   CasClient? get client => _client;
 
+  int get generation => _generation;
+
   /// 本地是否保存了可自动登录的密码。
   bool get hasSavedPassword => _savedPassword?.isNotEmpty ?? false;
 
@@ -55,29 +80,80 @@ class JwglAuth extends ChangeNotifier {
   Future<void> _persist() async {
     final client = _client;
     if (client == null) return;
-    try {
-      await _store.save(
-        client,
-        username: _savedUsername,
-        password: _savedPassword,
-      );
-    } catch (e) {
-      debugPrint('[auth] 保存登录态失败（本次会话仍可用）: $e');
-    }
+    final generation = _generation;
+    final username = _savedUsername;
+    final password = _savedPassword;
+    _writes = _writes.then((_) async {
+      if (generation != _generation) return;
+      try {
+        await _store.save(client, username: username, password: password);
+      } catch (e) {
+        debugPrint('[auth] 保存登录态失败（本次会话仍可用）: $e');
+      }
+    });
+    await _writes.timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => debugPrint('[auth] 登录态仍在后台保存'),
+    );
   }
 
   Future<void> login(
     String username,
     String password, {
     bool remember = true,
-  }) async {
+    CasClient? client,
+    CasCaptchaRequired? challenge,
+    String captchaCode = '',
+  }) {
     if (kIsWeb) {
       throw CasLoginException('网页版无法跨域登录，请安装 App 后使用');
     }
-    final client = CasClient();
-    await client.login(username, password);
+    _invalidateAuthentication();
+    final active = client ?? _clientFactory(const []);
+    final generation = _generation;
+    _authenticatingClient = active;
+    late final Future<void> operation;
+    operation =
+        _loginInner(
+          active,
+          username,
+          password,
+          remember,
+          challenge,
+          captchaCode,
+          generation,
+        ).whenComplete(() {
+          if (identical(_loginInFlight, operation)) _loginInFlight = null;
+          if (identical(_authenticatingClient, active)) {
+            _authenticatingClient = null;
+          }
+        });
+    return _loginInFlight = operation;
+  }
+
+  Future<void> _loginInner(
+    CasClient client,
+    String username,
+    String password,
+    bool remember,
+    CasCaptchaRequired? challenge,
+    String captchaCode,
+    int generation,
+  ) async {
+    if (challenge == null) {
+      await client.login(username, password);
+    } else {
+      await client.loginWithCaptcha(
+        username: username,
+        password: password,
+        challenge: challenge,
+        code: captchaCode,
+      );
+    }
+    if (generation != _generation) throw CasLoginException('本次登录已被新的操作取消');
     _applyLogin(client, username.trim(), remember ? password : null);
     await _persist();
+    if (generation != _generation) throw CasLoginException('本次登录已被新的操作取消');
     notifyListeners();
   }
 
@@ -92,12 +168,17 @@ class JwglAuth extends ChangeNotifier {
     bool remember = true,
   }) async {
     final name = username.trim();
+    _invalidateAuthentication();
+    final generation = _generation;
     _applyLogin(client, name, remember ? password : null);
     await _persist();
+    if (generation != _generation) throw CasLoginException('本次登录已被新的操作取消');
     notifyListeners();
   }
 
   void _applyLogin(CasClient client, String username, String? password) {
+    client.studentId = username;
+    _sessionInFlight = null;
     _client = client;
     _studentId = username;
     _savedUsername = username;
@@ -107,28 +188,65 @@ class JwglAuth extends ChangeNotifier {
   }
 
   /// 启动时恢复登录：cookie → CAS 静默 → 保存的密码，逐级降级。
-  Future<void> restore() async {
-    if (_restored) {
-      return;
-    }
-    _restored = true;
+  Future<void> restore() {
+    final login = _loginInFlight;
+    if (login != null) return login;
+    final pending = _restoreInFlight;
+    if (pending != null) return pending;
+    if (_restored) return Future<void>.value();
+    final generation = _generation;
+    late final Future<void> operation;
+    operation = _restoreInner()
+        .timeout(
+          recoveryTimeout,
+          onTimeout: () {
+            if (generation != _generation) return;
+            _invalidateAuthentication();
+            _client = null;
+            _restored = false;
+            notifyListeners();
+          },
+        )
+        .whenComplete(() {
+          if (identical(_restoreInFlight, operation)) _restoreInFlight = null;
+        });
+    return _restoreInFlight = operation;
+  }
 
-    final stored = await _store.load();
+  Future<void> _restoreInner() async {
+    final generation = _generation;
+    _restored = true;
+    StoredSession? stored;
+    try {
+      await _writes;
+      stored = await _store.load();
+    } catch (_) {
+      if (generation == _generation) _restored = false;
+      rethrow;
+    }
+    if (generation != _generation) return;
     if (stored != null) {
       _savedUsername = stored.username;
       _savedPassword = stored.password;
       _studentId = stored.username.isNotEmpty ? stored.username : null;
-      final client = CasClient(initialCookies: stored.cookies);
-      if (await client.checkSession()) {
+      final client = _clientFactory(stored.cookies);
+      _authenticatingClient = client;
+      client.studentId = _studentId;
+      final valid = await client.checkSession();
+      if (generation != _generation) return;
+      if (valid) {
         _client = client;
         _sessionCheckedAt = DateTime.now();
         notifyListeners();
         return;
       }
-      if (await client.silentLogin()) {
+      final silent = await client.silentLogin();
+      if (generation != _generation) return;
+      if (silent) {
         _client = client;
         _sessionCheckedAt = DateTime.now();
         await _persist();
+        if (generation != _generation) return;
         notifyListeners();
         return;
       }
@@ -138,18 +256,63 @@ class JwglAuth extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    await _clearAll();
+    if (generation != _generation) return;
+    if (stored == null) {
+      await _clearAll();
+      return;
+    }
+    // Unreachable campus services do not revoke the local account or schedule.
+    _client = null;
+    _sessionCheckedAt = null;
+    _restored = false;
+    notifyListeners();
   }
 
   /// 强制后台重登：先试 CAS 静默，再用本地保存的密码重新登录。
   /// 用于「会话半失效」——checkSession 通过但业务接口已经不可用的情况。
-  Future<bool> reauthenticate() async {
+  Future<bool> reauthenticate() {
+    if (_loginInFlight != null ||
+        _restoreInFlight != null ||
+        (_client == null && !_restored)) {
+      return ensureSession();
+    }
+    return _startSessionRecovery(_reauthenticateInner);
+  }
+
+  Future<bool> _startSessionRecovery(Future<bool> Function() recover) {
+    if (_sessionInFlight != null) return _sessionInFlight!;
+    final generation = _generation;
+    late final Future<bool> operation;
+    operation = recover()
+        .timeout(
+          recoveryTimeout,
+          onTimeout: () {
+            if (generation == _generation) {
+              _invalidateAuthentication();
+              _client = null;
+              _restored = false;
+              notifyListeners();
+            }
+            return false;
+          },
+        )
+        .whenComplete(() {
+          if (identical(_sessionInFlight, operation)) _sessionInFlight = null;
+        });
+    return _sessionInFlight = operation;
+  }
+
+  Future<bool> _reauthenticateInner() async {
+    final generation = _generation;
     final current = _client;
     if (current != null) {
+      _authenticatingClient = current;
       try {
         if (await current.silentLogin()) {
+          if (generation != _generation) return false;
           _sessionCheckedAt = DateTime.now();
           await _persist();
+          if (generation != _generation) return false;
           notifyListeners();
           return true;
         }
@@ -158,15 +321,19 @@ class JwglAuth extends ChangeNotifier {
       }
     }
     final username = _savedUsername;
+    if (generation != _generation) return false;
     final password = _savedPassword;
     if (username.isEmpty || password == null || password.isEmpty) {
       return false;
     }
     try {
-      final client = CasClient();
+      final client = _clientFactory(const []);
+      _authenticatingClient = client;
       await client.login(username, password);
+      if (generation != _generation) return false;
       _applyLogin(client, username, password);
       await _persist();
+      if (generation != _generation) return false;
       notifyListeners();
       return true;
     } catch (_) {
@@ -180,12 +347,32 @@ class JwglAuth extends ChangeNotifier {
   /// checkSession / silentLogin / 密码登录，就会同时向 CAS 发起多次登录，
   /// 互相把对方的会话顶掉——「到处乱点之后 CAS 就废了」有这一份功劳。
   Future<bool> ensureSession() {
-    return _sessionInFlight ??= _ensureSessionInner().whenComplete(() {
-      _sessionInFlight = null;
-    });
+    final login = _loginInFlight;
+    if (login != null) {
+      final generation = _generation;
+      return login.then(
+        (_) => generation == _generation && isLoggedIn,
+        onError: (Object _) => false,
+      );
+    }
+    return _startSessionRecovery(_ensureSessionInner);
   }
 
   Future<bool> _ensureSessionInner() async {
+    final generation = _generation;
+    final login = _loginInFlight;
+    if (login != null) {
+      try {
+        await login;
+      } catch (_) {
+        return false;
+      }
+      return generation == _generation && isLoggedIn;
+    }
+    if (_restoreInFlight != null || (_client == null && !_restored)) {
+      await restore();
+      return generation == _generation && isLoggedIn;
+    }
     final client = _client;
     if (client == null) {
       return _tryAutoLogin();
@@ -195,16 +382,21 @@ class JwglAuth extends ChangeNotifier {
         DateTime.now().difference(checkedAt) < _sessionTtl) {
       return true;
     }
+    _authenticatingClient = client;
     if (await client.checkSession()) {
+      if (generation != _generation) return false;
       _sessionCheckedAt = DateTime.now();
       return true;
     }
+    if (generation != _generation) return false;
     _sessionCheckedAt = null;
     if (await client.silentLogin()) {
+      if (generation != _generation) return false;
       _sessionCheckedAt = DateTime.now();
       await _persist();
-      return true;
+      return generation == _generation;
     }
+    if (generation != _generation) return false;
     return _tryAutoLogin();
   }
 
@@ -218,23 +410,27 @@ class JwglAuth extends ChangeNotifier {
   /// 「请先登录」——用户表现为「突然 CAS 登录失败，怎么进都不行」。
   /// 现在只有服务端**明确拒绝凭据**时才清。
   Future<bool> _tryAutoLogin() async {
+    final generation = _generation;
     final username = _savedUsername;
     final password = _savedPassword;
     if (username.isEmpty || password == null || password.isEmpty) {
       return false;
     }
     try {
-      final client = CasClient();
+      final client = _clientFactory(const []);
+      _authenticatingClient = client;
       await client.login(username, password);
+      if (generation != _generation) return false;
       _applyLogin(client, username, password);
       await _persist();
+      if (generation != _generation) return false;
       notifyListeners();
       return true;
     } on CasCaptchaRequired {
       // 需要验证码 ≠ 凭据失效：保留密码，让用户手动登录一次即可
       return false;
     } on CasLoginException catch (e) {
-      if (_isCredentialRejection(e.message)) {
+      if (generation == _generation && _isCredentialRejection(e.message)) {
         _savedPassword = null;
         await _clearAll();
       }
@@ -247,8 +443,10 @@ class JwglAuth extends ChangeNotifier {
 
   /// 服务端是否在明确表示「学号或密码不对 / 账号不可用」。
   static bool _isCredentialRejection(String message) {
-    const markers = <String>['密码', '账号', '用户名', '锁定', '禁用', '不存在'];
-    return markers.any(message.contains);
+    return RegExp(
+      r'(?:密码|口令)(?:错误|不正确|有误|不匹配)|'
+      r'(?:账号|账户|用户名|学号)(?:不存在|被锁定|已锁定|被禁用|已禁用|已停用)',
+    ).hasMatch(message);
   }
 
   Future<void> logout() async {
@@ -257,17 +455,31 @@ class JwglAuth extends ChangeNotifier {
   }
 
   Future<void> _clearAll() async {
+    _invalidateAuthentication();
+    _restored = true;
     _client = null;
     _studentId = null;
     _savedUsername = '';
     _savedPassword = null;
     _sessionCheckedAt = null;
     try {
-      await _store.clear();
+      _writes = _writes.then((_) => _store.clear());
+      await _writes;
     } catch (e) {
+      _writes = Future<void>.value();
       // 清不掉也不能让「退出登录」失败：内存里的登录态已经清了，
       // 下次启动最多是恢复出一个无效会话，会在 checkSession 处被拒。
       debugPrint('[auth] 清除本地登录态失败: $e');
     }
+  }
+
+  void _invalidateAuthentication() {
+    _generation++;
+    _authenticatingClient?.cancelAuthentication();
+    _authenticatingClient = null;
+    _restoreInFlight = null;
+    _sessionInFlight = null;
+    _loginInFlight = null;
+    _sessionCheckedAt = null;
   }
 }

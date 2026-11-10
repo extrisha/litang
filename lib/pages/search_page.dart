@@ -98,11 +98,16 @@ class _SearchPageState extends State<SearchPage> {
       return;
     }
     try {
-      final feed = await widget.source.fetch();
-      if (!mounted) {
-        return;
+      final source = widget.source;
+      final updates = source is NoticeUpdates
+          ? (source as NoticeUpdates).fetchUpdates()
+          : Stream.fromFuture(source.fetch());
+      await for (final feed in updates) {
+        if (!mounted) {
+          return;
+        }
+        _buildIndex(feed.notices, feed.fetchedAt);
       }
-      _buildIndex(feed.notices, feed.fetchedAt);
     } catch (e) {
       if (!mounted) {
         return;

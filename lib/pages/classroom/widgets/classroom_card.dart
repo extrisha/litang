@@ -11,6 +11,19 @@ class ClassroomCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!room.isKnown) {
+      return Card(
+        child: ListTile(
+          leading: const Icon(
+            Icons.help_outline,
+            color: AppColors.textSecondary,
+          ),
+          title: Text('${room.name} · ${room.building}'),
+          subtitle: const Text('尚未取得排课数据，无法确认是否空闲'),
+          trailing: const Text('待确认'),
+        ),
+      );
+    }
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),

@@ -4,6 +4,8 @@ import 'package:dio/dio.dart';
 
 import '../app_exception.dart';
 import '../auth/cas_client.dart';
+import '../attachment_cache.dart';
+import '../upload_file.dart';
 
 class HomeworkAttachment {
   const HomeworkAttachment({
@@ -123,17 +125,32 @@ class HomeworkSubmission {
 }
 
 /// 要提交的作业文件。
-class HomeworkFile {
-  const HomeworkFile({required this.name, required this.bytes});
-
-  final String name;
-  final List<int> bytes;
-}
+typedef HomeworkFile = UploadFile;
 
 class HomeworkApi {
   HomeworkApi(this.client);
 
   final CasClient client;
+
+  String attachmentKey(int uploadId, {int size = 0}) => AttachmentCache.key(
+    source: 'tronclass',
+    account: client.studentId ?? '',
+    attachmentId: '$uploadId',
+    version: '$size',
+  );
+
+  Future<String> cachedAttachment(int uploadId, String name, {int size = 0}) =>
+      AttachmentCache.download(
+        key: attachmentKey(uploadId, size: size),
+        name: name,
+        receive: (path, token) => client.downloadFile(
+          Uri.parse(
+            'https://1906.usst.edu.cn/api/uploads/$uploadId/blob?preview=true',
+          ),
+          path,
+          cancelToken: token,
+        ),
+      );
 
   /// 直接下载附件二进制（PDF 预览用）。
   Future<List<int>> fetchBlob(int uploadId) {
@@ -149,14 +166,21 @@ class HomeworkApi {
     int activityId,
     List<HomeworkFile> files, {
     String comment = '',
+    CancelToken? cancelToken,
+    void Function(double)? onProgress,
+    void Function()? onSubmitting,
   }) async {
+    await UploadFile.validateAll(files);
     final uploadIds = <int>[];
+    final total = files.fold<int>(0, (sum, file) => sum + file.length);
+    var sent = 0;
     for (final file in files) {
+      if (cancelToken?.isCancelled ?? false) throw cancelToken!.cancelError!;
       final create = await client.sendJson(
         Uri.parse('https://1906.usst.edu.cn/api/uploads'),
         data: <String, dynamic>{
           'name': file.name,
-          'size': file.bytes.length,
+          'size': file.length,
           'parent_type': null,
           'parent_id': 0,
           'is_scorm': false,
@@ -188,17 +212,26 @@ class HomeworkApi {
       final cookie = client.jar.headerFor(target);
       final response = await dio.putUri<dynamic>(
         target,
-        data: FormData.fromMap(<String, dynamic>{
-          'file': MultipartFile.fromBytes(file.bytes, filename: file.name),
-        }),
+        data: FormData.fromMap(<String, dynamic>{'file': file.multipart()}),
         options: Options(headers: <String, String>{'Cookie': ?cookie}),
+        cancelToken: cancelToken,
+        onSendProgress: (current, count) {
+          if (count > 0 && total > 0) {
+            onProgress?.call(
+              (sent + file.length * (current / count).clamp(0, 1)) / total,
+            );
+          }
+        },
       );
       if ((response.statusCode ?? 0) >= 400) {
         throw Exception('文件上传失败');
       }
       uploadIds.add(id);
+      sent += file.length;
     }
 
+    if (cancelToken?.isCancelled ?? false) throw cancelToken!.cancelError!;
+    onSubmitting?.call();
     final submit = await client.sendJson(
       Uri.parse(
         'https://1906.usst.edu.cn/api/course/activities/$activityId/submissions',

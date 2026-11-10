@@ -16,6 +16,7 @@ import '../data/map_calibration.dart';
 import '../data/map_focus.dart';
 import '../data/map_trace.dart';
 import '../data/walk_graph.dart';
+import '../widgets/campus_tile_layer.dart';
 import 'map_diagnostics_page.dart';
 
 /// 是否启用地图功能（置 false 可在发版时整体下线）
@@ -43,13 +44,6 @@ final LatLngBounds _campusBounds = LatLngBounds(
   const LatLng(31.299634, 121.555999),
 );
 
-/// 相机中心允许移动的范围：比校区大一圈（约 160 m），
-/// 这样缩小时能露出一点白边，又不会把整张图拖出屏幕。
-final LatLngBounds _panBounds = LatLngBounds(
-  const LatLng(31.287008, 121.545387),
-  const LatLng(31.301134, 121.557399),
-);
-
 /// 整张海报（4500×5350）的经纬度范围，等于所有瓦片 bounds 的外包。
 /// 用来把经纬度换算回图像归一化坐标，做「吸附到建筑角点」。
 final LatLngBounds _posterBounds = () {
@@ -70,21 +64,13 @@ const EdgeInsets _fitPadding = EdgeInsets.fromLTRB(16, 128, 16, 40);
 /// 取值略低于「装下整张图」的默认缩放（约 15.85），保证一打开就能看到地标标签。
 const double _labelMinZoom = 15.5;
 
-class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
+class _MapPageState extends State<MapPage>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const Distance _distance = Distance();
 
   final MapController _mapController = MapController();
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
-
-  late final List<OverlayImage> _baseOverlays = <OverlayImage>[
-    for (final tile in kCampusTiles)
-      OverlayImage(
-        bounds: tile.bounds,
-        imageProvider: AssetImage(tile.asset),
-        filterQuality: FilterQuality.medium,
-      ),
-  ];
 
   CampusLabel? _selected;
   CampusLabel? _pending;
@@ -106,6 +92,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
 
   /// 未经校准的原始 GPS 点，用于标定时算偏差。
   LatLng? _rawFix;
+  DateTime? _rawFixAt;
   double? _userHeading;
 
   /// 系统上报的定位精度（米），用来画精度圈。
@@ -119,14 +106,24 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
   bool _recording = false;
   TraceMode _traceMode = TraceMode.walk;
   final List<LatLng> _trace = <LatLng>[];
+  final List<({DateTime at, double accuracy})?> _traceSamples = [];
+  bool _draftSaveFailed = false;
   StreamSubscription<Position>? _traceSubscription;
   DateTime? _traceStartedAt;
+  Timer? _traceUiTimer;
+  Timer? _traceSaveTimer;
+  bool _traceDirty = false;
+  bool _traceBusy = false;
+  bool _draftLoading = true;
+  int _traceGeneration = 0;
+  int _savedDraftPoints = 0;
 
   AnimationController? _flying;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     MapFocus.target.addListener(_onMapFocus);
     WidgetsBinding.instance.addPostFrameCallback((_) => _onMapFocus());
     MapCalibration.load().then((_) {
@@ -138,11 +135,67 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     });
     MapTraces.load().then((_) {
       if (mounted) setState(() {});
-    });
+    }, onError: (Object _) => _toast('路线历史暂未读取完成，请检查本地存储后重试'));
+    _restoreTraceDraft();
+  }
+
+  Future<void> _restoreTraceDraft() async {
+    try {
+      final draft = await MapTraces.loadDraft();
+      if (!mounted || draft == null) return;
+      setState(() {
+        _trace.addAll(draft.points);
+        _traceSamples.addAll(draft.samples);
+        _traceMode = draft.mode;
+        _traceStartedAt = draft.startedAt;
+        _savedDraftPoints = _trace.length;
+      });
+    } catch (_) {
+      _toast('草稿暂未恢复，请检查本地存储后重试');
+    } finally {
+      if (mounted) setState(() => _draftLoading = false);
+    }
+  }
+
+  Future<void> _persistTraceDraft() async {
+    if (_trace.isEmpty || _trace.length == _savedDraftPoints) {
+      return;
+    }
+    final count = _trace.length;
+    try {
+      await MapTraces.saveDraft(
+        MapTrace(
+          fromName: '未标注',
+          toName: '未标注',
+          points: List.of(_trace),
+          samples: List.of(_traceSamples),
+          startedAt: _traceStartedAt ?? DateTime.now(),
+          mode: _traceMode,
+        ),
+      );
+      _savedDraftPoints = count;
+      _draftSaveFailed = false;
+    } catch (e) {
+      if (!_draftSaveFailed && mounted) _toast('草稿暂未写入本地，请检查存储空间，保留此页面后重试');
+      _draftSaveFailed = true;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      unawaited(_pauseTrace());
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _traceGeneration++;
+    unawaited(_persistTraceDraft());
+    _traceUiTimer?.cancel();
+    _traceSaveTimer?.cancel();
     MapFocus.target.removeListener(_onMapFocus);
     _traceSubscription?.cancel();
     _flying?.dispose();
@@ -220,13 +273,16 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     _zoom = camera.zoom;
     if (!_ready) return;
 
-    // 软边界：拖出允许范围就把它拉回来，不加 CameraConstraint（那个会和 rebuild 打架）
-    if (hasGesture && !_clamping && !_panBounds.contains(camera.center)) {
+    // 手势中心留在校区主体；额外外扩会让高缩放视口整屏落到海报外。
+    if (hasGesture && !_clamping && !_campusBounds.contains(camera.center)) {
       _clamping = true;
       _mapController.move(
         LatLng(
-          camera.center.latitude.clamp(_panBounds.south, _panBounds.north),
-          camera.center.longitude.clamp(_panBounds.west, _panBounds.east),
+          camera.center.latitude.clamp(
+            _campusBounds.south,
+            _campusBounds.north,
+          ),
+          camera.center.longitude.clamp(_campusBounds.west, _campusBounds.east),
         ),
         camera.zoom,
       );
@@ -338,6 +394,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       }
 
       final last = await Geolocator.getLastKnownPosition();
+      if (!mounted) return;
       final hasLast = last != null && _isUsable(last);
       if (hasLast) {
         // 先把上次的位置画出来，用户立刻能看到点，再等精定位刷新
@@ -347,10 +404,12 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           last.accuracy,
           last.heading,
           fly: false,
+          measuredAt: last.timestamp,
         );
       }
 
       final fix = await _collectFix();
+      if (!mounted) return;
       if (fix == null) {
         if (hasLast) {
           _flyTo(LatLng(last.latitude, last.longitude), math.max(_zoom, 18.0));
@@ -482,9 +541,12 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     double accuracy,
     double heading, {
     bool fly = true,
+    DateTime? measuredAt,
   }) {
+    if (!mounted) return;
     final raw = LatLng(latitude, longitude);
     _rawFix = raw;
+    _rawFixAt = measuredAt ?? DateTime.now();
     final point = MapCalibration.apply(raw);
     setState(() {
       _userLocation = point;
@@ -514,6 +576,11 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     final accuracy = _accuracyMeters;
     if (raw == null || accuracy == null) {
       _toast('先点右下角定位，拿到当前位置再校准');
+      return;
+    }
+    if (_rawFixAt == null ||
+        DateTime.now().difference(_rawFixAt!) > const Duration(minutes: 1)) {
+      _toast('这次定位已过期，请重新定位后再校准');
       return;
     }
     if (accuracy > 25) {
@@ -555,16 +622,21 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
     );
     if (confirmed != true) return;
 
-    await MapCalibration.add(
-      MapCalibrationSample(
-        gpsLat: raw.latitude,
-        gpsLng: raw.longitude,
-        mapLat: snapped.latitude,
-        mapLng: snapped.longitude,
-        accuracy: accuracy,
-        savedAt: DateTime.now(),
-      ),
-    );
+    try {
+      await MapCalibration.add(
+        MapCalibrationSample(
+          gpsLat: raw.latitude,
+          gpsLng: raw.longitude,
+          mapLat: snapped.latitude,
+          mapLng: snapped.longitude,
+          accuracy: accuracy,
+          savedAt: DateTime.now(),
+        ),
+      );
+    } catch (_) {
+      _toast('校准点未保存，请检查存储空间后重试');
+      return;
+    }
     if (!mounted) return;
     setState(() => _userLocation = MapCalibration.apply(raw));
     _toast('已记录第 ${MapCalibration.count} 个校准点：${MapCalibration.describe()}');
@@ -599,7 +671,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
 
   /// 从当前位置用 A* 算一条到目标楼的步行路线。
   void _routeTo(CampusLabel label) {
-    final start = _userLocation;
+    final start = _rawFix;
     if (start == null) {
       _toast('先点右下角定位，才能从当前位置算路线');
       return;
@@ -608,12 +680,13 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       _toast('路网数据还在加载，稍后再试');
       return;
     }
-    final target = LatLng(label.lat, label.lng);
-    final route = WalkGraph.route(
-      start,
-      target,
-      toNode: WalkGraph.connectorFor(label.name),
-    );
+    final connector = WalkGraph.connectorFor(label.name);
+    if (connector == null) {
+      _toast('该建筑尚无可用的道路接点，请结合现场入口通行');
+      return;
+    }
+    final target = WalkGraph.nodeAt(connector);
+    final route = WalkGraph.route(start, target, toNode: connector);
     if (route == null) {
       _toast('没找到可走的路线');
       return;
@@ -626,13 +699,56 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
       ),
       math.max(_zoom, 17.2),
     );
-    _toast('步行 ${route.distanceText} · ${route.durationText}');
+    _toast(
+      WalkGraph.hasApproximateConnector(label.name)
+          ? '已导航至附近道路，建筑入口请现场确认 · ${route.distanceText}'
+          : '步行 ${route.distanceText} · ${route.durationText}',
+    );
   }
 
   // ---------------------------------------------------------------- 路线采集
 
   /// 开始记录前先选步行还是骑行。
   Future<void> _chooseTraceMode() async {
+    if (_traceBusy || _draftLoading) return;
+    if (_trace.isNotEmpty) {
+      final action = await showDialog<String>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          title: Text('恢复未完成记录（${_trace.length} 个点）'),
+          children: [
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, 'resume'),
+              child: const Text('继续记录'),
+            ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, 'save'),
+              child: const Text('保存这一段'),
+            ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, 'discard'),
+              child: const Text('丢弃草稿'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || action == null) return;
+      if (action == 'resume') return _startTrace(_traceMode, resume: true);
+      if (action == 'save') return _stopTrace();
+      try {
+        await MapTraces.clearDraft();
+      } catch (_) {
+        _toast('草稿清除失败，请检查存储空间后重试');
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _trace.clear();
+        _traceSamples.clear();
+        _traceStartedAt = null;
+        _savedDraftPoints = 0;
+      });
+    }
     final mode = await showDialog<TraceMode>(
       context: context,
       builder: (dialogContext) => SimpleDialog(
@@ -661,20 +777,53 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
         ],
       ),
     );
-    if (mode == null) return;
+    if (mode == null || !mounted) return;
     await _startTrace(mode);
   }
 
-  Future<void> _startTrace(TraceMode mode) async {
-    if (_recording) return;
-    _traceMode = mode;
-    setState(() {
-      _recording = true;
-      _trace.clear();
-      _traceStartedAt = DateTime.now();
-      _route = null;
-    });
+  Future<void> _startTrace(TraceMode mode, {bool resume = false}) async {
+    if (_recording || _traceBusy) return;
+    setState(() => _traceBusy = true);
+    final generation = ++_traceGeneration;
     try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (!mounted) return;
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        _toast('未授予定位权限，无法记录路线；已有草稿会保留');
+        return;
+      }
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        _toast('请先开启系统定位服务');
+        return;
+      }
+      if (!mounted) return;
+      if (generation != _traceGeneration) return;
+      final sampler = TraceSampler(mode);
+      var checkResumePoint = resume && _trace.isNotEmpty;
+      setState(() {
+        _recording = true;
+        _traceMode = mode;
+        if (!resume) {
+          _trace.clear();
+          _traceSamples.clear();
+          _savedDraftPoints = 0;
+          _traceStartedAt = DateTime.now();
+        }
+        _route = null;
+      });
+      _traceUiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        if (mounted && _recording && _traceDirty) {
+          setState(() => _traceDirty = false);
+        }
+      });
+      _traceSaveTimer = Timer.periodic(
+        const Duration(seconds: 5),
+        (_) => unawaited(_persistTraceDraft()),
+      );
       _traceSubscription =
           Geolocator.getPositionStream(
             locationSettings: const LocationSettings(
@@ -683,55 +832,111 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
             ),
           ).listen(
             (p) {
-              if (!_recording) return;
+              if (!mounted || !_recording || generation != _traceGeneration) {
+                return;
+              }
               final point = LatLng(p.latitude, p.longitude);
-              if (_trace.isEmpty ||
-                  _distance.as(LengthUnit.Meter, _trace.last, point) > 2) {
-                setState(() => _trace.add(point));
+              if (!sampler.accept(point, p.timestamp, p.accuracy)) return;
+              if (checkResumePoint) {
+                checkResumePoint = false;
+                if (_distance.as(LengthUnit.Meter, _trace.last, point) > 100) {
+                  unawaited(_pauseTrace());
+                  _toast('当前位置离草稿末点较远，请先保存这一段再开始新路线');
+                  return;
+                }
+              }
+              _trace.add(point);
+              _traceSamples.add((at: p.timestamp, accuracy: p.accuracy));
+              _traceDirty = true;
+              if (_trace.length >= 20000) {
+                unawaited(_pauseTrace());
+                _toast('本段已达到 20000 个点，已暂停，请先保存这一段');
               }
             },
-            onError: (_) {},
-            cancelOnError: false,
+            onError: (Object _) {
+              if (!mounted || generation != _traceGeneration) return;
+              unawaited(_pauseTrace());
+              _toast('定位中断，已保留草稿；恢复定位后可继续记录');
+            },
+            onDone: () {
+              if (mounted && _recording && generation == _traceGeneration) {
+                unawaited(_pauseTrace());
+                _toast('定位已停止，已保留草稿');
+              }
+            },
+            cancelOnError: true,
           );
       _toast('开始记录路线，走完再点一次停止');
     } catch (_) {
-      setState(() => _recording = false);
+      await _pauseTrace();
       _toast('无法开始记录，请检查定位权限');
+    } finally {
+      if (mounted) setState(() => _traceBusy = false);
+    }
+  }
+
+  Future<void> _pauseTrace() async {
+    _traceGeneration++;
+    _recording = false;
+    _traceUiTimer?.cancel();
+    _traceSaveTimer?.cancel();
+    final subscription = _traceSubscription;
+    _traceSubscription = null;
+    if (mounted) setState(() {});
+    final cancelled = subscription?.cancel();
+    await _persistTraceDraft();
+    // 草稿先落盘，原生定位服务的资源回收不能无限阻塞保存界面。
+    if (cancelled != null) {
+      try {
+        await cancelled.timeout(const Duration(seconds: 2));
+      } catch (_) {
+        debugPrint('Location cleanup delayed; trace already paused and saved.');
+      }
     }
   }
 
   Future<void> _stopTrace() async {
-    await _traceSubscription?.cancel();
-    _traceSubscription = null;
-    final points = List<LatLng>.from(_trace);
-    final startedAt = _traceStartedAt ?? DateTime.now();
-    setState(() {
-      _recording = false;
-      _trace.clear();
-      _traceStartedAt = null;
-    });
+    if (_traceBusy) return;
+    setState(() => _traceBusy = true);
+    try {
+      await _pauseTrace();
+      if (!mounted) return;
+      final points = List<LatLng>.from(_trace);
+      final startedAt = _traceStartedAt ?? DateTime.now();
+      if (points.length < 3) {
+        _toast('轨迹不足 3 个点，已保留草稿，可继续记录或丢弃');
+        return;
+      }
 
-    if (points.length < 3) {
-      _toast('轨迹太短，没有保存');
-      return;
+      final from = await _pickBuilding('这次从哪里出发？', points.first);
+      if (from == null || !mounted) return;
+      final to = await _pickBuilding('走到哪栋楼？', points.last);
+      if (to == null || !mounted) return;
+
+      await MapTraces.add(
+        MapTrace(
+          fromName: from.name,
+          toName: to.name,
+          points: points,
+          samples: List.of(_traceSamples),
+          startedAt: startedAt,
+          mode: _traceMode,
+        ),
+      );
+      await MapTraces.clearDraft();
+      if (!mounted) return;
+      setState(() {
+        _trace.clear();
+        _traceSamples.clear();
+        _traceStartedAt = null;
+        _savedDraftPoints = 0;
+      });
+      _toast('已保存：${from.name} → ${to.name}（${points.length} 个点）');
+    } catch (_) {
+      _toast('保存失败，当前记录仍保留，请检查存储空间后重试');
+    } finally {
+      if (mounted) setState(() => _traceBusy = false);
     }
-
-    final from = await _pickBuilding('这次从哪里出发？', points.first);
-    if (from == null) return;
-    final to = await _pickBuilding('走到哪栋楼？', points.last);
-    if (to == null) return;
-
-    await MapTraces.add(
-      MapTrace(
-        fromName: from.name,
-        toName: to.name,
-        points: points,
-        startedAt: startedAt,
-        mode: _traceMode,
-      ),
-    );
-    if (!mounted) return;
-    _toast('已保存：${from.name} → ${to.name}（${points.length} 个点）');
   }
 
   /// 轨迹端点吸附：按距离列出最近的几栋楼，让用户确认起终点。
@@ -1018,7 +1223,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                 top: 108,
                 child: _buildSearchResults(),
               ),
-            if (_recording)
+            if (_recording || _trace.isNotEmpty)
               Positioned(
                 left: 0,
                 right: 0,
@@ -1035,7 +1240,9 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        '记录中（${_traceMode.label}）· ${_trace.length} 个点 · 再点一次停止',
+                        _recording
+                            ? '记录中（${_traceMode.label}）· ${_trace.length} 个点 · 再点一次停止'
+                            : '已暂停 · ${_trace.length} 个点 · 点录制按钮继续或保存',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -1087,7 +1294,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
         onLongPress: (_, point) => _handleMapLongPress(point),
       ),
       children: <Widget>[
-        OverlayImageLayer(overlayImages: _baseOverlays),
+        const CampusTileLayer(),
         if (_userLocation != null && (_accuracyMeters ?? 0) > 0)
           CircleLayer(
             circles: <CircleMarker>[
@@ -1106,7 +1313,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           PolylineLayer(
             polylines: <Polyline>[
               Polyline(
-                points: _route!.points,
+                points: _route!.points.map(MapCalibration.apply).toList(),
                 strokeWidth: 4,
                 color: AppColors.usstRed,
                 borderStrokeWidth: 1.5,
@@ -1118,7 +1325,7 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           PolylineLayer(
             polylines: <Polyline>[
               Polyline(
-                points: _trace,
+                points: _trace.map(MapCalibration.apply).toList(),
                 strokeWidth: 4,
                 color: const Color(0xFF1565C0),
               ),
@@ -1334,7 +1541,10 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
           backgroundColor: _recording ? AppColors.usstRed : Colors.white,
           foregroundColor: _recording ? Colors.white : AppColors.textPrimary,
           elevation: 3,
-          onPressed: _recording ? _stopTrace : _chooseTraceMode,
+          tooltip: _recording ? '停止并保存路线' : '记录或恢复路线',
+          onPressed: _traceBusy || _draftLoading
+              ? null
+              : (_recording ? _stopTrace : _chooseTraceMode),
           child: Icon(
             _recording ? Icons.stop : Icons.radio_button_checked,
             size: 20,
@@ -1343,9 +1553,16 @@ class _MapPageState extends State<MapPage> with TickerProviderStateMixin {
         const SizedBox(height: 10),
         GestureDetector(
           // 长按定位键进入定位诊断（隐藏入口，不打扰日常使用）
-          onLongPress: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const MapDiagnosticsPage()),
-          ),
+          onLongPress: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const MapDiagnosticsPage(),
+              ),
+            );
+            if (mounted && _rawFix != null) {
+              setState(() => _userLocation = MapCalibration.apply(_rawFix!));
+            }
+          },
           child: FloatingActionButton.small(
             heroTag: 'map-locate',
             backgroundColor: Colors.white,

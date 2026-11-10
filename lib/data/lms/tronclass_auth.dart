@@ -9,7 +9,10 @@ import '../auth/jwgl_auth.dart';
 
 /// 一网畅学（Tronclass）静默登录：复用教务 CAS 会话走 Keycloak 的 CAS broker。
 class TronclassAuth {
-  TronclassAuth._();
+  TronclassAuth._() : _jwgl = JwglAuth.instance;
+  TronclassAuth.forTesting(this._jwgl);
+  final JwglAuth _jwgl;
+  final _inFlight = Expando<Future<bool>>();
 
   static final TronclassAuth instance = TronclassAuth._();
 
@@ -22,23 +25,40 @@ class TronclassAuth {
   List<CasCookie> _cookies = <CasCookie>[];
   DateTime? _validatedAt;
   String? _validatedUser;
+  CasClient? _validatedClient;
 
   /// 同一个刷新流程里会被调用多次；15 秒内不重复探 1906。
   static const Duration _sessionTtl = Duration(seconds: 15);
 
   List<CasCookie> get cookies => List<CasCookie>.unmodifiable(_cookies);
 
-  CasClient? get client => JwglAuth.instance.client;
+  CasClient? get client => _jwgl.client;
 
   /// 静默登录；成功返回 true。
-  Future<bool> ensureLoggedIn() async {
-    final jwgl = JwglAuth.instance;
+  Future<bool> ensureLoggedIn() {
+    final current = client;
+    if (current == null) return Future.value(false);
+    final pending = _inFlight[current];
+    if (pending != null) return pending;
+    late final Future<bool> operation;
+    operation = _ensureLoggedIn().whenComplete(() {
+      if (identical(_inFlight[current], operation)) _inFlight[current] = null;
+    });
+    _inFlight[current] = operation;
+    return operation;
+  }
+
+  Future<bool> _ensureLoggedIn() async {
+    final jwgl = _jwgl;
+    final user = jwgl.studentId;
+    bool current() => user != null && jwgl.studentId == user;
     if (!jwgl.isLoggedIn) {
       return false;
     }
     final checkedAt = _validatedAt;
     if (checkedAt != null &&
         _validatedUser == jwgl.studentId &&
+        identical(_validatedClient, jwgl.client) &&
         DateTime.now().difference(checkedAt) < _sessionTtl) {
       return true;
     }
@@ -49,6 +69,7 @@ class TronclassAuth {
     }
     // 第一次失败时后台强制重登教务，再试一次，尽量不让用户手动点
     for (var attempt = 0; attempt < 2; attempt++) {
+      if (!current()) return false;
       final casClient = jwgl.client;
       if (casClient == null) {
         return false;
@@ -58,18 +79,19 @@ class TronclassAuth {
         // /login 是 800KB+ 的 SPA 页面，每次刷新都拉一遍非常拖慢，能省就省。
         if (casClient.jar.cookiesForHost(host).isNotEmpty) {
           if (await _probe(casClient)) {
-            return await _cacheCookies(casClient);
+            return await _cacheCookies(casClient, user);
           }
         }
         // 没有 cookie 或已经失效，才走 /login 让 Keycloak/CAS 完成认证
         await casClient.getJson(Uri.parse('https://$host/login'));
         if (await _probe(casClient)) {
-          return await _cacheCookies(casClient);
+          return await _cacheCookies(casClient, user);
         }
       } catch (_) {
         // 继续重试
       }
       if (attempt == 0) {
+        if (!current()) return false;
         final ok = await jwgl.reauthenticate();
         if (!ok) return false;
       }
@@ -93,10 +115,14 @@ class TronclassAuth {
     }
   }
 
-  Future<bool> _cacheCookies(CasClient client) async {
+  Future<bool> _cacheCookies(CasClient client, String? user) async {
+    if (user != _jwgl.studentId || !identical(client, _jwgl.client)) {
+      return false;
+    }
     _cookies = client.jar.cookiesForHost(host);
     _validatedAt = DateTime.now();
-    _validatedUser = JwglAuth.instance.studentId;
+    _validatedUser = user;
+    _validatedClient = client;
     await _save();
     return _cookies.isNotEmpty;
   }
@@ -122,7 +148,7 @@ class TronclassAuth {
   /// 合并 CAS 与一网畅学本身的 Cookie，供内嵌 WebView 注入使用。
   Future<List<CasCookie>> getMergedCookies() async {
     final tronclass = await loadCookies();
-    final cas = JwglAuth.instance.client?.jar.cookies ?? const <CasCookie>[];
+    final cas = _jwgl.client?.jar.cookies ?? const <CasCookie>[];
     final cookies = <CasCookie>[];
     final seen = <String>{};
     for (final cookie in <CasCookie>[...cas, ...tronclass]) {

@@ -149,8 +149,7 @@ class _ChaoxingHomeworkPageState extends State<ChaoxingHomeworkPage> {
             final attachments = payload.attachments
                 .map(
                   (a) => ChaoxingAttachment(
-                    name: a.name,
-                    bytes: a.bytes,
+                    file: a.upload,
                     isVideo: a.isVideo,
                     isFile: a.kind == SubmitKind.file,
                   ),
@@ -161,6 +160,9 @@ class _ChaoxingHomeworkPageState extends State<ChaoxingHomeworkPage> {
               detail.questions.first,
               text: payload.text,
               attachments: attachments,
+              cancelToken: payload.cancelToken,
+              onProgress: payload.onProgress,
+              onSubmitting: payload.onSubmitting,
             );
           },
         ),

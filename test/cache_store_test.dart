@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -57,7 +58,28 @@ void main() {
       CacheStore.directoryOverride = null;
       CacheStore.clearMemory();
       if (await tempDir.exists()) {
-        await tempDir.delete(recursive: true);
+        for (var attempt = 0; ; attempt++) {
+          try {
+            await tempDir.delete(recursive: true);
+            break;
+          } on FileSystemException catch (error) {
+            // Windows can briefly retain sharing locks on completed test files.
+            // Directory-not-empty is retried only when no files remain.
+            final code = error.osError?.errorCode;
+            if (!Platform.isWindows ||
+                (code != 32 && code != 145) ||
+                attempt >= 2 ||
+                (code == 145 &&
+                    await tempDir
+                        .list(recursive: true)
+                        .any((entry) => entry is File))) {
+              rethrow;
+            }
+            await Future<void>.delayed(
+              Duration(milliseconds: 100 * (attempt + 1)),
+            );
+          }
+        }
       }
     });
 
@@ -81,6 +103,70 @@ void main() {
 
     test('没写过的 key 返回 null', () async {
       expect(await CacheStore.read('never'), isNull);
+    });
+
+    test('编码写入和删除在途时，读取等待最新磁盘状态', () async {
+      await CacheStore.write('ordered', 'old');
+      final gate = Completer<Directory>();
+      CacheStore.directoryOverride = () => gate.future;
+      final writing = CacheStore.writeEncoded(
+        'ordered',
+        CacheStore.encode('new', DateTime.now()),
+      );
+      final reading = CacheStore.read('ordered');
+      gate.complete(tempDir);
+      await writing;
+      expect((await reading)?.data, 'new');
+      final removing = CacheStore.remove('ordered');
+      expect(await CacheStore.read('ordered'), isNull);
+      await removing;
+    });
+
+    test('要求持久化的写入失败不能留下一份虚假的内存快照', () async {
+      await CacheStore.write('durable', 'old');
+      CacheStore.directoryOverride = () async =>
+          throw const FileSystemException('disk unavailable');
+      await expectLater(
+        CacheStore.write('durable', 'unsaved', requirePersistence: true),
+        throwsA(isA<FileSystemException>()),
+      );
+      CacheStore.directoryOverride = () async => tempDir;
+      expect((await CacheStore.read('durable'))?.data, 'old');
+    });
+
+    test('旧写入失败不会清除排队中的新快照', () async {
+      final gate = Completer<Directory>();
+      CacheStore.directoryOverride = () => gate.future;
+      final failed = CacheStore.write(
+        'race',
+        'failed',
+        requirePersistence: true,
+      );
+      final assertion = expectLater(
+        failed,
+        throwsA(isA<FileSystemException>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+      final next = CacheStore.write('race', 'new', requirePersistence: true);
+      CacheStore.directoryOverride = () async => tempDir;
+      gate.completeError(const FileSystemException('disk unavailable'));
+      await assertion;
+      await next;
+      expect((await CacheStore.read('race'))?.data, 'new');
+      CacheStore.clearMemory();
+      expect((await CacheStore.read('race'))?.data, 'new');
+    });
+
+    test('要求持久化的删除失败会报告错误且保留磁盘原件', () async {
+      await CacheStore.write('remove_failed', 'keep');
+      CacheStore.directoryOverride = () async =>
+          throw const FileSystemException('disk unavailable');
+      await expectLater(
+        CacheStore.remove('remove_failed', requirePersistence: true),
+        throwsA(isA<FileSystemException>()),
+      );
+      CacheStore.directoryOverride = () async => tempDir;
+      expect((await CacheStore.read('remove_failed'))?.data, 'keep');
     });
 
     test('LRU 内存容量限制生效，超出时淘汰最久未访问条目', () async {

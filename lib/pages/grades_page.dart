@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'dart:async';
+
 import '../app_theme.dart';
 import '../data/auth/jwgl_auth.dart';
+import '../data/auth/cas_client.dart';
 import '../data/date_format.dart';
 import '../data/jwc/grade_api.dart';
 import '../data/jwc/grade_repository.dart';
@@ -18,6 +21,7 @@ class GradesPage extends StatefulWidget {
 class _GradesPageState extends State<GradesPage> {
   GradeSnapshot? _snapshot;
   bool _loading = false;
+  int _generation = 0;
 
   /// 失败原因。之前没有这个字段，请求失败会和「还没有成绩数据」长得一模一样。
   String? _error;
@@ -56,6 +60,10 @@ class _GradesPageState extends State<GradesPage> {
       return;
     }
     final auth = JwglAuth.instance;
+    final generation = ++_generation;
+    final username = auth.studentId;
+    bool current() =>
+        mounted && generation == _generation && auth.studentId == username;
     if (!auth.isLoggedIn) {
       if (!silent) {
         _toast('请先登录教务系统');
@@ -68,6 +76,7 @@ class _GradesPageState extends State<GradesPage> {
     });
     try {
       final ok = await auth.ensureSession();
+      if (!current()) return;
       if (!ok) {
         if (mounted) {
           const message = '登录已过期，请回「我的」重新登录';
@@ -78,8 +87,9 @@ class _GradesPageState extends State<GradesPage> {
         }
         return;
       }
-      final snapshot = await GradeRepository.refresh(auth.client!);
-      if (!mounted) {
+      final client = auth.client!;
+      final snapshot = await GradeRepository.refresh(client);
+      if (!current()) {
         return;
       }
       setState(() {
@@ -89,8 +99,9 @@ class _GradesPageState extends State<GradesPage> {
           _term = null;
         }
       });
+      unawaited(_loadDetails(client, snapshot, generation));
     } catch (_) {
-      if (mounted) {
+      if (current()) {
         // 静默刷新失败也要留下错误状态，否则界面会显示成「还没有成绩数据」
         const message = '成绩更新失败，请稍后重试';
         setState(() => _error = message);
@@ -99,9 +110,27 @@ class _GradesPageState extends State<GradesPage> {
         }
       }
     } finally {
-      if (mounted) {
+      if (current()) {
         setState(() => _loading = false);
       }
+    }
+  }
+
+  Future<void> _loadDetails(
+    CasClient client,
+    GradeSnapshot snapshot,
+    int generation,
+  ) async {
+    try {
+      final enriched = await GradeRepository.enrich(client, snapshot);
+      if (mounted &&
+          generation == _generation &&
+          identical(JwglAuth.instance.client, client) &&
+          identical(_snapshot, snapshot)) {
+        setState(() => _snapshot = enriched);
+      }
+    } catch (e) {
+      debugPrint('[grades] 分项稍后加载，总评仍可用: $e');
     }
   }
 

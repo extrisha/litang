@@ -27,9 +27,12 @@ class _PdfPreviewPageState extends State<PdfPreviewPage> {
 
   Future<void> _load() async {
     try {
-      _controller = PdfControllerPinch(
-        document: PdfDocument.openFile(widget.path),
-      );
+      final document = await PdfDocument.openFile(widget.path);
+      if (!mounted) {
+        await document.close();
+        return;
+      }
+      _controller = PdfControllerPinch(document: Future.value(document));
       if (mounted) {
         setState(() {});
       }

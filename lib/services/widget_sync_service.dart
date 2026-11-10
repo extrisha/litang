@@ -1,9 +1,10 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 
-import '../data/auth/jwgl_auth.dart';
+import '../data/auth/session_store.dart';
 import '../data/calendar/calendar_service.dart';
 import '../data/chaoxing/chaoxing_cache.dart';
 import '../data/date_format.dart';
@@ -12,14 +13,95 @@ import '../data/jwc/jwgl_schedule.dart';
 import '../data/life_cache.dart';
 import '../data/lms/todo_api.dart';
 import '../data/models.dart';
-import '../pages/life/widgets/life_todo_card.dart';
+import '../data/course_name.dart';
 import '../pages/today/models/course_theme.dart';
 import 'weather_service.dart';
 
 /// 桌面小组件课表与天气数据同步服务
 class WidgetSyncService {
-  WidgetSyncService._();
-  static final WidgetSyncService instance = WidgetSyncService._();
+  WidgetSyncService({
+    this.identityLoader,
+    this.weatherLoader,
+    this.saveData,
+    this.notifyWidget,
+  });
+  static final WidgetSyncService instance = WidgetSyncService();
+  final Future<String> Function()? identityLoader;
+  final Future<WeatherSummary> Function(bool force)? weatherLoader;
+  final Future<void> Function(String key, Object? value)? saveData;
+  final Future<void> Function()? notifyWidget;
+  int _requested = 0;
+  int _publishedGeneration = 0;
+  Future<void>? _localInFlight;
+  Future<void>? _weatherInFlight;
+
+  Future<String> _identity() =>
+      identityLoader?.call() ?? SessionStore().loadUsername();
+  Future<void> _write<T>(String key, T value) async {
+    if (saveData != null) {
+      await saveData!(key, value);
+    } else {
+      await HomeWidget.saveWidgetData<T>(key, value);
+    }
+  }
+
+  Future<void> _save<T>(String key, T value) async {
+    if (_publishedGeneration != _requested) throw const _StaleWidgetUpdate();
+    await _write<T>(key, value);
+  }
+
+  Future<void> _notify() async {
+    if (notifyWidget != null) {
+      await notifyWidget!();
+    } else {
+      await HomeWidget.updateWidget(
+        name: androidWidgetProvider,
+        androidName: androidWidgetProvider,
+      );
+    }
+  }
+
+  /// Local data publishes first. Background entry points can keep their isolate
+  /// alive for the independently bounded weather update.
+  Future<void> syncTodayWidget({
+    bool forceWeather = false,
+    bool awaitWeather = false,
+  }) async {
+    _requested++;
+    _localInFlight ??= _drainLocal().whenComplete(() => _localInFlight = null);
+    final local = _localInFlight!;
+    await local;
+    _weatherInFlight ??= _syncWeather(forceWeather)
+        .whenComplete(() => _weatherInFlight = null);
+    if (awaitWeather) await _weatherInFlight;
+  }
+
+  Future<void> _drainLocal() async {
+    var completed = -1;
+    while (completed != _requested) {
+      final generation = _requested;
+      await _syncLocal(generation);
+      completed = generation;
+    }
+  }
+
+  Future<void> _syncWeather(bool force) async {
+    try {
+      final weather =
+          await (weatherLoader?.call(force) ??
+                  WeatherService.instance.getTodayWeather(forceRefresh: force))
+              .timeout(const Duration(seconds: 8));
+      await _write<bool>('weather_has_rain', weather.hasRainOrSnow);
+      await _write<String>('weather_time_window', weather.rainTimeWindow);
+      await _write<String>('weather_probability', weather.probabilityText);
+      await _write<String>('weather_umbrella_advice', weather.umbrellaAdvice);
+      await _write<String>('weather_temp_range', weather.tempRange);
+      await _write<String>('weather_icon_type', weather.iconType);
+      await _notify();
+    } catch (e) {
+      debugPrint('[WidgetSyncService] 天气稍后更新，保留已发布课表和待办: $e');
+    }
+  }
 
   static const String androidWidgetProvider = 'TodayScheduleWidgetProvider';
 
@@ -34,13 +116,14 @@ class WidgetSyncService {
   ];
 
   /// 同步刷新桌面小组件（获取最新天气、课表/明日预告与待办，并通知 Android RemoteViews 更新）
-  Future<void> syncTodayWidget({bool forceWeather = false}) async {
+  Future<void> _syncLocal(int generation) async {
     try {
       final now = DateTime.now();
+      final username = await _identity();
 
       // 1. 获取当前学期与教学周
       if (CalendarService.instance.calendar == null) {
-        await CalendarService.instance.load();
+        await CalendarService.instance.load(refreshRemote: false);
       }
       final currentWeek = CalendarService.instance.currentWeek ?? 1;
 
@@ -51,7 +134,7 @@ class WidgetSyncService {
       final weekdayText = _weekdays[weekdayIndex.clamp(0, 6)];
 
       // 3. 读取本地课表并筛选今日课程
-      final snapshot = await CourseRepository.loadCache();
+      final snapshot = await CourseRepository.loadCache(username: username);
       final allCourses = snapshot?.courses ?? <Course>[];
       final themeMap = buildCourseThemeMap(allCourses);
 
@@ -139,15 +222,14 @@ class WidgetSyncService {
       }
 
       // 6. 整合待办事项（一网畅学待办 + 学习通作业）
-      final username = JwglAuth.instance.savedUsername;
       final todos =
-          await LifeCache.readTodos(username: username) ??
-          await LifeCache.readTodos(username: '') ??
+          (username.isEmpty
+              ? null
+              : await LifeCache.readTodos(username: username)) ??
           <LmsTodo>[];
 
       final cxData =
-          await ChaoxingCache.read(username) ??
-          await ChaoxingCache.read('') ??
+          (username.isEmpty ? null : await ChaoxingCache.read(username)) ??
           const ChaoxingCacheData(courses: [], works: [], activities: []);
 
       final activeCxWorks = cxData.works
@@ -182,7 +264,7 @@ class WidgetSyncService {
           'name': t.title,
           'period': ddlText,
           'time': ddlText,
-          'room': LifeTodoCard.cleanCourseName(t.courseName),
+          'room': CourseName.clean(t.courseName),
           'teacher': '一网畅学 · ${t.typeLabel}',
           'accentColor': '#1967D2', // 一网畅学经典蓝
           'status': isPast
@@ -196,7 +278,7 @@ class WidgetSyncService {
 
       // 转换学习通作业
       for (final w in activeCxWorks) {
-        final ddl = LifeTodoCard.parseTaskDeadline(w.deadline);
+        final ddl = w.dueAt;
         final diff = ddl?.difference(now);
         final isPast = (diff != null && diff.isNegative) || w.expired;
         final isUrgent = diff != null && !isPast && diff.inHours < 24;
@@ -213,6 +295,8 @@ class WidgetSyncService {
             'courseName': w.courseName,
             'taskUrl': w.taskUrl,
             'deadline': w.deadline,
+            'deadlineAt': w.dueAt?.toIso8601String() ?? '',
+            'fetchedAt': w.fetchedAt?.toIso8601String() ?? '',
             'statusText': w.statusText,
             'expired': w.expired.toString(),
           },
@@ -222,7 +306,7 @@ class WidgetSyncService {
           'name': w.title,
           'period': ddlText,
           'time': ddlText,
-          'room': LifeTodoCard.cleanCourseName(w.courseName),
+          'room': CourseName.clean(w.courseName),
           'teacher': '学习通 · 作业',
           'accentColor': '#A31C1C', // 学习通 / 上理红
           'status': isPast
@@ -239,43 +323,17 @@ class WidgetSyncService {
         (a, b) => (a['deadlineMs'] as int).compareTo(b['deadlineMs'] as int),
       );
 
-      // 7. 获取今日天气与降雨时间段
-      final weather = await WeatherService.instance.getTodayWeather(
-        forceRefresh: forceWeather,
-      );
+      if (generation != _requested) return;
+      if (await _identity() != username) {
+        _requested++;
+        return;
+      }
+      _publishedGeneration = generation;
 
       // 8. 保存数据至 SharedPreferences 供 Android AppWidget 读取
-      await HomeWidget.saveWidgetData<String>('today_week_text', weekText);
-      await HomeWidget.saveWidgetData<String>('today_date_text', dateText);
-      await HomeWidget.saveWidgetData<String>(
-        'today_weekday_text',
-        weekdayText,
-      );
-
-      await HomeWidget.saveWidgetData<bool>(
-        'weather_has_rain',
-        weather.hasRainOrSnow,
-      );
-      await HomeWidget.saveWidgetData<String>(
-        'weather_time_window',
-        weather.rainTimeWindow,
-      );
-      await HomeWidget.saveWidgetData<String>(
-        'weather_probability',
-        weather.probabilityText,
-      );
-      await HomeWidget.saveWidgetData<String>(
-        'weather_umbrella_advice',
-        weather.umbrellaAdvice,
-      );
-      await HomeWidget.saveWidgetData<String>(
-        'weather_temp_range',
-        weather.tempRange,
-      );
-      await HomeWidget.saveWidgetData<String>(
-        'weather_icon_type',
-        weather.iconType,
-      );
+      await _save<String>('today_week_text', weekText);
+      await _save<String>('today_date_text', dateText);
+      await _save<String>('today_weekday_text', weekdayText);
 
       // 准备全学期课程数据供 Android 原生层离线跨天推演
       final currentTerm = CalendarService.instance.calendar?.currentTerm;
@@ -305,56 +363,35 @@ class WidgetSyncService {
       }
 
       // 课表与下一次上课预告
-      await HomeWidget.saveWidgetData<bool>(
-        'schedule_is_tomorrow',
-        daysAhead == 1,
-      );
-      await HomeWidget.saveWidgetData<int>('schedule_days_ahead', daysAhead);
-      await HomeWidget.saveWidgetData<String>(
-        'schedule_title_text',
-        scheduleTitle,
-      );
-      await HomeWidget.saveWidgetData<int>(
-        'schedule_count',
-        displayCourses.length,
-      );
-      await HomeWidget.saveWidgetData<String>(
-        'courses_json',
-        jsonEncode(courseListJson),
-      );
+      await _save<bool>('schedule_is_tomorrow', daysAhead == 1);
+      await _save<int>('schedule_days_ahead', daysAhead);
+      await _save<String>('schedule_title_text', scheduleTitle);
+      await _save<int>('schedule_count', displayCourses.length);
+      await _save<String>('courses_json', jsonEncode(courseListJson));
 
       // 原生离线跨天推演数据
       if (week1MondayStr.isNotEmpty) {
-        await HomeWidget.saveWidgetData<String>(
-          'semester_week1_monday',
-          week1MondayStr,
-        );
-        await HomeWidget.saveWidgetData<int>(
-          'semester_total_weeks',
-          totalWeeks,
-        );
-        await HomeWidget.saveWidgetData<String>(
+        await _save<String>('semester_week1_monday', week1MondayStr);
+        await _save<int>('semester_total_weeks', totalWeeks);
+        await _save<String>(
           'semester_all_courses_json',
           jsonEncode(semesterAllCoursesList),
         );
       }
 
       // 待办作业
-      await HomeWidget.saveWidgetData<int>('todo_count', todoListJson.length);
-      await HomeWidget.saveWidgetData<String>(
-        'todos_json',
-        jsonEncode(todoListJson),
-      );
+      await _save<int>('todo_count', todoListJson.length);
+      await _save<String>('todos_json', jsonEncode(todoListJson));
 
       // 9. 通知原生组件更新
-      await HomeWidget.updateWidget(
-        name: androidWidgetProvider,
-        androidName: androidWidgetProvider,
-      );
+      if (generation != _requested) return;
+      await _notify();
 
       debugPrint(
         '[WidgetSyncService] 桌面小组件已同步刷新 (课表数: ${displayCourses.length}, 标题: $scheduleTitle, 待办数: ${todoListJson.length})',
       );
+    } on _StaleWidgetUpdate {
+      // A newer request will publish from the serialized local refresh loop.
     } catch (e, stack) {
       debugPrint('[WidgetSyncService] 刷新小组件失败: $e\n$stack');
     }
@@ -435,4 +472,8 @@ class WidgetSyncService {
     }
     return '剩 ${diff.inDays} 天';
   }
+}
+
+class _StaleWidgetUpdate implements Exception {
+  const _StaleWidgetUpdate();
 }

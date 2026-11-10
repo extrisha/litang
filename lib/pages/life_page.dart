@@ -21,12 +21,16 @@ import '../data/jwc/course_repository.dart';
 import '../data/life_cache.dart';
 import '../data/lms/rollcall_api.dart';
 import '../data/lms/course_info_cache.dart';
+import '../data/lms/course_visit_history.dart';
 import '../data/lms/todo_api.dart';
 import '../data/lms/tronclass_auth.dart';
+import '../data/request_guard.dart';
 import '../services/dorm_electricity_service.dart';
 import '../services/reminder_service.dart';
 import 'chaoxing_homework_page.dart';
+import 'chaoxing_course_detail_page.dart';
 import 'chaoxing_login_page.dart';
+import 'course_detail_page.dart';
 import 'homework_page.dart';
 import 'tron_exam_detail_page.dart';
 import 'life/widgets/dorm_electricity_card.dart';
@@ -65,10 +69,17 @@ class _LifePageState extends State<LifePage> {
   bool _coursesLoading = false;
   String? _coursesError;
   List<LmsCourseInfo> _courseInfos = const <LmsCourseInfo>[];
+  List<String> _recentCourseIds = const <String>[];
+  final RequestGuard _coursesGuard = RequestGuard();
+  final RequestGuard _lifeGuard = RequestGuard();
+  final RequestGuard _rollcallsGuard = RequestGuard();
+  String? _courseRequestKey;
 
   // 学习通
   /// 学习通请求是否在途（纯互斥锁，不参与渲染）
   bool _cxLoading = false;
+  final RequestGuard _cxGuard = RequestGuard();
+  String? _cxRequestUser;
   String? _cxError;
   List<ChaoxingCourse> _cxCourses = const <ChaoxingCourse>[];
   List<ChaoxingActivity> _cxActivities = const <ChaoxingActivity>[];
@@ -100,6 +111,10 @@ class _LifePageState extends State<LifePage> {
 
   @override
   void dispose() {
+    _cxGuard.invalidate();
+    _coursesGuard.invalidate();
+    _lifeGuard.invalidate();
+    _rollcallsGuard.invalidate();
     JwglAuth.instance.removeListener(_onAuthChanged);
     super.dispose();
   }
@@ -112,11 +127,17 @@ class _LifePageState extends State<LifePage> {
       return;
     }
     _lastAuthStudentId = id;
+    _cxGuard.invalidate();
+    _coursesGuard.invalidate();
+    _lifeGuard.invalidate();
+    _rollcallsGuard.invalidate();
+    _rollcallsRefreshing = false;
     if (!mounted || !_bootstrapped) {
       return;
     }
     setState(() {
       _courseInfos = const <LmsCourseInfo>[];
+      _recentCourseIds = const <String>[];
       _timetableNames.clear();
       _timetableTeachers.clear();
       _cxCourses = const <ChaoxingCourse>[];
@@ -214,14 +235,23 @@ class _LifePageState extends State<LifePage> {
 
   Future<void> _refreshRollcallsOnly() async {
     if (_rollcallsRefreshing) return;
+    final auth = JwglAuth.instance;
+    final request = _rollcallsGuard.begin();
+    final username = auth.savedUsername;
+    bool current() =>
+        mounted &&
+        _rollcallsGuard.isCurrent(request) &&
+        auth.savedUsername == username;
     setState(() => _rollcallsRefreshing = true);
     try {
-      final auth = JwglAuth.instance;
       if (auth.isLoggedIn && auth.client != null) {
         try {
           await TronclassAuth.instance.ensureLoggedIn();
-          final rc = await RollcallApi(auth.client!).fetchOngoing();
-          if (mounted) {
+          if (!current()) return;
+          final client = auth.client;
+          if (client == null) return;
+          final rc = await RollcallApi(client).fetchOngoing();
+          if (current() && identical(client, auth.client)) {
             setState(() {
               _rollcalls = rc;
               _error = null;
@@ -230,7 +260,7 @@ class _LifePageState extends State<LifePage> {
         } catch (e) {
           // 以前这里用 `catch (_) {}` 静默吞掉，用户点刷新后完全没反馈。
           debugPrint('[rollcall] 刷新失败: $e');
-          if (mounted) {
+          if (current()) {
             setState(() {
               // 接口层已经能区分「登录失效 / 网络失败」，直接用它的人话文案
               _error = e is AppException ? e.message : '签到信息拉取失败，请稍后重试';
@@ -238,9 +268,10 @@ class _LifePageState extends State<LifePage> {
           }
         }
       }
+      if (!current()) return;
       await _refreshChaoxing(withWorks: false, autoLogin: true);
     } finally {
-      if (mounted) {
+      if (current()) {
         setState(() => _rollcallsRefreshing = false);
       }
     }
@@ -523,21 +554,31 @@ class _LifePageState extends State<LifePage> {
     bool autoLogin = false,
     bool allowVisibleFallback = true,
   }) async {
-    if (_cxLoading) {
+    final cacheUser = JwglAuth.instance.savedUsername;
+    if (_cxLoading && _cxRequestUser == cacheUser) {
       return;
     }
+    final request = _cxGuard.begin();
+    _cxRequestUser = cacheUser;
+    bool current() =>
+        mounted &&
+        _cxGuard.isCurrent(request) &&
+        JwglAuth.instance.savedUsername == cacheUser;
+    if (!current()) return;
     // 纯互斥锁：没有接到任何 UI 上，不能走 setState（否则每学习通刷新都白重建整页）
     _cxLoading = true;
     setState(() {
       _cxError = null;
     });
-    final cacheUser = JwglAuth.instance.savedUsername;
     if (cacheUser.isNotEmpty && JwglAuth.instance.isLoggedIn) {
       final cached = await ChaoxingCache.read(cacheUser);
-      if (mounted &&
+      if (current() &&
           cached != null &&
           JwglAuth.instance.savedUsername == cacheUser) {
         setState(() {
+          if (cached.failedCourses.isNotEmpty) {
+            _cxError = '上次部分课程未更新：${cached.failedCourses.join('、')}（保留旧数据）';
+          }
           if (_cxCourses.isEmpty && cached.courses.isNotEmpty) {
             _cxCourses = cached.courses;
           }
@@ -555,6 +596,7 @@ class _LifePageState extends State<LifePage> {
       // 本地 cookie → 教务 CAS 静默 SSO，两者都不弹界面。
       // 以前这里会在 cookie 失效时直接叫出网页登录，现在先让 SSO 试一次。
       var ready = await auth.ensureSession();
+      if (!current()) return;
       final cas = JwglAuth.instance.client;
       if (!ready && autoLogin && cas != null) {
         // CAS 也换不到（多半是教务会话过期），退回网页登录。
@@ -568,11 +610,9 @@ class _LifePageState extends State<LifePage> {
         }
         ready = ok && auth.isLoggedIn;
       }
-      if (!ready || !mounted) {
-        if (mounted) {
+      if (!ready || !current()) {
+        if (current()) {
           setState(() {
-            _cxActivities = const <ChaoxingActivity>[];
-            _cxWorks = const <ChaoxingWork>[];
             // 别只是清空：清空后待办卡片会显示「暂无待办作业」，
             // 让"没登录上"看起来像"确实没有作业"。
             _cxError = '学习通未登录或登录已过期，点上方按钮重新登录';
@@ -588,6 +628,7 @@ class _LifePageState extends State<LifePage> {
           ? _cxCourses
           : await client.fetchCourses();
       await _ensureCurrentCourseNames();
+      if (!current()) return;
       final currentCourses = _timetableNames.isEmpty
           ? rawCourses
           : rawCourses
@@ -601,15 +642,24 @@ class _LifePageState extends State<LifePage> {
       // 的课程才会有；而课表课程名和超星课程名经常对不上（后缀、简写），
       // 一旦按名字过滤就会把真正进行中的签到静默丢掉。这是「学习通签到
       // 不可用」的另一半原因。
-      final activitiesFuture = client.fetchActivities(rawCourses);
+      final activitiesFuture = client.fetchActivitiesBatch(rawCourses);
       final worksFuture = needWorks
-          ? client.fetchWorks(currentCourses)
-          : Future<List<ChaoxingWork>>.value(_cxWorks);
-      final activities = await activitiesFuture;
-      final works = await worksFuture;
-      if (!mounted) {
+          ? client.fetchWorksBatch(currentCourses)
+          : null;
+      final activityBatch = await activitiesFuture;
+      final workBatch = await worksFuture;
+      if (!current()) {
         return;
       }
+      final activities = activityBatch.merge(
+        _cxActivities,
+        (a) => '${a.courseId}:${a.classId}',
+      );
+      final works = workBatch?.merge(_cxWorks, (w) => w.courseKey) ?? _cxWorks;
+      final failures = {
+        ...activityBatch.failed.values,
+        ...?workBatch?.failed.values,
+      };
       setState(() {
         // 这里必须存**全部**课程：作业过滤只作用于 `currentCourses`，
         // 但下一次刷新签到还要拿全量课程。以前存的是过滤后的列表，
@@ -617,27 +667,44 @@ class _LifePageState extends State<LifePage> {
         _cxCourses = rawCourses;
         _cxActivities = activities;
         _cxWorks = works;
+        _cxError = failures.isEmpty
+            ? null
+            : '部分课程未更新：${failures.join('、')}（保留旧数据）';
       });
       if (cacheUser.isNotEmpty &&
           JwglAuth.instance.savedUsername == cacheUser) {
         unawaited(ChaoxingCache.writeCourses(cacheUser, rawCourses));
-        unawaited(ChaoxingCache.writeActivities(cacheUser, activities));
-        unawaited(ChaoxingCache.writeWorks(cacheUser, works));
+        unawaited(
+          ChaoxingCache.writeActivities(
+            cacheUser,
+            activities,
+            failedCourses: activityBatch.failed.values.toList(),
+          ),
+        );
+        if (workBatch != null) {
+          unawaited(
+            ChaoxingCache.writeWorks(
+              cacheUser,
+              works,
+              failedCourses: workBatch.failed.values.toList(),
+            ),
+          );
+        }
       }
       // 学习通只有「剩余 X 小时」这种相对时间，拉到列表时换算成绝对时间排提醒
-      if (works.isNotEmpty) {
+      if (workBatch != null && current()) {
         await ReminderService.instance.syncChaoxingWorks(works);
       }
       // 自动登录完成后，如果当前正停在学习通课程源，把课程卡片也刷新掉
-      if (_showChaoxingCourses && mounted) {
+      if (_showChaoxingCourses && current()) {
         unawaited(_loadCourses(force: true));
       }
     } catch (e) {
-      if (mounted) {
+      if (current()) {
         setState(() => _cxError = '学习通数据拉取失败，请稍后重试');
       }
     } finally {
-      if (mounted) {
+      if (current()) {
         _cxLoading = false;
       }
     }
@@ -686,10 +753,16 @@ class _LifePageState extends State<LifePage> {
       return;
     }
     setState(() => _loading = true);
+    final requestId = _lifeGuard.begin();
     final requestUser = JwglAuth.instance.savedUsername;
+    bool isCurrent() =>
+        mounted &&
+        _lifeGuard.isCurrent(requestId) &&
+        JwglAuth.instance.savedUsername == requestUser;
     try {
       // 每次刷新前确认一网畅学会话；半失效时内部会自动重登
       await TronclassAuth.instance.ensureLoggedIn();
+      if (!isCurrent()) return;
       final client = auth.client;
       if (client == null) {
         return;
@@ -709,24 +782,19 @@ class _LifePageState extends State<LifePage> {
       String? todosError;
       try {
         final fetched = await LmsApi(client).fetchTodos();
-        // 接口偶发返回空时保留旧数据，避免界面突然「全没了」
-        if (fetched.isNotEmpty || _todos.isEmpty) {
-          todos = fetched;
-        }
+        todos = fetched;
         todosFetched = true;
       } catch (e) {
         todosError = '待办拉取失败：${e.toString().split("\n").first}';
       }
       try {
         final fetched = await LmsApi(client).fetchExams();
-        if (fetched.isNotEmpty || _exams.isEmpty) {
-          exams = fetched;
-        }
+        exams = fetched;
         examsFetched = true;
       } catch (_) {
         // 考试安排失败保留旧数据
       }
-      if (!mounted || JwglAuth.instance.savedUsername != requestUser) {
+      if (!isCurrent()) {
         return;
       }
       // 两个都失败且无数据时给个提示。注意要写进 `_todosError`：
@@ -758,14 +826,14 @@ class _LifePageState extends State<LifePage> {
       // 失败了也不该把整页标成错误。
       unawaited(_syncHomeworkReminders(client, _todos));
     } catch (e) {
-      if (mounted) {
+      if (isCurrent()) {
         setState(() {
           // 接口层已区分「登录失效 / 网络失败 / 解析失败」，直接用它的文案
           _error = e is AppException ? e.message : '签到信息拉取失败，请稍后重试';
         });
       }
     } finally {
-      if (mounted) {
+      if (isCurrent()) {
         setState(() => _loading = false);
       }
     }
@@ -839,12 +907,33 @@ class _LifePageState extends State<LifePage> {
   }
 
   Future<void> _loadCourses({bool force = false}) async {
-    if (_coursesLoading) return;
     final termKey = _currentTerm.isNotEmpty
         ? _currentTerm
         : CalendarService.fallbackTermId();
     final source = _showChaoxingCourses ? 'chaoxing' : 'tronclass';
     final cacheUser = JwglAuth.instance.savedUsername;
+    final requestKey = '$cacheUser|$source|$termKey';
+    if (_courseRequestKey == requestKey && !force) return;
+    _courseRequestKey = requestKey;
+    final requestId = _coursesGuard.begin();
+    bool isCurrent() =>
+        mounted &&
+        _coursesGuard.isCurrent(requestId) &&
+        JwglAuth.instance.savedUsername == cacheUser &&
+        _showChaoxingCourses == (source == 'chaoxing');
+    if (!isCurrent()) return;
+    setState(() {
+      _coursesLoading = true;
+      _coursesError = null;
+    });
+    final recent = await CourseVisitHistory.load(cacheUser, source);
+    if (!isCurrent()) return;
+    _recentCourseIds = recent;
+    if (source == 'chaoxing' && _cxCourses.isEmpty) {
+      final cached = await ChaoxingCache.read(cacheUser);
+      if (!isCurrent()) return;
+      _cxCourses = cached?.courses ?? const <ChaoxingCourse>[];
+    }
     // 缓存优先：有缓存先渲染；缓存过期就不显示加载态、后台静默刷一遍。
     var silent = false;
     if (!force) {
@@ -853,36 +942,34 @@ class _LifePageState extends State<LifePage> {
         source,
         username: cacheUser,
       );
+      if (!isCurrent()) return;
       if (cached != null) {
-        if (mounted) {
-          setState(() {
-            _courseInfos = cached;
-            _coursesError = null;
-          });
-        }
-        if (await CourseInfoCache.isFresh(
+        setState(() {
+          _courseInfos = CourseVisitHistory.sort(cached, _recentCourseIds);
+          _coursesLoading = false;
+          _coursesError = null;
+        });
+        final fresh = await CourseInfoCache.isFresh(
           termKey,
           source,
           username: cacheUser,
-        )) {
+        );
+        if (!isCurrent()) return;
+        if (fresh && (source == 'tronclass' || _cxCourses.isNotEmpty)) {
+          _courseRequestKey = null;
           return;
         }
         silent = true;
       }
     }
-    if (!silent && mounted) {
-      setState(() {
-        _coursesLoading = true;
-        _coursesError = null;
-      });
-    }
     try {
-      if (!_showChaoxingCourses) {
+      if (source == 'tronclass') {
         final auth = JwglAuth.instance;
         if (!auth.isLoggedIn) {
           await auth.restore();
         }
         await TronclassAuth.instance.ensureLoggedIn();
+        if (!isCurrent()) return;
         final client = auth.client;
         if (client == null) {
           if (!silent && mounted) {
@@ -891,6 +978,7 @@ class _LifePageState extends State<LifePage> {
           return;
         }
         final list = await LmsApi(client).fetchCourseInfos();
+        if (!isCurrent()) return;
         final filtered = list
             .where((c) => _isCurrentCourse(c.name, c.termCode))
             .map(
@@ -904,8 +992,13 @@ class _LifePageState extends State<LifePage> {
               ),
             )
             .toList();
-        if (mounted && JwglAuth.instance.savedUsername == cacheUser) {
-          setState(() => _courseInfos = filtered);
+        if (isCurrent()) {
+          setState(
+            () => _courseInfos = CourseVisitHistory.sort(
+              filtered,
+              _recentCourseIds,
+            ),
+          );
           await CourseInfoCache.save(
             termKey,
             source,
@@ -920,7 +1013,7 @@ class _LifePageState extends State<LifePage> {
           await auth.restore();
         }
         if (!await auth.ensureSession()) {
-          if (mounted && !silent) {
+          if (isCurrent() && !silent) {
             setState(() {
               _courseInfos = const <LmsCourseInfo>[];
               _coursesError = hadSession ? '学习通登录已失效' : '学习通未登录';
@@ -928,6 +1021,7 @@ class _LifePageState extends State<LifePage> {
           }
           return;
         }
+        if (!isCurrent()) return;
         final client = auth.client;
         if (client == null) return;
         final courses = _cxCourses.isNotEmpty
@@ -936,6 +1030,7 @@ class _LifePageState extends State<LifePage> {
         // 学习通列表没有 termCode，用本学期课表课程名过滤掉往期课程；
         // 课表/一网畅学都拿不到时才退回全量（至少不误藏当前课程）。
         await _ensureCurrentCourseNames();
+        if (!isCurrent()) return;
         final filtered = courses
             .where(
               (c) =>
@@ -955,22 +1050,32 @@ class _LifePageState extends State<LifePage> {
             .toList();
         // `_cxCourses` 也放进 setState：直接赋值属于构建期外的状态突变，
         // 一旦上面的 await 期间页面被销毁就会留下不一致的状态。
-        if (mounted) {
+        if (isCurrent()) {
           setState(() {
             _cxCourses = courses;
-            _courseInfos = filtered;
+            _courseInfos = CourseVisitHistory.sort(filtered, _recentCourseIds);
           });
+          await CourseInfoCache.save(
+            termKey,
+            source,
+            filtered,
+            username: cacheUser,
+          );
+          await ChaoxingCache.writeCourses(cacheUser, courses);
         }
       }
     } catch (e) {
       // 静默刷新失败就保持缓存内容，不打扰用户
-      if (mounted && !silent) {
+      if (isCurrent() && !silent) {
         setState(() {
           _coursesError = e is AppException ? e.message : '课程信息拉取失败';
         });
       }
     } finally {
-      if (mounted && !silent) setState(() => _coursesLoading = false);
+      if (isCurrent()) {
+        _courseRequestKey = null;
+        setState(() => _coursesLoading = false);
+      }
     }
   }
 
@@ -978,8 +1083,47 @@ class _LifePageState extends State<LifePage> {
     setState(() {
       _showChaoxingCourses = !_showChaoxingCourses;
       _courseInfos = const <LmsCourseInfo>[];
+      _coursesError = null;
     });
     _loadCourses();
+  }
+
+  void _openCourse(LmsCourseInfo course) {
+    final isChaoxing = _showChaoxingCourses;
+    ChaoxingCourse? cxCourse;
+    if (isChaoxing) {
+      final matches = _cxCourses.where((item) => item.courseId == course.id);
+      if (matches.isEmpty) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('正在补全课程信息，请稍后重试')));
+        unawaited(_loadCourses(force: true));
+        return;
+      }
+      cxCourse = matches.first;
+    }
+    final username = JwglAuth.instance.savedUsername;
+    final source = isChaoxing ? 'chaoxing' : 'tronclass';
+    setState(() {
+      _recentCourseIds = CourseVisitHistory.promote(
+        _recentCourseIds,
+        course.id,
+      );
+      _courseInfos = CourseVisitHistory.sort(_courseInfos, _recentCourseIds);
+    });
+    unawaited(CourseVisitHistory.record(username, source, course.id));
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => cxCourse != null
+            ? ChaoxingCourseDetailPage(
+                courseName: course.name,
+                course: cxCourse,
+              )
+            : TronCourseDetailPage(
+                courseName: course.name,
+                courseId: course.id,
+              ),
+      ),
+    );
   }
 
   Future<void> _retryTronclass() async {
@@ -1582,8 +1726,6 @@ class _LifePageState extends State<LifePage> {
                 ),
               ),
               const SizedBox(height: 12),
-              const QuickToolsRow(),
-              const SizedBox(height: 12),
               RollcallCard(
                 rollcalls: _rollcalls,
                 cxActivities: _cxActivities,
@@ -1610,7 +1752,7 @@ class _LifePageState extends State<LifePage> {
               const SizedBox(height: 12),
               LifeCourseCard(
                 courseInfos: _courseInfos,
-                cxCourses: _cxCourses,
+                onOpenCourse: _openCourse,
                 coursesLoading: _coursesLoading,
                 coursesError: _coursesError,
                 showChaoxingCourses: _showChaoxingCourses,
@@ -1630,6 +1772,8 @@ class _LifePageState extends State<LifePage> {
                 onRefresh: () => _loadDormElectricity(force: true),
                 onLogin: _loginThenLoadDorm,
               ),
+              const SizedBox(height: 12),
+              const QuickToolsRow(),
               const SizedBox(height: 12),
               const SportCampusSection(),
             ],

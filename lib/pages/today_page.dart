@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../app_theme.dart';
+import '../data/auth/cas_client.dart';
 import '../data/auth/jwgl_auth.dart';
+import '../data/auth/session_store.dart';
 import '../data/calendar/calendar_service.dart';
 import '../data/campus_places.dart';
 import '../data/jwc/course_repository.dart';
@@ -21,13 +23,33 @@ import 'today/widgets/week_dropdown_panel.dart';
 
 /// 「今日」独立课表主页
 class TodayPage extends StatefulWidget {
-  const TodayPage({super.key});
+  const TodayPage({super.key, this.auth});
+
+  final JwglAuth? auth;
 
   @override
   State<TodayPage> createState() => _TodayPageState();
 }
 
 class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
+  JwglAuth get _auth => widget.auth ?? JwglAuth.instance;
+
+  // 本地账号与网络会话分开；每次加载/账号变化都使旧异步结果失效。
+  String? _account;
+  int _scheduleGeneration = 0;
+  CasClient? _sessionClient;
+
+  String get _authAccount {
+    final saved = _auth.savedUsername.trim();
+    return saved.isNotEmpty ? saved : (_auth.studentId ?? '').trim();
+  }
+
+  bool _isCurrent(int generation, String account) =>
+      mounted &&
+      generation == _scheduleGeneration &&
+      _account == account &&
+      (_authAccount.isEmpty || _authAccount == account);
+
   CourseSnapshot? _snapshot;
   int _selectedWeek = 1;
   bool _showWeekSelector = false;
@@ -68,7 +90,11 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    JwglAuth.instance.addListener(_onAuthChanged);
+    _auth.addListener(_onAuthChanged);
+    CourseRepository.changes.addListener(_onCoursesChanged);
+    _sessionClient = _auth.client;
+    final account = _authAccount;
+    if (account.isNotEmpty) _account = account;
     _initSchedule();
     // 每分钟自检，跨节次或跨日无需手动刷新即可实时高亮
     _lastActivePeriod = _activePeriod();
@@ -108,43 +134,89 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
     _minuteTimer?.cancel();
     _pageController?.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    JwglAuth.instance.removeListener(_onAuthChanged);
+    _auth.removeListener(_onAuthChanged);
+    CourseRepository.changes.removeListener(_onCoursesChanged);
     super.dispose();
   }
 
   void _onAuthChanged() {
-    if (mounted) {
-      if (!JwglAuth.instance.isLoggedIn) {
-        setState(() => _snapshot = null);
-      } else {
-        _loadCacheAndRefresh(silent: true);
-      }
+    if (!mounted) return;
+    final account = _authAccount;
+    final sessionChanged = !identical(_sessionClient, _auth.client);
+    _sessionClient = _auth.client;
+    if (_account != account) {
+      _scheduleGeneration++;
+      setState(() {
+        _account = account;
+        _snapshot = null;
+        _syncing = false;
+        _syncFailed = false;
+        _showWeekSelector = false;
+        _selectedWeek = CalendarService.instance.currentWeek ?? 1;
+      });
+      _syncPageToWeek(_selectedWeek);
+      if (account.isNotEmpty) _loadCacheAndRefresh(silent: true);
+    } else if (sessionChanged) {
+      _scheduleGeneration++;
+      setState(() => _syncing = false);
+      if (_auth.isLoggedIn) _loadCacheAndRefresh(silent: true);
+    } else if (_auth.isLoggedIn && !_syncing) {
+      _loadCacheAndRefresh(silent: true);
+    } else {
+      // 网络校验失败但账号仍在：保留已经显示的本地课表。
+      setState(() {});
     }
+  }
+
+  void _onCoursesChanged() {
+    unawaited(_readUpdatedCache());
+  }
+
+  Future<void> _readUpdatedCache() async {
+    final account = _account;
+    if (account == null || account.isEmpty) return;
+    final generation = _scheduleGeneration;
+    final cached = await CourseRepository.loadCache(username: account);
+    if (!_isCurrent(generation, account) || cached == null) return;
+    final wasCurrent = _selectedWeek == _currentWeek;
+    setState(() {
+      _snapshot = cached;
+      if (wasCurrent) {
+        _selectedWeek =
+            CalendarService.instance.currentWeek ??
+            cached.currentWeek ??
+            _selectedWeek;
+      }
+    });
+    if (wasCurrent) _syncPageToWeek(_selectedWeek);
   }
 
   Future<void> _initSchedule() async {
-    final cached = await CourseRepository.loadCache();
-    final curWeek =
-        CalendarService.instance.currentWeek ?? cached?.currentWeek ?? 1;
-    if (mounted) {
-      setState(() {
-        _snapshot = cached;
-        _selectedWeek = curWeek;
-      });
-      // 缓存里的「当前周」可能不是第 1 周：把翻页视图对齐过去
-      _syncPageToWeek(curWeek);
-    }
-    if (JwglAuth.instance.isLoggedIn) {
-      final fresh = await CourseRepository.isFresh();
-      if (!fresh) {
-        await _refresh(silent: true);
+    final generation = _scheduleGeneration;
+    if (_account == null) {
+      String account;
+      try {
+        // restore 可能仍在等校园网，只读本地账号即可先展示缓存。
+        account = await SessionStore().loadUsername();
+      } catch (_) {
+        account = '';
       }
+      if (!mounted || generation != _scheduleGeneration) return;
+      _account = account;
     }
+    await _loadCacheAndRefresh(silent: true, onlyIfStale: true);
   }
 
-  Future<void> _loadCacheAndRefresh({bool silent = false}) async {
-    final cached = await CourseRepository.loadCache();
-    if (mounted && cached != null) {
+  Future<void> _loadCacheAndRefresh({
+    bool silent = false,
+    bool onlyIfStale = false,
+  }) async {
+    final account = _account;
+    if (account == null || account.isEmpty) return;
+    final generation = ++_scheduleGeneration;
+    final cached = await CourseRepository.loadCache(username: account);
+    if (!_isCurrent(generation, account)) return;
+    if (cached != null) {
       final week =
           CalendarService.instance.currentWeek ??
           cached.currentWeek ??
@@ -155,25 +227,40 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
       });
       _syncPageToWeek(week);
     }
-    await _refresh(silent: silent);
-  }
-
-  Future<void> _refresh({bool silent = false}) async {
-    final auth = JwglAuth.instance;
-    if (!auth.isLoggedIn) {
-      if (!silent) {
-        _showToast('请先登录教务系统');
-      }
+    if (onlyIfStale &&
+        cached != null &&
+        DateTime.now().difference(cached.updatedAt) < CourseRepository.ttl) {
       return;
     }
+    await _refresh(silent: silent, generation: generation);
+  }
+
+  Future<void> _refresh({bool silent = false, int? generation}) async {
+    final auth = _auth;
+    final account = _account;
+    if (account == null || account.isEmpty) return;
+    final requestGeneration = generation ?? ++_scheduleGeneration;
+    if (!_isCurrent(requestGeneration, account)) return;
+    if (silent && !auth.isLoggedIn) return;
     // 手动刷新时给一条细进度线：原来这里是两个空的 `if (!silent) {}`，
     // 点完按钮到 toast 出现之间界面毫无反应。
     if (!silent && mounted) {
       setState(() => _syncing = true);
     }
     try {
-      final fresh = await CourseRepository.refresh(auth.client!);
-      if (mounted) {
+      if (!auth.isLoggedIn) await auth.restore();
+      if (!_isCurrent(requestGeneration, account)) return;
+      if (!auth.isLoggedIn) {
+        setState(() => _syncing = false);
+        if (!silent) {
+          _showToast(_snapshot == null ? '请先登录教务系统' : '暂时无法连接教务系统，已保留本地课表');
+        }
+        return;
+      }
+      final client = auth.client!;
+      final fresh = await CourseRepository.refresh(client, auth: auth);
+      if (_isCurrent(requestGeneration, account) &&
+          identical(client, auth.client)) {
         setState(() {
           _snapshot = fresh;
           _selectedWeek =
@@ -188,7 +275,7 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
         }
       }
     } catch (e) {
-      if (mounted) {
+      if (_isCurrent(requestGeneration, account)) {
         setState(() {
           _syncFailed = true;
           _syncing = false;
@@ -315,7 +402,7 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final auth = JwglAuth.instance;
+    final auth = _auth;
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
@@ -369,54 +456,57 @@ class _TodayPageState extends State<TodayPage> with WidgetsBindingObserver {
       color: Colors.white,
       child: Row(
         children: <Widget>[
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              InkWell(
-                onTap: () =>
-                    setState(() => _showWeekSelector = !_showWeekSelector),
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 2,
-                    horizontal: 4,
-                  ),
-                  child: Row(
-                    children: <Widget>[
-                      Text(
-                        '第$_selectedWeek周${isCur ? ' (本周)' : ''}',
-                        style: const TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.textPrimary,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                InkWell(
+                  onTap: () =>
+                      setState(() => _showWeekSelector = !_showWeekSelector),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 2,
+                      horizontal: 4,
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Flexible(
+                          child: Text(
+                            '第$_selectedWeek周${isCur ? ' (本周)' : ''}',
+                            style: const TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        _showWeekSelector
-                            ? Icons.keyboard_arrow_up
-                            : Icons.keyboard_arrow_down,
-                        size: 20,
-                        color: AppColors.textSecondary,
-                      ),
-                    ],
+                        const SizedBox(width: 4),
+                        Icon(
+                          _showWeekSelector
+                              ? Icons.keyboard_arrow_up
+                              : Icons.keyboard_arrow_down,
+                          size: 20,
+                          color: AppColors.textSecondary,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(left: 4),
-                child: Text(
-                  term,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Text(
+                    term,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const Spacer(),
           if (!isCur)
             TextButton.icon(
               onPressed: () => _goWeek(_currentWeek),
