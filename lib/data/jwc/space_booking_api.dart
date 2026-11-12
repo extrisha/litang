@@ -408,7 +408,17 @@ class SpaceBookingApi {
   /// 登录单飞：并发调用共享同一个 Future。
   Future<bool>? _loginInFlight;
   final Map<String, Future<ReservationResult>> _submissions = {};
-  final Set<String> _uncertainSubmissions = {};
+
+  /// 结果未知的提交：key → 进入「未知」状态的时间。
+  ///
+  /// 用 Map 而不是 Set，是为了让它**会过期**：早先只有「查到预约已存在」才会移除，
+  /// 一旦查询失败或服务端还没落库，这个 key 就永久留在集合里，
+  /// 之后同一时段的提交永远只走查询、再也提交不了。
+  final Map<String, DateTime> _uncertainSubmissions = {};
+
+  /// 「结果未知」状态保留多久。超过后允许重新提交——
+  /// 期间一直没查到这条预约，基本可以判定没约上。
+  static const Duration _uncertainTtl = Duration(minutes: 2);
 
   /// 登录失败后的冷却截止时间，避免连续失败时反复捶 CAS / 令牌接口。
   DateTime? _loginCooldownUntil;
@@ -818,6 +828,8 @@ class SpaceBookingApi {
     accessToken = null;
     tokenObtainedAt = null;
     authCode = null;
+    // 换了认证身份就重来：上一个会话里「结果未知」的提交不该锁住新会话。
+    _uncertainSubmissions.clear();
   }
 
   /// 服务端对「Token 过期/无效」有时返回 400 而不是 401（网关判成「格式错误」）。
@@ -1277,7 +1289,7 @@ class SpaceBookingApi {
     String startTime,
     String endTime,
   ) async {
-    _uncertainSubmissions.add(key);
+    final since = _uncertainSubmissions.putIfAbsent(key, DateTime.now);
     try {
       final current = await fetchCurrentReservations();
       for (final item in current) {
@@ -1294,6 +1306,15 @@ class SpaceBookingApi {
             reservationId: item.id,
           );
         }
+      }
+      // 查询成功但没有这条预约：过了保留期就判定「没约上」并放开闩锁，
+      // 否则用户会被永久挡住；保留期内仍可能只是服务端还没落库。
+      if (DateTime.now().difference(since) >= _uncertainTtl) {
+        _uncertainSubmissions.remove(key);
+        return const ReservationResult(
+          success: false,
+          message: '没有查到这次预约，可能并未提交成功，可以重新提交',
+        );
       }
     } catch (_) {
       // 查询失败不能证明预约失败；保留待确认状态。
@@ -1316,8 +1337,13 @@ class SpaceBookingApi {
     required String remark,
     required String filePath,
   }) async {
-    if (_uncertainSubmissions.contains(key)) {
-      return _reconcileSubmission(key, roomId, startTime, endTime);
+    final uncertainSince = _uncertainSubmissions[key];
+    if (uncertainSince != null) {
+      if (DateTime.now().difference(uncertainSince) < _uncertainTtl) {
+        return _reconcileSubmission(key, roomId, startTime, endTime);
+      }
+      // 过了保留期仍在集合里：期间没确认成功，允许重新提交
+      _uncertainSubmissions.remove(key);
     }
     await ensureAuthenticated();
     if (accessToken == null || userId == null) {
