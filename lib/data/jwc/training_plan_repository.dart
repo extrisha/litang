@@ -6,14 +6,17 @@ import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html;
 import 'package:path_provider/path_provider.dart';
 
+import '../app_exception.dart';
 import '../cache_store.dart';
 import '../http/api_client.dart';
 
-class TrainingPlanException implements Exception {
-  const TrainingPlanException(this.message);
-  final String message;
-  @override
-  String toString() => message;
+/// 培养计划数据获取失败。
+///
+/// 继承 [AppException]，页面可以直接用 `e.message`，
+/// 与项目其它业务异常保持同一套处理方式。
+class TrainingPlanException extends AppException {
+  const TrainingPlanException(String message)
+    : super(AppFailure.server, message);
 }
 
 class TrainingPlan {
