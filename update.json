@@ -1,9 +1,9 @@
 {
-  "version": "0.7.1",
-  "versionCode": 47,
+  "version": "0.7.2",
+  "versionCode": 50,
   "minVersionCode": 0,
-  "notes": "升级 0.7.1：新增高校体育绑定与次数卡片；地图支持角点标定逐个删除、路线采集可区分步行/骑行；课表改为左右滑动翻页切换周次（节次列与周几固定，周末列按当周显示）；修复空间预约偶发登录失效与网页端重复登录。",
+  "notes": "升级 0.7.2：合并社区贡献（登录认证单飞与超时、离线课表、最近访问课程、培养计划查询、附件流式上传等）；修复空间预约「结果未知」状态会永久锁死重新提交；会话恢复失败后加入冷却，弱网下不再反复重登；异常处理与项目规范对齐。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.7.1/app-release.apk",
-  "sha256": "50a656a8626b5f9fbbb148fce65274c38a02cc02481e812f4570d051389c6078"
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.7.2/app-release.apk",
+  "sha256": "3504fb0f339fa402f9bd6d566b713970cd84d10ed46d0b012633a2722fcf3137"
 }
