@@ -6,6 +6,7 @@ import 'app_theme.dart';
 import 'data/auth/jwgl_auth.dart';
 import 'data/calendar/calendar_service.dart';
 import 'data/chaoxing/chaoxing_client.dart';
+import 'data/internal/internal_settings.dart';
 import 'data/lms/todo_api.dart';
 import 'data/map_focus.dart';
 import 'data/notice_source.dart';
@@ -15,6 +16,7 @@ import 'pages/homework_page.dart';
 import 'pages/tron_exam_detail_page.dart';
 import 'pages/update_page.dart';
 import 'services/reminder_service.dart';
+import 'services/rollcall_monitor.dart';
 import 'services/update_service.dart';
 import 'services/widget_sync_service.dart';
 import 'data/jwc/course_repository.dart';
@@ -45,10 +47,14 @@ Map<String, dynamic> todoTargetFromWidgetUri(Uri uri) => <String, dynamic>{
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await CalendarService.instance.load();
+  // 内部模式配置要在首帧前读好，否则「我的」页的入口会闪一下
+  await InternalMode.instance.ensureLoaded();
   runApp(const CampusApp());
   // 启动后在后台静默同步一次作业提醒（不阻塞首屏，6 小时内不会重复跑）
   unawaited(ReminderService.instance.syncInBackground());
   unawaited(WidgetSyncService.instance.syncTodayWidget());
+  // 内部模式开了签到监控才会真正起定时器，否则直接返回
+  unawaited(RollcallMonitor.instance.syncWithSettings());
 }
 
 class CampusApp extends StatelessWidget {
@@ -131,7 +137,12 @@ class _RootScaffoldState extends State<RootScaffold>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
       unawaited(WidgetSyncService.instance.syncTodayWidget());
+      RollcallMonitor.instance.onAppResumed();
       setState(() {});
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      // 前台监控只在 App 可见时跑，锁屏/切后台就停，避免无谓的请求
+      RollcallMonitor.instance.onAppPaused();
     }
   }
 

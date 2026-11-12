@@ -92,6 +92,23 @@ void main() {
       expect(JwglSchedule.sessionOf(11), '晚上');
       expect(JwglSchedule.rangeOf(1, 2), '08:45-10:25');
     });
+
+    test('给 Android 小组件的作息格式（原生层按这个解析）', () {
+      final strings = JwglSchedule.periodStrings;
+      expect(strings.length, 13);
+      for (final item in strings) {
+        expect(item, matches(RegExp(r'^\d{2}:\d{2}-\d{2}:\d{2}$')));
+        final parts = item.split('-');
+        expect(parts[0].compareTo(parts[1]), lessThan(0));
+      }
+      expect(strings.first, '08:00-08:40');
+      expect(strings.last, '19:30-20:10');
+      // 和主课表必须完全一致：原生层就是拿这份去算「进行中 / 距上课」
+      for (var i = 0; i < strings.length; i++) {
+        final p = JwglSchedule.periods[i];
+        expect(strings[i], '${p.start}-${p.end}');
+      }
+    });
   });
 
   // 原 `CourseWeekTable` 组已随该组件删除：

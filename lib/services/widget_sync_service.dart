@@ -369,6 +369,14 @@ class WidgetSyncService {
       await _save<int>('schedule_count', displayCourses.length);
       await _save<String>('courses_json', jsonEncode(courseListJson));
 
+      // 作息时间让原生层直接用这里的，别再各自维护一份（曾经因为原生表
+      // 还是 50 分钟一节的旧作息，小组件显示的时间和主课表对不上）。
+      // 与教学周无关，所以不放进下面的 if。
+      await _save<String>(
+        'semester_period_times_json',
+        jsonEncode(JwglSchedule.periodStrings),
+      );
+
       // 原生离线跨天推演数据
       if (week1MondayStr.isNotEmpty) {
         await _save<String>('semester_week1_monday', week1MondayStr);

@@ -6,384 +6,13 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import '../app_exception.dart';
 import '../auth/cas_client.dart';
 import 'device_id.dart';
+import 'rollcall_model.dart';
+import 'rollcall_qr.dart';
+import 'rollcall_result.dart';
 
-/// 签到提交结果。
-class SignResult {
-  const SignResult({required this.success, this.message, this.statusName});
-
-  final bool success;
-  final String? message;
-
-  /// 服务端返回的状态名，如「已签到」「迟到」。
-  final String? statusName;
-}
-
-/// 进行中的一个签到。
-class Rollcall {
-  const Rollcall({
-    required this.id,
-    required this.courseName,
-    required this.type,
-    required this.timeText,
-    this.isNumber = false,
-    this.isRadar = false,
-    this.isExpired = false,
-    this.status = '',
-  });
-
-  final String id;
-  final String courseName;
-
-  /// 原始类型，如 qr_rollcall / number_rollcall / radar_rollcall。
-  final String type;
-  final String timeText;
-
-  /// 服务端用 is_number / is_radar 两个布尔字段标类型，type 不一定会给。
-  final bool isNumber;
-  final bool isRadar;
-  final bool isExpired;
-
-  /// absent / on_call / on_call_fine / ...
-  final String status;
-
-  /// 本地缓存用（与上游字段名解耦）。
-  Map<String, dynamic> toCacheJson() => <String, dynamic>{
-    'id': id,
-    'courseName': courseName,
-    'type': type,
-    'timeText': timeText,
-    'isNumber': isNumber,
-    'isRadar': isRadar,
-    'isExpired': isExpired,
-    'status': status,
-  };
-
-  static Rollcall? fromCacheJson(Map<String, dynamic> json) {
-    final id = (json['id'] ?? '').toString();
-    if (id.isEmpty) {
-      return null;
-    }
-    return Rollcall(
-      id: id,
-      courseName: (json['courseName'] ?? '').toString(),
-      type: (json['type'] ?? '').toString(),
-      timeText: (json['timeText'] ?? '').toString(),
-      isNumber: json['isNumber'] == true,
-      isRadar: json['isRadar'] == true,
-      isExpired: json['isExpired'] == true,
-      status: (json['status'] ?? '').toString(),
-    );
-  }
-
-  String get _lowerType => type.toLowerCase();
-
-  bool get isNumberRollcall => isNumber || _lowerType.contains('number');
-
-  bool get isRadarRollcall =>
-      isRadar || _lowerType.contains('radar') || _lowerType.contains('roomis');
-
-  bool get isQrRollcall => _lowerType.contains('qr');
-
-  bool get isSelfRollcall => _lowerType.contains('self');
-
-  static const Set<String> _signedStatuses = <String>{
-    'on_call_fine',
-    'attended',
-    'present',
-    'signed',
-    'submitted',
-    'late',
-    'leave',
-  };
-
-  bool get isSigned => _signedStatuses.contains(status.toLowerCase());
-
-  bool get isSignable => !isExpired && !isSigned;
-
-  String get typeLabel {
-    if (isNumberRollcall) {
-      return '数字口令';
-    }
-    if (isRadarRollcall) {
-      return '雷达点名';
-    }
-    if (isQrRollcall) {
-      return '二维码签到';
-    }
-    if (_lowerType.contains('manual')) {
-      return '手动点名';
-    }
-    if (isSelfRollcall) {
-      return '自主签到';
-    }
-    return '签到';
-  }
-
-  static bool _truthy(Object? value) {
-    if (value == true || value == 1) {
-      return true;
-    }
-    final text = '${value ?? ''}'.toLowerCase();
-    return text == 'true' || text == '1';
-  }
-
-  static String _firstId(Map<String, dynamic> json) {
-    for (final key in <String>['id', 'rollcall_id', 'rollcallId', 'uuid']) {
-      final value = '${json[key] ?? ''}'.trim();
-      if (value.isNotEmpty && value != '0') {
-        return value;
-      }
-    }
-    return '';
-  }
-
-  static Rollcall? fromJson(Map<String, dynamic> json) {
-    final id = _firstId(json);
-    if (id.isEmpty) {
-      return null;
-    }
-
-    var courseName = '';
-    final course = json['course'];
-    if (course is Map) {
-      courseName =
-          (course['name'] ??
-                  course['course_name'] ??
-                  course['courseName'] ??
-                  course['title'] ??
-                  '')
-              .toString();
-    }
-    if (courseName.isEmpty) {
-      courseName =
-          (json['course_title'] ??
-                  json['course_name'] ??
-                  json['courseName'] ??
-                  json['kcmc'] ??
-                  json['title'] ??
-                  '')
-              .toString();
-    }
-
-    final type =
-        (json['type'] ??
-                json['source'] ??
-                json['rollcall_type'] ??
-                json['rollcallType'] ??
-                '')
-            .toString();
-
-    final time =
-        (json['created_at'] ??
-                json['createdAt'] ??
-                json['rollcall_time'] ??
-                json['rollcallTime'] ??
-                json['start_at'] ??
-                json['begin_at'] ??
-                json['started_at'] ??
-                '')
-            .toString();
-
-    return Rollcall(
-      id: id,
-      courseName: courseName.isEmpty ? '未知课程' : courseName,
-      type: type,
-      timeText: _shortTime(time),
-      isNumber:
-          _truthy(json['is_number']) ||
-          _truthy(json['isNumber']) ||
-          type.toLowerCase().contains('number'),
-      isRadar:
-          _truthy(json['is_radar']) ||
-          _truthy(json['isRadar']) ||
-          type.toLowerCase().contains('radar') ||
-          type.toLowerCase().contains('roomis'),
-      isExpired: _truthy(json['is_expired']) || _truthy(json['expired']),
-      status:
-          (json['status'] ??
-                  json['rollcall_status'] ??
-                  json['rollcallStatus'] ??
-                  '')
-              .toString(),
-    );
-  }
-
-  static String _shortTime(String raw) {
-    if (raw.isEmpty) {
-      return '';
-    }
-    // 服务端给的是 UTC（带 Z / 时区偏移）时，直接截字符串会差 8 小时。
-    // 和 USST 参考实现一致：能解析成 DateTime 就转本地时区再显示。
-    final parsed = DateTime.tryParse(raw);
-    if (parsed != null) {
-      final local = parsed.toLocal();
-      String two(int value) => value.toString().padLeft(2, '0');
-      return '${two(local.hour)}:${two(local.minute)}';
-    }
-    final match = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(raw);
-    if (match != null) {
-      return '${match.group(1)!.padLeft(2, '0')}:${match.group(2)}';
-    }
-    return raw;
-  }
-}
-
-/// 从扫码内容里解出来的签到信息。
-///
-/// 老师屏幕上的二维码并不是「一串口令」，而是这几种之一：
-///   - `https://1906.usst.edu.cn/j?p=<Base36 紧凑编码>`（最常见）
-///   - 紧凑编码：`4~<rollcallId>!3~<data>!0~<courseId>`，前面可能带 \x10 前缀
-///   - JSON：`{"rollcallId": "...", "data": "..."}`
-///   - 带参数的 URL
-///
-/// 服务端真正要的是解出来的 `data`，不是二维码原文；这一点是之前签不上的
-/// 主要原因之一。
-class QrPayload {
-  const QrPayload({required this.data, this.rollcallId, this.courseId});
-
-  final String data;
-  final int? rollcallId;
-  final int? courseId;
-
-  static const Map<String, String> _compactKeys = <String, String>{
-    '0': 'courseId',
-    '1': 'activityId',
-    '2': 'activityType',
-    '3': 'data',
-    '4': 'rollcallId',
-  };
-
-  static int? _decodeId(String? raw) {
-    if (raw == null) {
-      return null;
-    }
-    final clean = raw
-        .trim()
-        .replaceAll('\u0010', '')
-        .replaceAll('\u001A', '')
-        .replaceAll('%10', '')
-        .replaceAll('%1A', '')
-        .replaceAll('%1a', '');
-    if (clean.isEmpty) {
-      return null;
-    }
-    return int.tryParse(clean) ?? int.tryParse(clean, radix: 36);
-  }
-
-  static String _decodeData(String raw) {
-    return raw.replaceAll('\u001E', '~').replaceAll('\u001F', '!');
-  }
-
-  /// 解析失败返回 null，由调用方提示「无法识别」。
-  static QrPayload? parse(String raw) {
-    var text = raw.trim();
-    if (text.isEmpty) {
-      return null;
-    }
-    text = text.replaceAll('\u0010', '').replaceAll('\u001A', '');
-
-    var payload = text;
-    var fromUrl = false;
-    final lower = text.toLowerCase();
-    if (lower.startsWith('http://') ||
-        lower.startsWith('https://') ||
-        text.contains('/j?p=') ||
-        text.contains('/scanner-jumper?')) {
-      fromUrl = true;
-      final uri = Uri.tryParse(text);
-      if (uri != null) {
-        final underscore = uri.queryParameters['_p'];
-        final p = uri.queryParameters['p'];
-        if (underscore != null && underscore.trim().isNotEmpty) {
-          payload = underscore.trim();
-        } else if (p != null && p.trim().isNotEmpty) {
-          payload = p.trim();
-        } else {
-          final id = _decodeId(
-            uri.queryParameters['rollcall_id'] ??
-                uri.queryParameters['rollcallId'],
-          );
-          final data =
-              uri.queryParameters['data'] ?? uri.queryParameters['qr_token'];
-          final courseId = _decodeId(
-            uri.queryParameters['course_id'] ?? uri.queryParameters['courseId'],
-          );
-          if (id != null && id > 0 && data != null && data.isNotEmpty) {
-            return QrPayload(
-              data: _decodeData(data),
-              rollcallId: id,
-              courseId: courseId,
-            );
-          }
-        }
-      }
-    }
-
-    if (payload.startsWith('{') && payload.endsWith('}')) {
-      try {
-        final decoded = jsonDecode(payload);
-        if (decoded is Map) {
-          final id = _decodeId(
-            '${decoded['rollcallId'] ?? decoded['rollcall_id'] ?? ''}',
-          );
-          final data = '${decoded['data'] ?? decoded['qr_token'] ?? ''}'.trim();
-          final courseId = _decodeId(
-            '${decoded['courseId'] ?? decoded['course_id'] ?? ''}',
-          );
-          if (data.isNotEmpty) {
-            return QrPayload(
-              data: _decodeData(data),
-              rollcallId: id,
-              courseId: courseId,
-            );
-          }
-        }
-      } catch (_) {
-        // 落到下面的兜底
-      }
-      return null;
-    }
-
-    if (payload.contains('!') || payload.contains('~')) {
-      int? rollcallId;
-      int? courseId;
-      String? data;
-      for (final part in payload.split('!')) {
-        final index = part.indexOf('~');
-        if (index <= 0) {
-          continue;
-        }
-        final rawKey = part.substring(0, index);
-        final key = _compactKeys[rawKey] ?? rawKey;
-        final value = part.substring(index + 1);
-        if (key == 'rollcallId') {
-          rollcallId = _decodeId(value);
-        } else if (key == 'courseId') {
-          courseId = _decodeId(value);
-        } else if (key == 'data') {
-          data = _decodeData(value);
-        }
-      }
-      if (data != null && data.isNotEmpty) {
-        return QrPayload(
-          data: data,
-          rollcallId: rollcallId,
-          courseId: courseId,
-        );
-      }
-      if (fromUrl) {
-        return null;
-      }
-    }
-
-    if (fromUrl) {
-      return null;
-    }
-    // 有些二维码直接就是 data token，没有外层结构。
-    return QrPayload(data: text);
-  }
-}
-
+export 'rollcall_model.dart';
+export 'rollcall_qr.dart';
+export 'rollcall_result.dart';
 /// 一网畅学签到接口。
 class RollcallApi {
   RollcallApi(this.client);
@@ -450,6 +79,228 @@ class RollcallApi {
     );
   }
 
+  /// 自主签到（self_registration）。
+  ///
+  /// 官方网页端就是发一个空的 `{}`：这种点名没有口令、没有坐标、也没有二维码，
+  /// 只要点到就能签上。参考 auto-Tronclass 的 `self_registration_runtime`。
+  Future<SignResult> answerSelfRegistration(Rollcall rollcall) async {
+    return _put(
+      '/api/rollcall/${rollcall.id}/answer_self_registration_rollcall',
+      const <String, dynamic>{},
+    );
+  }
+
+  /// 拉一次花名册，拿到人数统计（和可能存在的数字口令）。
+  ///
+  /// 返回 null 表示没读到（接口失败 / 结构不认识），调用方不要当成「0 人已签」。
+  Future<RosterInfo?> fetchRoster(Rollcall rollcall) async {
+    try {
+      final resp = await client.getApi(
+        Uri.parse('$_base/api/rollcall/${rollcall.id}/student_rollcalls'),
+      );
+      return parseRoster(resp.data?.toString() ?? '');
+    } on AppException {
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 解析花名册的人数统计（公开供单测）。
+  static RosterInfo? parseRoster(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      final dynamic list = decoded is Map
+          ? (decoded['student_rollcalls'] ?? decoded['studentRollcalls'])
+          : null;
+      if (list is! List) return null;
+      var total = 0;
+      var signed = 0;
+      for (final item in list) {
+        if (item is! Map) continue;
+        total++;
+        final status = '${item['status'] ?? item['rollcall_status'] ?? ''}'
+            .trim()
+            .toLowerCase();
+        if (_signedStatuses.contains(status)) signed++;
+      }
+      return RosterInfo(
+        total: total,
+        signed: signed,
+        numberCode: parseNumberCode(body).code,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 花名册里算「已签到」的状态。
+  static const Set<String> _signedStatuses = <String>{
+    'on_call_fine',
+    'attended',
+    'present',
+    'late',
+    'signed',
+    'submitted',
+  };
+
+  /// 从点名花名册里「借」数字口令。
+  ///
+  /// 学校这套自部署实例有个老问题：只要班里已经有人签过，老师端口令就会跟着
+  /// 别人的签到记录一起出现在花名册里（`number_code`）。一次 GET 就能拿到，
+  /// 不用像某些方案那样 0000~9999 爆破。拿不到就返回 [NumberCodeLookup.message]，
+  /// 由调用方退回手动输入。
+  Future<NumberCodeLookup> fetchNumberCode(Rollcall rollcall) async {
+    try {
+      final resp = await client.getApi(
+        Uri.parse('$_base/api/rollcall/${rollcall.id}/student_rollcalls'),
+      );
+      return parseNumberCode(resp.data?.toString() ?? '');
+    } on AppException catch (e) {
+      return NumberCodeLookup(message: e.message);
+    } catch (_) {
+      return const NumberCodeLookup(message: '读取数字口令失败，请手动输入');
+    }
+  }
+
+  /// 权威复核：花名册里本账号是不是 `on_call_fine`。
+  ///
+  /// 只信接口返回的 200 不够——畅课经常「200 + 业务失败」。
+  Future<SignResult> recheckAttendance(
+    Rollcall rollcall,
+    String studentId,
+  ) async {
+    try {
+      final resp = await client.getApi(
+        Uri.parse('$_base/api/rollcall/${rollcall.id}/student_rollcalls'),
+      );
+      final signed = parseAttendance(resp.data?.toString() ?? '', studentId);
+      if (signed == null) {
+        return const SignResult(success: false, message: '签到结果无法确认，请到一网畅学里看一眼');
+      }
+      return signed
+          ? const SignResult(success: true, statusName: '已签到')
+          : const SignResult(success: false, message: '花名册里还没看到你的签到记录');
+    } on AppException catch (e) {
+      return SignResult(success: false, message: e.message);
+    } catch (_) {
+      return const SignResult(success: false, message: '复核签到结果失败');
+    }
+  }
+
+  /// 解析花名册里的数字口令（公开供单测）。
+  ///
+  /// 兼容三种形态：详情对象、`rollcall` 子对象、`student_rollcalls` 数组。
+  /// 数字要给补零（`123` → `0123`），不然前导 0 的口令永远签不上。
+  static NumberCodeLookup parseNumberCode(String body) {
+    final records = <Map<String, dynamic>>[];
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        records.add(decoded);
+        final detail = decoded['rollcall'];
+        if (detail is Map<String, dynamic>) {
+          records.add(detail);
+        }
+        for (final key in const <String>[
+          'student_rollcalls',
+          'studentRollcalls',
+          'records',
+          'items',
+        ]) {
+          final list = decoded[key];
+          if (list is List) {
+            for (final item in list) {
+              if (item is Map<String, dynamic>) {
+                records.add(item);
+              }
+            }
+          }
+        }
+      } else if (decoded is List) {
+        for (final item in decoded) {
+          if (item is Map<String, dynamic>) {
+            records.add(item);
+          }
+        }
+      } else {
+        return const NumberCodeLookup(message: '花名册响应格式无法识别');
+      }
+    } catch (_) {
+      return const NumberCodeLookup(message: '花名册响应不是合法 JSON');
+    }
+
+    final codes = <String>{};
+    for (final record in records) {
+      final raw = record['number_code'] ?? record['numberCode'];
+      if (raw == null) continue;
+      final code = coerceNumberCode(raw);
+      if (code != null) {
+        codes.add(code);
+      }
+    }
+    if (codes.isEmpty) {
+      return const NumberCodeLookup(message: '花名册里没有数字口令，请手动输入');
+    }
+    if (codes.length > 1) {
+      return const NumberCodeLookup(message: '花名册里有多个不同的口令，已停止自动签到');
+    }
+    return NumberCodeLookup(code: codes.single);
+  }
+
+  /// 把花名册里的 `number_code` 统一成 4 位字符串。
+  static String? coerceNumberCode(Object? value) {
+    if (value is num) {
+      final number = value.toInt();
+      if (number < 0 || number > 999999) return null;
+      // 1000 以下说明前导 0 被 JSON 吃掉了，补回 4 位
+      return number < 1000
+          ? number.toString().padLeft(4, '0')
+          : number.toString();
+    }
+    if (value is String) {
+      final text = value.trim();
+      if (text.isEmpty || text.length > 6) return null;
+      if (!RegExp(r'^\d+$').hasMatch(text)) return null;
+      return text.length >= 4 ? text : text.padLeft(4, '0');
+    }
+    return null;
+  }
+
+  /// 解析花名册，判断 [studentId] 是否已签到。
+  ///
+  /// 返回 null 表示响应看不懂（不能当作「没签到」）。
+  static bool? parseAttendance(String body, String studentId) {
+    final target = studentId.trim().toLowerCase();
+    if (target.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(body);
+      final dynamic list = decoded is Map
+          ? (decoded['student_rollcalls'] ?? decoded['studentRollcalls'])
+          : decoded;
+      if (list is! List) return null;
+      for (final item in list) {
+        if (item is! Map) continue;
+        final uid =
+            '${item['user_no'] ?? item['user_id'] ?? item['userNo'] ?? ''}'
+                .trim()
+                .toLowerCase();
+        if (uid != target) continue;
+        final status = '${item['status'] ?? item['rollcall_status'] ?? ''}'
+            .trim()
+            .toLowerCase();
+        // on_call_fine 是「已签到」；attended/present/late 是不同部署的叫法
+        return status == 'on_call_fine' ||
+            status == 'attended' ||
+            status == 'present' ||
+            status == 'late';
+      }
+      return false;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 二维码签到。
   ///
   /// 先按官方协议把二维码解成 `(rollcallId, data)`，提交时只发 `data`。
@@ -479,14 +330,16 @@ class RollcallApi {
     });
   }
 
-  /// 雷达签到：上报**本机真实定位**。
+  /// 雷达签到：上报**已经换算成 GCJ-02 的签到基准点**。
+  ///
+  /// 坐标由 [resolveRadarTarget] 决定（教师基准点 > 教学楼基准点 > 本机定位），
+  /// 调用方不要再自己转一次坐标系。
   ///
   /// 对齐 USST 参考实现 `usst-jwgl-client` 的 `answerRadarRollcall`：
-  /// - 坐标必须是 **GCJ-02**（系统 GPS 是 WGS-84，由调用方先转换）。
+  /// - 接口是 `/answer?api_version=1.76`（不是 `/position`，也不是 `/lite`）。
   /// - 请求体固定为 `deviceId / latitude / longitude / accuracy / altitude /
   ///   radarSignal: null`；USST 的雷达点名是纯坐标比对，不自己构造
   ///   `radarSignal`，需要信标的课堂参考实现也明确提示「需要教室蓝牙信号」。
-  /// - 接口是 `/answer?api_version=1.76`（不是 `/position`）。
   Future<SignResult> reportRadarPosition(
     Rollcall rollcall,
     double latitude,
@@ -652,3 +505,4 @@ class RollcallApi {
     }
   }
 }
+

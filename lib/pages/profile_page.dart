@@ -13,6 +13,7 @@ import '../data/auth/jwgl_auth.dart';
 import '../data/auth/session_store.dart';
 import '../data/auth/xuegong_auth.dart';
 import '../data/chaoxing/chaoxing_auth.dart';
+import '../data/internal/internal_settings.dart';
 import '../data/jwc/course_api.dart';
 import '../data/jwc/course_repository.dart';
 import '../data/jwc/academic_repository.dart';
@@ -27,6 +28,7 @@ import 'simple_web.dart';
 import 'login_page.dart';
 import 'update_page.dart';
 import '../services/update_service.dart';
+import 'internal_mode_page.dart';
 
 /// 我的：个人信息 + 学业查询 + 网页入口（上理体育 / 学工 / 教务）。
 class ProfilePage extends StatefulWidget {
@@ -51,6 +53,10 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _openingXuegong = false;
   int _week = 1;
 
+  /// 「关于」里连按版本号开启内部模式用的计数。
+  int _versionTaps = 0;
+  Timer? _versionTapTimer;
+
   /// 版本信息只取一次（`PackageInfo.fromPlatform()` 走 platform channel，
   /// 放在 build 里会每次重建都重新查一遍）。
   final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
@@ -69,6 +75,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   void dispose() {
+    _versionTapTimer?.cancel();
     _auth.removeListener(_onAuthChanged);
     CourseRepository.changes.removeListener(_onCoursesChanged);
     super.dispose();
@@ -346,6 +353,26 @@ class _ProfilePageState extends State<ProfilePage> {
             const SizedBox(height: 16),
             _sectionTitle('存储'),
             _cacheTile(),
+            ValueListenableBuilder<InternalSettings>(
+              valueListenable: InternalMode.instance.settings,
+              builder: (context, settings, _) {
+                if (!settings.enabled) return const SizedBox.shrink();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const SizedBox(height: 16),
+                    _sectionTitle('内部'),
+                    _grid(<Widget>[
+                      _entry(
+                        Icons.monitor_heart_outlined,
+                        '签到监控',
+                        onTap: _openInternalMode,
+                      ),
+                    ]),
+                  ],
+                );
+              },
+            ),
             const SizedBox(height: 16),
             _sectionTitle('关于'),
             _updateTile(),
@@ -402,39 +429,76 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _updateTile() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: FutureBuilder<PackageInfo>(
-        // 必须缓存这个 Future：在 build 里直接 `PackageInfo.fromPlatform()`
-        // 会每次重建都重新走一次 platform channel。
-        future: _packageInfo,
-        builder: (context, snap) {
-          final version = snap.data == null ? '' : '当前版本 ${snap.data!.version}';
-          return ListTile(
-            leading: const Icon(
-              Icons.system_update_alt,
-              size: 20,
-              color: AppColors.usstRed,
-            ),
-            title: const Text('检查更新', style: TextStyle(fontSize: 14)),
-            subtitle: Text(
-              version,
-              style: const TextStyle(
-                fontSize: 11,
-                color: AppColors.textSecondary,
+    return GestureDetector(
+      // 长按「检查更新」5 次开启内部模式（不弹任何引导，避免误触）
+      onLongPress: _onVersionLongPress,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: FutureBuilder<PackageInfo>(
+          // 必须缓存这个 Future：在 build 里直接 `PackageInfo.fromPlatform()`
+          // 会每次重建都重新走一次 platform channel。
+          future: _packageInfo,
+          builder: (context, snap) {
+            final version = snap.data == null
+                ? ''
+                : '当前版本 ${snap.data!.version}';
+            return ListTile(
+              leading: const Icon(
+                Icons.system_update_alt,
+                size: 20,
+                color: AppColors.usstRed,
               ),
-            ),
-            trailing: TextButton(
-              onPressed: _checkUpdate,
-              child: const Text('检查', style: TextStyle(fontSize: 12)),
-            ),
-          );
-        },
+              title: const Text('检查更新', style: TextStyle(fontSize: 14)),
+              subtitle: Text(
+                version,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              trailing: TextButton(
+                onPressed: _checkUpdate,
+                child: const Text('检查', style: TextStyle(fontSize: 12)),
+              ),
+            );
+          },
+        ),
       ),
     );
+  }
+
+  void _openInternalMode() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const InternalModePage()),
+    );
+  }
+
+  void _onVersionLongPress() {
+    _versionTapTimer?.cancel();
+    // 3 秒内不再长按就重新计数
+    _versionTapTimer = Timer(const Duration(seconds: 3), () {
+      _versionTaps = 0;
+    });
+    _versionTaps++;
+    if (_versionTaps >= 5) {
+      _versionTaps = 0;
+      _versionTapTimer?.cancel();
+      unawaited(_enableInternalMode());
+      return;
+    }
+    if (_versionTaps >= 3) {
+      _toast('再长按 ${5 - _versionTaps} 次开启内部模式');
+    }
+  }
+
+  Future<void> _enableInternalMode() async {
+    await InternalMode.instance.setEnabled(true);
+    if (!mounted) return;
+    setState(() {});
+    _toast('内部模式已开启，入口在「存储」下面');
   }
 
   Future<void> _checkUpdate() async {

@@ -8,6 +8,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../auth/cas_client.dart';
+import 'chaoxing_html.dart';
 
 /// 学习通课程。
 class ChaoxingCourse {
@@ -516,6 +517,23 @@ class ChaoxingClient {
       ),
     );
     final html = (response.data as String?) ?? '';
+
+    // 1) DOM 解析（同时兼容 `<li courseId>` 和 `stucoursemiddle?courseid=` 两种模板）
+    final domRows = ChaoxingHtml.courseRows(html);
+    if (domRows.isNotEmpty) {
+      return <ChaoxingCourse>[
+        for (final row in domRows)
+          ChaoxingCourse(
+            courseId: row.courseId,
+            classId: row.classId,
+            cpi: row.cpi,
+            name: row.name,
+            teacher: row.teacher,
+          ),
+      ];
+    }
+
+    // 2) 正则兜底
     final courses = <ChaoxingCourse>[];
     final startRe = RegExp(
       r'<li[^>]*courseId="(\d+)"[^>]*clazzId="(\d+)"[^>]*personId="(\d+)"[^>]*>',
@@ -548,7 +566,12 @@ class ChaoxingClient {
         ),
       );
     }
-    return courses;
+    // 同一门课会出现两次（课程名入口 + 教师名入口），按 courseId+classId 去重
+    final seen = <String>{};
+    return <ChaoxingCourse>[
+      for (final course in courses)
+        if (seen.add('${course.courseId}:${course.classId}')) course,
+    ];
   }
 
   /// 各课程进行中的活动（签到）。
@@ -906,7 +929,11 @@ class ChaoxingClient {
           '&vc=1&cpi=${course.cpi}&ismooc2=1&v=2',
         ),
       );
-      final workEnc = _hidden((middle.data as String?) ?? '', 'workEnc') ?? '';
+      final middleHtml = (middle.data as String?) ?? '';
+      final workEnc =
+          ChaoxingHtml.hiddenFields(middleHtml)['workEnc'] ??
+          _hidden(middleHtml, 'workEnc') ??
+          '';
       if (workEnc.isEmpty) throw StateError('作业入口未取得，请刷新登录状态');
       final response = await _send(
         Uri.parse(
@@ -914,6 +941,11 @@ class ChaoxingClient {
           '?courseId=${course.courseId}&classId=${course.classId}'
           '&enc=$workEnc&cpi=${course.cpi}&ut=s',
         ),
+        // 作业/考试列表没这个头会返回空页面或跳转
+        headers: const <String, String>{
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'text/html, */*; q=0.01',
+        },
       );
       final html = (response.data as String?) ?? '';
       final works = parseWorkListHtml(html, course);
@@ -951,6 +983,33 @@ class ChaoxingClient {
     final out = <ChaoxingWork>[];
     if (html.isEmpty) return out;
 
+    // 1) DOM 解析：锚点是 `li[data]`，不依赖 onclick 里的 goTask(this)。
+    final domRows = ChaoxingHtml.workRows(html);
+    if (domRows.isNotEmpty) {
+      for (final row in domRows) {
+        final workId =
+            RegExp(r'workId=(\d+)').firstMatch(row.url)?.group(1) ?? '';
+        if (workId.isEmpty) continue;
+        out.add(
+          ChaoxingWork(
+            workId: workId,
+            title: row.title,
+            courseName: course.name,
+            statusText: row.status,
+            deadline: row.timeText,
+            fetchedAt: observedAt,
+            deadlineAt: TaskDeadline.parse(row.timeText, now: observedAt),
+            courseId: course.courseId,
+            classId: course.classId,
+            expired: row.expired,
+            taskUrl: row.url,
+          ),
+        );
+      }
+      return out;
+    }
+
+    // 2) 正则兜底：个别租户还是老模板
     final tagRe = RegExp(r'<li[^>]*goTask\(this\)[^>]*>');
     for (final match in tagRe.allMatches(html)) {
       final tag = match.group(0) ?? '';
@@ -1100,11 +1159,21 @@ class ChaoxingClient {
               .firstMatch(block)
               ?.group(1) ??
           '8';
-      final text = _stripHtml(h3)
-          .replaceAll(type, '')
-          .replaceAll(RegExp(r'^\s*\d+\.\s*'), '')
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
+      // 题干优先取 `span.qtContent`（结构见学习通作业详情：h3.mark_name 里
+      // 「序号. + 题型 + qtContent」三段），取不到再退回整段 h3 反推。
+      final qtContent =
+          RegExp(
+            r'<span[^>]*class="[^"]*qtContent[^"]*"[^>]*>(.*?)</span>',
+            dotAll: true,
+          ).firstMatch(block)?.group(1) ??
+          '';
+      final text = qtContent.trim().isEmpty
+          ? _stripHtml(h3)
+                .replaceAll(type, '')
+                .replaceAll(RegExp(r'^\s*\d+\.\s*'), '')
+                .replaceAll(RegExp(r'\s+'), ' ')
+                .trim()
+          : _stripHtml(qtContent).replaceAll(RegExp(r'\s+'), ' ').trim();
       if (text.isNotEmpty) {
         questions.add(
           ChaoxingQuestion(
@@ -1378,6 +1447,9 @@ class ChaoxingClient {
   }
 
   static String? _hidden(String html, String id) {
+    // 先按 DOM 取（属性顺序、单双引号都不影响），再退回正则
+    final fromDom = ChaoxingHtml.hiddenFields(html)[id];
+    if (fromDom != null && fromDom.isNotEmpty) return fromDom;
     final forward = RegExp('id="$id"[^>]*value="([^"]*)"')
         .firstMatch(html)
         ?.group(1);

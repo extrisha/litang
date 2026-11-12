@@ -1,24 +1,22 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 
 import '../app_theme.dart';
 import '../data/auth/cas_client.dart';
 import '../data/app_exception.dart';
 import '../data/auth/jwgl_auth.dart';
-import '../data/auth/sport_campus_auth.dart';
 import '../data/calendar/calendar_service.dart';
 import '../data/chaoxing/chaoxing_auth.dart';
 import '../data/chaoxing/chaoxing_cache.dart';
 import '../data/chaoxing/chaoxing_client.dart';
 import '../data/chaoxing/chaoxing_sso.dart';
 import '../data/course_name.dart';
-import '../data/geo/coordinate_utils.dart';
+import '../data/geo/radar_location.dart';
+import '../data/internal/internal_settings.dart';
 import '../data/jwc/course_repository.dart';
 import '../data/life_cache.dart';
+import '../data/lms/radar_target.dart';
 import '../data/lms/rollcall_api.dart';
 import '../data/lms/course_info_cache.dart';
 import '../data/lms/course_visit_history.dart';
@@ -39,12 +37,12 @@ import 'life/widgets/life_exam_card.dart';
 import 'life/widgets/life_todo_card.dart';
 import 'life/widgets/quick_tools_row.dart';
 import 'life/widgets/rollcall_card.dart';
-import 'life/widgets/sport_campus_card.dart';
+import 'life/widgets/sign_number_dialog.dart';
 import 'login_page.dart';
 import 'qr_scan_page.dart';
 import 'simple_web.dart';
 
-/// 校园服务：签到（一网畅学）+ 一网畅学入口 + 宿舍电费 + 校园跑次数。
+/// 校园服务：签到（一网畅学）+ 一网畅学入口 + 宿舍电费。
 class LifePage extends StatefulWidget {
   const LifePage({super.key});
 
@@ -283,8 +281,6 @@ class _LifePageState extends State<LifePage> {
       _refreshChaoxing(withWorks: true, autoLogin: true),
       _loadCourses(force: true),
       _loadDormElectricity(force: true),
-      // 校园跑走第三方「高校体育」，和上面几条互不依赖
-      SportCampusAuth.instance.refresh(force: true),
     ]);
   }
 
@@ -1151,6 +1147,9 @@ class _LifePageState extends State<LifePage> {
     if (!rollcall.isSignable) {
       return null;
     }
+    if (rollcall.isSelfRollcall) {
+      return () => _signBySelfRegistration(rollcall);
+    }
     if (rollcall.isNumberRollcall) {
       return () => _signByNumber(rollcall);
     }
@@ -1188,7 +1187,7 @@ class _LifePageState extends State<LifePage> {
             ListTile(
               leading: const Icon(Icons.open_in_new),
               title: const Text('打开一网畅学网页'),
-              subtitle: const Text('自主签到等暂不支持的类型'),
+              subtitle: const Text('类型识别不出来时的兜底入口'),
               onTap: () => Navigator.pop(sheetContext, 'web'),
             ),
           ],
@@ -1207,6 +1206,39 @@ class _LifePageState extends State<LifePage> {
     }
   }
 
+  /// 自主签到：官方接口发空 `{}` 就行，不需要口令/坐标/二维码。
+  Future<void> _signBySelfRegistration(Rollcall rollcall) async {
+    final client = JwglAuth.instance.client;
+    if (client == null) {
+      _toast('请先登录教务系统');
+      return;
+    }
+    setState(() => _loading = true);
+    var success = false;
+    try {
+      final SignResult result;
+      try {
+        result = await RollcallApi(client).answerSelfRegistration(rollcall);
+      } catch (_) {
+        if (mounted) {
+          _toast('签到请求失败，请稍后重试');
+        }
+        return;
+      }
+      success = result.success;
+      if (mounted) {
+        _toast(result.success ? '已自主签到' : (result.message ?? '自主签到失败'));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+    if (success) {
+      await _refresh();
+    }
+  }
+
   /// 数字口令签到：输入老师给的口令后直接提交。
   Future<void> _signByNumber(Rollcall rollcall) async {
     final client = JwglAuth.instance.client;
@@ -1219,7 +1251,7 @@ class _LifePageState extends State<LifePage> {
     // 「TextEditingController used after being disposed」。
     final input = await showDialog<String>(
       context: context,
-      builder: (_) => _SignNumberDialog(courseName: rollcall.courseName),
+      builder: (_) => SignNumberDialog(courseName: rollcall.courseName),
     );
     if (input == null || input.isEmpty || !mounted) {
       return;
@@ -1470,9 +1502,10 @@ class _LifePageState extends State<LifePage> {
     }
   }
 
-  /// 雷达签到：用系统定位上报当前位置。
+  /// 雷达签到。
   ///
-  /// 只上报真实坐标，不提供选教学楼/手填坐标的入口。
+  /// 正常模式固定用本机室内 GPS（WGS-84 转 GCJ-02）上报；只有内部模式打开后
+  /// 才按「选定基准点」换成教师基准点/教学楼。坐标解析见 [resolveRadarTarget]。
   Future<void> _signByRadar(Rollcall rollcall) async {
     final client = JwglAuth.instance.client;
     if (client == null) {
@@ -1482,60 +1515,47 @@ class _LifePageState extends State<LifePage> {
     setState(() => _loading = true);
     var success = false;
     try {
-      final allowed = await _ensureLocationPermission();
-      if (!allowed) {
-        return;
-      }
-      // 检查系统定位开关：
-      // Android 上部分机型由于国内 ROM 冻结 GMS，isLocationServiceEnabled() 会抛出异常或误报 false。
-      // 在 Android 上若误报先不强行拦截，交由后续底层原生 LocationManager 做真实校验；
-      // 其他平台若明确未开启，则提示并跳转设置。
-      var serviceEnabled = true;
-      try {
-        serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      } catch (_) {
-        serviceEnabled = true;
-      }
-      if (!serviceEnabled && defaultTargetPlatform != TargetPlatform.android) {
-        _toast('系统定位服务未开启，请打开 GPS/定位开关');
-        await Geolocator.openLocationSettings();
-        return;
-      }
-      try {
-        if (await Geolocator.getLocationAccuracy() ==
-            LocationAccuracyStatus.reduced) {
-          _toast('当前只给了「大致位置」，雷达签到需要精确位置，请到系统设置里改为「精确」');
+      await InternalMode.instance.ensureLoaded();
+      final settings = InternalMode.instance.settings.value;
+      final internal = settings.enabled;
+      final mode = internal ? settings.radarMode : RadarLocationMode.device;
+      final buildingId = internal ? settings.buildingId : null;
+
+      // 教师基准点 / 教学楼基准点不需要定位权限，先不申请。
+      var target = resolveRadarTarget(
+        rollcall: rollcall,
+        mode: mode,
+        preferredBuildingId: buildingId,
+      );
+      if (target == null &&
+          (mode == RadarLocationMode.device ||
+              mode == RadarLocationMode.auto)) {
+        final device = await _deviceRadarLocation();
+        if (device == null) {
           return;
         }
-      } catch (_) {
-        // 部分平台不支持查询精度，继续尝试定位。
+        target = resolveRadarTarget(
+          rollcall: rollcall,
+          mode: mode,
+          preferredBuildingId: buildingId,
+          devicePosition: device,
+        );
       }
-      late final Position position;
-      try {
-        position = await _getRadarPosition();
-      } catch (e) {
-        if (mounted) {
-          _toast(_radarLocationError(e));
-          if (e is LocationServiceDisabledException) {
-            await Geolocator.openLocationSettings();
-          }
-        }
+      if (target == null) {
+        _toast(
+          mode == RadarLocationMode.teacher
+              ? '这次点名平台没有下发教师基准点，请在内部模式改成「自动」或「本机定位」'
+              : '定位失败：没能确定签到基准点，请到教室后重试',
+        );
         return;
       }
       final SignResult result;
       try {
-        // 和 USST 参考实现（usst-jwgl-client）一致：系统定位是 WGS-84，
-        // 一网畅学雷达点名服务端比对的是 GCJ-02，必须先转换再上报。
-        // 直接用 WGS-84 会偏约 480 米，触发「超出签到范围」。
-        final (gcjLat, gcjLng) = CoordinateUtils.wgs84ToGcj02(
-          position.latitude,
-          position.longitude,
-        );
         result = await RollcallApi(client).reportRadarPosition(
           rollcall,
-          gcjLat,
-          gcjLng,
-          accuracy: position.accuracy,
+          target.latitude,
+          target.longitude,
+          accuracy: target.accuracy,
         );
       } catch (_) {
         if (mounted) {
@@ -1545,7 +1565,11 @@ class _LifePageState extends State<LifePage> {
       }
       success = result.success;
       if (mounted) {
-        _toast(result.success ? '雷达签到已上报' : (result.message ?? '雷达签到失败'));
+        // 正常模式只说「已上报」，内部模式才显示用的是哪个基准点
+        final basis = target.source == RadarTargetSource.device || !internal
+            ? ''
+            : '（${target.label}）';
+        _toast(result.success ? '雷达签到已上报$basis' : (result.message ?? '雷达签到失败'));
       }
     } finally {
       if (mounted) {
@@ -1557,109 +1581,17 @@ class _LifePageState extends State<LifePage> {
     }
   }
 
-  Future<bool> _ensureLocationPermission() async {
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
+  /// 取本机定位（WGS-84）；失败时提示（必要时跳系统设置）并返回 null。
+  Future<DeviceLocation?> _deviceRadarLocation() async {
+    final result = await RadarLocationService.instance.locate();
+    if (result.ok) {
+      return result.location;
     }
-    if (permission == LocationPermission.deniedForever) {
-      _toast('定位权限已被永久禁用，请在手机应用设置中允许');
-      await Geolocator.openAppSettings();
-      return false;
+    if (mounted && result.message != null) {
+      _toast(result.message!);
     }
-    if (permission != LocationPermission.always &&
-        permission != LocationPermission.whileInUse) {
-      _toast('雷达签到需要定位权限，请在系统设置里允许定位');
-      return false;
-    }
-    return true;
+    return null;
   }
-
-  /// 雷达签到取坐标：先复用系统最近一次有效定位，再尝试实时高精度定位。
-  ///
-  /// Android 上强制走 LocationManager，避免部分机器（无 GMS / 国内 ROM）
-  /// 的 FusedLocationProvider 一直不回调，最后只能超时。
-  Future<Position> _getRadarPosition() async {
-    Position? last;
-    try {
-      last = await Geolocator.getLastKnownPosition(
-        forceAndroidLocationManager: true,
-      );
-      if (_isFreshPosition(last)) {
-        return last!;
-      }
-    } catch (_) {
-      // 忽略，继续实时定位
-    }
-    final android = defaultTargetPlatform == TargetPlatform.android;
-    final high = android
-        ? AndroidSettings(
-            accuracy: LocationAccuracy.high,
-            timeLimit: const Duration(seconds: 20),
-            forceLocationManager: true,
-          )
-        : const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            timeLimit: Duration(seconds: 20),
-          );
-    try {
-      return await Geolocator.getCurrentPosition(locationSettings: high);
-    } catch (_) {
-      final medium = android
-          ? AndroidSettings(
-              accuracy: LocationAccuracy.medium,
-              timeLimit: const Duration(seconds: 12),
-              forceLocationManager: true,
-            )
-          : const LocationSettings(
-              accuracy: LocationAccuracy.medium,
-              timeLimit: Duration(seconds: 12),
-            );
-      try {
-        return await Geolocator.getCurrentPosition(locationSettings: medium);
-      } catch (e) {
-        // 室内若实时搜星超时，但有 5 分钟内可用的历史坐标，作为室内保底
-        if (last != null && _isUsableLastKnown(last)) {
-          return last;
-        }
-        rethrow;
-      }
-    }
-  }
-
-  /// 90 秒以内的高精度定位，避免重复搜星耗时
-  bool _isFreshPosition(Position? position) {
-    if (position == null) return false;
-    final age = DateTime.now().difference(position.timestamp);
-    return !age.isNegative &&
-        age <= const Duration(seconds: 90) &&
-        position.accuracy > 0 &&
-        position.accuracy <= 50;
-  }
-
-  /// 最近一次定位要够新、够准才用于签到，避免拿着上节课的旧坐标。
-  bool _isUsableLastKnown(Position? position) {
-    if (position == null) return false;
-    final age = DateTime.now().difference(position.timestamp);
-    return !age.isNegative &&
-        age <= const Duration(minutes: 5) &&
-        position.accuracy > 0 &&
-        position.accuracy <= 100;
-  }
-
-  String _radarLocationError(Object error) {
-    if (error is TimeoutException) {
-      return '定位超时：请到室外/窗边，确认 GPS 已开启后重试';
-    }
-    if (error is LocationServiceDisabledException) {
-      return '系统定位服务未开启，请打开 GPS/定位开关';
-    }
-    if (error is PermissionDeniedException) {
-      return '定位权限被拒绝，请在系统设置里允许定位';
-    }
-    return '定位失败，请确认在室外并开启 GPS 后重试';
-  }
-
   Future<void> _openTodo(LmsTodo todo) async {
     if (todo.type == 'exam' || todo.type == 'quiz') {
       await Navigator.of(context).push(
@@ -1774,8 +1706,6 @@ class _LifePageState extends State<LifePage> {
               ),
               const SizedBox(height: 12),
               const QuickToolsRow(),
-              const SizedBox(height: 12),
-              const SportCampusSection(),
             ],
           ),
         ),
@@ -1812,52 +1742,3 @@ class _LifePageState extends State<LifePage> {
 /// 数字口令签到输入框。
 ///
 /// 单独做成 StatefulWidget，由它自己持有并释放 `TextEditingController`。
-/// 原先的写法在 `showDialog` 返回后立刻 `controller.dispose()`，而 dialog 的
-/// 退场动画期间 `TextField` 仍然存活，会访问已释放的 controller
-/// （`TextEditingController used after being disposed`）。
-class _SignNumberDialog extends StatefulWidget {
-  const _SignNumberDialog({required this.courseName});
-
-  final String courseName;
-
-  @override
-  State<_SignNumberDialog> createState() => _SignNumberDialogState();
-}
-
-class _SignNumberDialogState extends State<_SignNumberDialog> {
-  final TextEditingController _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    Navigator.of(context).pop(_controller.text.trim());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('${widget.courseName} · 数字口令'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        keyboardType: TextInputType.number,
-        onSubmitted: (_) => _submit(),
-        decoration: const InputDecoration(
-          hintText: '输入老师给出的签到口令',
-          border: OutlineInputBorder(),
-        ),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(onPressed: _submit, child: const Text('签到')),
-      ],
-    );
-  }
-}

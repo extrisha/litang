@@ -25,6 +25,14 @@ class JwglSchedule {
         (period: 13, start: '19:30', end: '20:10'),
       ];
 
+  /// 给 Android 小组件用的作息数组（`semester_period_times_json` 的内容）。
+  ///
+  /// 原生层只认这个格式（`HH:mm-HH:mm`，13 条），改作息只改本文件的 [periods]，
+  /// 不要再去 `TodayScheduleWidgetProvider.kt` 里维护第二份。
+  static List<String> get periodStrings => <String>[
+    for (final p in periods) '${p.start}-${p.end}',
+  ];
+
   static ({int period, String start, String end})? periodAt(int period) {
     for (final p in periods) {
       if (p.period == period) {

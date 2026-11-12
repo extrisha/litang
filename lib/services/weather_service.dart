@@ -47,7 +47,7 @@ class WeatherSummary {
       weatherStatus: '多云',
       rainTimeWindow: '暂无气象信息',
       probabilityText: '网络未连接',
-      umbrellaAdvice: '适宜出行 🌤',
+      umbrellaAdvice: '',
       tempRange: '--° ~ --°C',
       iconType: 'cloudy',
       updatedAt: DateTime.now(),
@@ -125,6 +125,28 @@ class WeatherService {
       return WeatherSummary.fallback();
     }
 
+    return summarize(
+      times: times,
+      temps: temps,
+      precipProbs: precipProbs,
+      precips: precips,
+      codes: codes,
+    );
+  }
+
+  /// 把逐小时数据归纳成小组件要的「今天带不带伞」。
+  ///
+  /// 规则：只看**当前小时及之后**的降水；当天后续没雨就返回空提示，
+  /// 由小组件把那一行隐藏掉。
+  @visibleForTesting
+  static WeatherSummary summarize({
+    required List<String> times,
+    required List<num> temps,
+    required List<num> precipProbs,
+    required List<num> precips,
+    required List<int> codes,
+    DateTime? now,
+  }) {
     // 1. 计算今日温差范围
     num minTemp = 100;
     num maxTemp = -100;
@@ -136,8 +158,7 @@ class WeatherService {
 
     // 2. 识别降水/下雪区间与最高概率
     // 聚焦当前与未来时段，避免对已过去的早间降雨进行误报
-    final now = DateTime.now();
-    final currentHour = now.hour;
+    final currentHour = (now ?? DateTime.now()).hour;
 
     int maxProb = 0;
     int upcomingMaxProb = 0;
@@ -199,17 +220,18 @@ class WeatherService {
 
       if (isRainingNow) {
         weatherStatus = upcomingIsSnow ? '正在降雪' : '正在降雨';
-        umbrellaAdvice = upcomingIsSnow ? '降雪中，注意防滑 ❄️' : '当前有雨，出门带伞 ☔';
-        rainTimeWindow = '当前有雨 (预计至${firstRange.end + 1}:00)';
+        // 时间行已经说了「正在降雨」，这里只留动作，避免两行重复
+        umbrellaAdvice = upcomingIsSnow ? '带伞防滑 ❄️' : '出门带伞 ☔';
+        rainTimeWindow = '正在$typeName · 至 ${firstRange.end + 1}:00';
       } else {
         weatherStatus = upcomingIsSnow
             ? '稍后有雪'
             : (upcomingMaxProb > 70 ? '稍后有雨' : '可能有阵雨');
-        umbrellaAdvice = upcomingIsSnow ? '出门防寒带伞 ❄️' : '出门记得带伞 🌂';
-        rainTimeWindow =
-            '${firstRange.start}:00~${firstRange.end + 1}:00 $typeName';
+        umbrellaAdvice = upcomingIsSnow ? '稍后降雪，带伞 ❄️' : '稍后带伞 🌂';
+        // 只报最近一段的起点：胶囊和两行文本都短，且不会因为跨段而变长
+        rainTimeWindow = '${firstRange.start}:00 起$typeName';
         if (ranges.length > 1) {
-          rainTimeWindow += '等';
+          rainTimeWindow = '${firstRange.start}:00 起$typeName等';
         }
       }
     } else {
@@ -233,7 +255,8 @@ class WeatherService {
         rainTimeWindow = '今日全天无雨';
         probabilityText = maxProb > 0 ? '降水概率 $maxProb%' : '全天干爽';
       }
-      umbrellaAdvice = '无需带伞 🌤';
+      // 当天后续没雨就不提示带伞，小组件会把这一行整个隐藏
+      umbrellaAdvice = '';
     }
 
     return WeatherSummary(

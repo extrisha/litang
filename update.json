@@ -1,9 +1,9 @@
 {
   "version": "0.7.2",
-  "versionCode": 50,
+  "versionCode": 51,
   "minVersionCode": 0,
-  "notes": "升级 0.7.2：合并社区贡献（登录认证单飞与超时、离线课表、最近访问课程、培养计划查询、附件流式上传等）；修复空间预约「结果未知」状态会永久锁死重新提交；会话恢复失败后加入冷却，弱网下不再反复重登；异常处理与项目规范对齐。",
+  "notes": "升级 0.7.2（build 51）：一网畅学签到修复雷达定位偏差，新增自主签到支持；学习通作业与课程列表改用更稳的解析方式；桌面小组件课程时间改用主课表作息，天气「带伞」提示只在当天后续有雨时出现；移除校园跑（高校体育）功能，避免影响官方 App 登录状态。",
   "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
   "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.7.2/app-release.apk",
-  "sha256": "3504fb0f339fa402f9bd6d566b713970cd84d10ed46d0b012633a2722fcf3137"
+  "sha256": "81bab3b83c3b6c557f4ece34db5369c9da76e3d56694fc34d88d6b7cfcf1d75b"
 }

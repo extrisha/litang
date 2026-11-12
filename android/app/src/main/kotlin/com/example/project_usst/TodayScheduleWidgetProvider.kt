@@ -10,6 +10,7 @@ import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import android.view.View
 import android.widget.RemoteViews
 import android.widget.Toast
 import es.antonborri.home_widget.HomeWidgetBackgroundReceiver
@@ -138,6 +139,68 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
         const val ACTION_REFRESH_SCHEDULE = "com.example.project_usst.ACTION_REFRESH_SCHEDULE"
         const val ACTION_TOGGLE_VIEW_MODE = "com.example.project_usst.ACTION_TOGGLE_VIEW_MODE"
 
+        /** 课表里的一节：起止分钟（0 点起算）。 */
+        private data class Period(val startMin: Int, val endMin: Int) {
+            fun fmt(minute: Int): String =
+                String.format(Locale.CHINA, "%02d:%02d", minute / 60, minute % 60)
+        }
+
+        /**
+         * Flutter 侧写入的作息时间（`semester_period_times_json`，如 `["08:00-08:40", ...]`）。
+         *
+         * 13 节课的起止时间只在 `JwglSchedule.periods` 定义一次，小组件必须复用它。
+         * 之前这里自己维护了一份 50 分钟一节的旧作息，导致小组件显示的时间和 App 里对不上。
+         * 读不到（老版本装机还没写过这个 key）才退回下面的旧表。
+         */
+        private fun loadPeriods(prefs: SharedPreferences): List<Period> {
+            try {
+                val raw = prefs.getString("semester_period_times_json", "") ?: ""
+                if (raw.isNotEmpty()) {
+                    val array = JSONArray(raw)
+                    val parsed = ArrayList<Period>(array.length())
+                    for (i in 0 until array.length()) {
+                        val parts = array.getString(i).split("-")
+                        if (parts.size != 2) continue
+                        val s = parts[0].split(":")
+                        val e = parts[1].split(":")
+                        if (s.size != 2 || e.size != 2) continue
+                        val startHour = s[0].toIntOrNull() ?: continue
+                        val startMinute = s[1].toIntOrNull() ?: continue
+                        val endHour = e[0].toIntOrNull() ?: continue
+                        val endMinute = e[1].toIntOrNull() ?: continue
+                        parsed.add(
+                            Period(
+                                startMin = startHour * 60 + startMinute,
+                                endMin = endHour * 60 + endMinute
+                            )
+                        )
+                    }
+                    if (parsed.size == LEGACY_PERIODS.size) return parsed
+                    Log.w(TAG, "作息条目数不符（${parsed.size}），退回内置表")
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "读取作息时间失败，退回内置表", t)
+            }
+            return LEGACY_PERIODS
+        }
+
+        /** 老版本内置作息（50 分钟一节）。只在 Flutter 还没写入新表时兜底。 */
+        private val LEGACY_PERIODS: List<Period> = listOf(
+            Period(8 * 60, 8 * 60 + 40),
+            Period(8 * 60 + 50, 9 * 60 + 30),
+            Period(9 * 60 + 55, 10 * 60 + 35),
+            Period(10 * 60 + 45, 11 * 60 + 25),
+            Period(11 * 60 + 35, 12 * 60 + 15),
+            Period(13 * 60, 13 * 60 + 40),
+            Period(13 * 60 + 50, 14 * 60 + 30),
+            Period(14 * 60 + 55, 15 * 60 + 35),
+            Period(15 * 60 + 45, 16 * 60 + 25),
+            Period(16 * 60 + 35, 17 * 60 + 15),
+            Period(18 * 60, 18 * 60 + 40),
+            Period(18 * 60 + 50, 19 * 60 + 30),
+            Period(19 * 60 + 40, 20 * 60 + 20)
+        )
+
         fun updateAppWidget(
             context: Context,
             appWidgetManager: AppWidgetManager,
@@ -152,7 +215,7 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
 
                 val weatherTimeWindow = prefs.getString("weather_time_window", "今日全天无雨") ?: "今日全天无雨"
                 val weatherProbability = prefs.getString("weather_probability", "全天干爽") ?: "全天干爽"
-                val umbrellaAdvice = prefs.getString("weather_umbrella_advice", "无需带伞 🌤") ?: "无需带伞 🌤"
+                val umbrellaAdvice = prefs.getString("weather_umbrella_advice", "") ?: ""
                 val tempRange = prefs.getString("weather_temp_range", "--° ~ --°C") ?: "--° ~ --°C"
 
                 val mode = prefs.getString("widget_view_mode", "schedule") ?: "schedule"
@@ -170,7 +233,13 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
 
                 views.setTextViewText(R.id.widget_weather_time, weatherTimeWindow)
                 views.setTextViewText(R.id.widget_weather_probability, weatherProbability)
-                views.setTextViewText(R.id.widget_umbrella_advice, umbrellaAdvice)
+                // 当天后续没雨时 Dart 侧给空串，这里把整个胶囊隐藏，避免出现空胶囊
+                if (umbrellaAdvice.isBlank()) {
+                    views.setViewVisibility(R.id.widget_umbrella_advice, View.GONE)
+                } else {
+                    views.setViewVisibility(R.id.widget_umbrella_advice, View.VISIBLE)
+                    views.setTextViewText(R.id.widget_umbrella_advice, umbrellaAdvice)
+                }
                 views.setTextViewText(R.id.widget_temp_range, tempRange)
 
                 // 2. 根据当前模式设置右侧标题与切换按钮
@@ -361,30 +430,16 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                     .filter { it.day == dayIndex && it.weeks.contains(currentWeek) }
                     .sortedBy { it.start }
 
-                // 上理节次时间判定 (第1~13节下课时刻)
-                val periodEndMinutes = intArrayOf(
-                    8 * 60 + 40,   // 第1节 08:40
-                    9 * 60 + 30,   // 第2节 09:30
-                    10 * 60 + 35,  // 第3节 10:35
-                    11 * 60 + 25,  // 第4节 11:25
-                    12 * 60 + 15,  // 第5节 12:15
-                    13 * 60 + 40,  // 第6节 13:40
-                    14 * 60 + 30,  // 第7节 14:30
-                    15 * 60 + 35,  // 第8节 15:35
-                    16 * 60 + 25,  // 第9节 16:25
-                    17 * 60 + 15,  // 第10节 17:15
-                    18 * 60 + 40,  // 第11节 18:40
-                    19 * 60 + 30,  // 第12节 19:30
-                    20 * 60 + 20   // 第13节 20:20
-                )
+                // 作息时间由 Flutter 侧（JwglSchedule）统一提供，这里不再自己维护一份
+                val periods = loadPeriods(prefs)
 
                 val curHour = now.get(Calendar.HOUR_OF_DAY)
                 val curMin = now.get(Calendar.MINUTE)
                 val curMinuteOfDay = curHour * 60 + curMin
 
                 val allPastToday = todayCourses.isNotEmpty() && todayCourses.all { c ->
-                    val endSecIndex = (c.start + c.span - 1).coerceIn(0, periodEndMinutes.size - 1)
-                    curMinuteOfDay > periodEndMinutes[endSecIndex]
+                    val endSecIndex = (c.start + c.span - 1).coerceIn(0, periods.size - 1)
+                    curMinuteOfDay > periods[endSecIndex].endMin
                 }
 
                 var daysAhead = 0
@@ -420,22 +475,32 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                     }
                 }
 
-                val periodsSchedule = arrayOf(
-                    "08:00-08:40", "08:50-09:30", "09:55-10:35", "10:45-11:25", "11:35-12:15",
-                    "13:00-13:40", "13:50-14:30", "14:55-15:35", "15:45-16:25", "16:35-17:15",
-                    "18:00-18:40", "18:50-19:30", "19:40-20:20"
-                )
-
                 val courseListJson = JSONArray()
                 for (c in displayCourses) {
                     val startSec = c.start + 1
                     val endSec = c.start + c.span
                     val periodText = if (c.span > 1) "第 $startSec-$endSec 节" else "第 $startSec 节"
 
-                    val startTime = if (c.start in periodsSchedule.indices) periodsSchedule[c.start].split("-")[0] else "08:00"
-                    val endIdx = (endSec - 1).coerceIn(0, periodsSchedule.size - 1)
-                    val endTime = periodsSchedule[endIdx].split("-")[1]
-                    val timeRange = "$startTime-$endTime"
+                    val startIdx = c.start.coerceIn(0, periods.size - 1)
+                    val endIdx = (endSec - 1).coerceIn(0, periods.size - 1)
+                    val timeRange =
+                        "${periods[startIdx].fmt(periods[startIdx].startMin)}-${periods[endIdx].fmt(periods[endIdx].endMin)}"
+
+                    // 与 App 内 _computeStatus 一致：已结课 / 进行中 / 距上课
+                    val statusInfo = if (daysAhead > 0) {
+                        "upcoming" to ""
+                    } else {
+                        val startMinute = periods[startIdx].startMin
+                        val endMinute = periods[endIdx].endMin
+                        when {
+                            curMinuteOfDay > endMinute -> "past" to "已结课"
+                            curMinuteOfDay >= startMinute ->
+                                "ongoing" to "进行中 (剩${endMinute - curMinuteOfDay}m)"
+                            startMinute - curMinuteOfDay in 1..45 ->
+                                "upcoming" to "距上课${startMinute - curMinuteOfDay}m"
+                            else -> "upcoming" to ""
+                        }
+                    }
 
                     val itemObj = JSONObject().apply {
                         put("name", c.name)
@@ -446,8 +511,8 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                         put("accentColor", c.accentColor)
                         put("bgColor", c.bgColor)
                         put("textColor", c.textColor)
-                        put("status", if (daysAhead > 0) "upcoming" else "normal")
-                        put("statusTag", "")
+                        put("status", statusInfo.first)
+                        put("statusTag", statusInfo.second)
                         put("linkUri", "litang://schedule")
                     }
                     courseListJson.put(itemObj)
