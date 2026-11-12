@@ -138,7 +138,10 @@ class AttachmentCache {
             pending.map((f) async {
               try {
                 await f;
-              } catch (_) {}
+              } catch (_) {
+                // 这里只是「等在途下载全部结束」再删目录：单个下载失败
+                // 不影响清理，且失败原因已由各自的下载流程记录，不再重复打日志。
+              }
             }),
           );
           final dir = await _dir();

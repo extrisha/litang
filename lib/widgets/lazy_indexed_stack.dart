@@ -1,6 +1,9 @@
 import 'package:flutter/widgets.dart';
 
-/// 首次访问才挂载页面；已访问页面保留状态，隐藏时暂停动画。
+/// 首次访问才挂载页面；已访问页面保留状态。
+///
+/// 隐藏时用 `TickerMode` 停掉**动画**（ticker），页面里的 `Timer`
+/// （如课表的分钟刷新）仍会继续跑——需要省电时得在页面内部自己控制。
 class LazyIndexedStack extends StatefulWidget {
   const LazyIndexedStack({
     super.key,
