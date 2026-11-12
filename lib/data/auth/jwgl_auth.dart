@@ -51,6 +51,14 @@ class JwglAuth extends ChangeNotifier {
   /// 真正的半失效仍由业务请求失败后的 reauthenticate 兜底。
   static const Duration _sessionTtl = Duration(seconds: 15);
 
+  /// 会话恢复失败后的冷却截止时间。
+  ///
+  /// 单飞只能合并**并发**的调用；离线启动时各页面是**依次**调 ensureSession 的，
+  /// 没有冷却就会每个页面各走一遍「checkSession → silentLogin → 密码登录」，
+  /// 既慢又容易把刚建立的 CAS 会话搅乱。
+  DateTime? _recoveryCooldownUntil;
+  static const Duration _recoveryCooldown = Duration(seconds: 4);
+
   String _savedUsername = '';
   String? _savedPassword;
 
@@ -179,6 +187,7 @@ class JwglAuth extends ChangeNotifier {
   void _applyLogin(CasClient client, String username, String? password) {
     client.studentId = username;
     _sessionInFlight = null;
+    _recoveryCooldownUntil = null;
     _client = client;
     _studentId = username;
     _savedUsername = username;
@@ -355,7 +364,19 @@ class JwglAuth extends ChangeNotifier {
         onError: (Object _) => false,
       );
     }
-    return _startSessionRecovery(_ensureSessionInner);
+    final cooldownUntil = _recoveryCooldownUntil;
+    if (cooldownUntil != null && DateTime.now().isBefore(cooldownUntil)) {
+      debugPrint('[auth] 会话恢复冷却中，跳过本次重试');
+      return Future<bool>.value(false);
+    }
+    // 失败后进入冷却：离线状态下别让每个页面都各触发一轮 CAS 登录。
+    // 用户主动操作（reauthenticate / login）不受这里影响。
+    return _startSessionRecovery(_ensureSessionInner).then((ok) {
+      if (!ok) {
+        _recoveryCooldownUntil = DateTime.now().add(_recoveryCooldown);
+      }
+      return ok;
+    });
   }
 
   Future<bool> _ensureSessionInner() async {
