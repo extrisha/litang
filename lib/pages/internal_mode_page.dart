@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../app_theme.dart';
 import '../data/internal/internal_settings.dart';
@@ -6,6 +6,7 @@ import '../data/internal/rollcall_watch_store.dart';
 import '../data/lms/radar_target.dart';
 import '../services/rollcall_monitor.dart';
 import 'internal/radar_baseline_sheet.dart';
+import 'internal/qr_diagnostic_page.dart';
 import 'internal/widgets/monitor_log_card.dart';
 import 'internal/widgets/section_card.dart';
 
@@ -75,6 +76,8 @@ class _InternalModePageState extends State<InternalModePage> {
               _monitorCard(settings),
               const SizedBox(height: 12),
               _autoSignCard(settings),
+              const SizedBox(height: 12),
+              _qrCard(settings),
               const SizedBox(height: 12),
               _baselineCard(settings),
               const SizedBox(height: 12),
@@ -197,7 +200,7 @@ class _InternalModePageState extends State<InternalModePage> {
           activeThumbColor: AppColors.usstRed,
           title: const Text('自动提交签到', style: TextStyle(fontSize: 14)),
           subtitle: const Text(
-            '总开关。雷达/数字口令各自再单独打开；自主签到直接提交；二维码仍需手动扫。',
+            '总开关。雷达/数字口令各自再单独打开；自主签到直接提交；二维码走下面的扫码器。',
             style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
           ),
           onChanged: (value) => _save(settings.copyWith(autoSign: value)),
@@ -246,6 +249,41 @@ class _InternalModePageState extends State<InternalModePage> {
           child: Text(
             '每个点名只会提交一次；提交失败或结果未知都不会自动重试，'
             '避免消耗服务端的出错次数。',
+            style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _qrCard(InternalSettings settings) {
+    return SectionCard(
+      title: '二维码诊断',
+      children: <Widget>[
+        ListTile(
+          dense: true,
+          leading: const Icon(
+            Icons.qr_code_scanner,
+            size: 20,
+            color: AppColors.usstRed,
+          ),
+          title: const Text('打开诊断', style: TextStyle(fontSize: 14)),
+          subtitle: const Text(
+            '只解剖二维码载荷，不发任何请求。',
+            style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+          ),
+          trailing: const Icon(Icons.chevron_right, size: 20),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const QrDiagnosticPage()),
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Text(
+            '拆出 courseId / rollcallId / 校验段，算出时间戳与本机时钟的偏差、'
+            '相邻两枚的间隔，并可导出 JSON。'
+            '请注意：一旦自己已经签到成功，再用同一枚 token 提交会先返回「已签」，'
+            '哈希校验的结果就被盖住了 —— 所以诊断要在提交之前做。',
             style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
           ),
         ),

@@ -82,6 +82,19 @@
                 android:resource="@xml/today_schedule_widget_info" />
         </receiver>
 
+        <!-- 桌面小组件：4×1 紧凑版（只显示当前/下一节课） -->
+        <receiver
+            android:name=".TodayCompactWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.example.project_usst.ACTION_REFRESH_SCHEDULE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/today_schedule_widget_compact_info" />
+        </receiver>
+
         <service
             android:name=".TodayScheduleWidgetService"
             android:permission="android.permission.BIND_REMOTEVIEWS"

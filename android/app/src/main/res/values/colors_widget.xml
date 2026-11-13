@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面小组件的文字/状态色（浅色） -->
+<resources>
+    <color name="widget_text_primary">#1A202C</color>
+    <color name="widget_text_secondary">#4A5568</color>
+    <color name="widget_text_muted">#718096</color>
+    <color name="widget_text_faint">#A0AEC0</color>
+    <color name="widget_accent_red">#A31C1C</color>
+    <color name="widget_status_ongoing">#2B6CB0</color>
+    <color name="widget_status_past">#A0AEC0</color>
+    <color name="widget_status_urgent">#CF1322</color>
+    <color name="widget_status_near">#D97706</color>
+    <color name="widget_shadow">#33000000</color>
+</resources>

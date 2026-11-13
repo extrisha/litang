@@ -29,6 +29,8 @@ import 'login_page.dart';
 import 'update_page.dart';
 import '../services/update_service.dart';
 import 'internal_mode_page.dart';
+import 'widget_settings_page.dart';
+import '../widgets/app_motion.dart';
 
 /// 我的：个人信息 + 学业查询 + 网页入口（上理体育 / 学工 / 教务）。
 class ProfilePage extends StatefulWidget {
@@ -351,6 +353,15 @@ class _ProfilePageState extends State<ProfilePage> {
               _entry(Icons.language_outlined, '教务网页版', onTap: _openJwglWeb),
             ]),
             const SizedBox(height: 16),
+            _sectionTitle('外观'),
+            _grid(<Widget>[
+              _entry(
+                Icons.widgets_outlined,
+                '桌面小组件',
+                onTap: _openWidgetSettings,
+              ),
+            ]),
+            const SizedBox(height: 16),
             _sectionTitle('存储'),
             _cacheTile(),
             ValueListenableBuilder<InternalSettings>(
@@ -471,9 +482,15 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _openInternalMode() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const InternalModePage()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const InternalModePage()));
+  }
+
+  void _openWidgetSettings() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const WidgetSettingsPage()));
   }
 
   void _onVersionLongPress() {
@@ -487,10 +504,6 @@ class _ProfilePageState extends State<ProfilePage> {
       _versionTaps = 0;
       _versionTapTimer?.cancel();
       unawaited(_enableInternalMode());
-      return;
-    }
-    if (_versionTaps >= 3) {
-      _toast('再长按 ${5 - _versionTaps} 次开启内部模式');
     }
   }
 
@@ -498,7 +511,6 @@ class _ProfilePageState extends State<ProfilePage> {
     await InternalMode.instance.setEnabled(true);
     if (!mounted) return;
     setState(() {});
-    _toast('内部模式已开启，入口在「存储」下面');
   }
 
   Future<void> _checkUpdate() async {
@@ -819,28 +831,30 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _entry(IconData icon, String label, {VoidCallback? onTap}) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
+    return PressableScale(
+      child: Material(
+        color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Container(
-          width: 104,
-          constraints: const BoxConstraints(minHeight: 88),
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              Icon(icon, color: AppColors.usstRed, size: 26),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13),
-              ),
-            ],
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Container(
+            width: 104,
+            constraints: const BoxConstraints(minHeight: 88),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(icon, color: AppColors.usstRed, size: 26),
+                const SizedBox(height: 8),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ],
+            ),
           ),
         ),
       ),

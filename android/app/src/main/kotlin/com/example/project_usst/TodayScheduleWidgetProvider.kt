@@ -96,12 +96,16 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                     }
                 }
 
-                // 3. 轻量级系统 Toast 提示用户
+                // 3. 4×1 紧凑版没有自己的闹钟，靠这里一起刷；
+                //    桌面上只放了 4×1 时，上面那个循环是空的，必须显式调用。
+                TodayCompactWidgetProvider.updateAll(context)
+
+                // 4. 轻量级系统 Toast 提示用户
                 try {
                     Toast.makeText(context, "理堂：正在刷新天气与课表...", Toast.LENGTH_SHORT).show()
                 } catch (_: Throwable) {}
 
-                // 4. 触发后台同步服务（通过 WorkManager / HomeWidgetBackgroundReceiver 静默拉取 Open-Meteo 天气）
+                // 5. 触发后台同步服务（通过 WorkManager / HomeWidgetBackgroundReceiver 静默拉取 Open-Meteo 天气）
                 try {
                     val bgIntent = Intent(context, HomeWidgetBackgroundReceiver::class.java).apply {
                         action = "es.antonborri.home_widget.action.BACKGROUND"
@@ -128,6 +132,7 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                         Log.e(TAG, "广播更新小组件异常 (id: $id)", t)
                     }
                 }
+                TodayCompactWidgetProvider.updateAll(context)
             }
         } catch (t: Throwable) {
             Log.e(TAG, "onReceive 异常", t)
@@ -214,46 +219,110 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                 val weekdayText = prefs.getString("today_weekday_text", "周日") ?: "周日"
 
                 val weatherTimeWindow = prefs.getString("weather_time_window", "今日全天无雨") ?: "今日全天无雨"
-                val weatherProbability = prefs.getString("weather_probability", "全天干爽") ?: "全天干爽"
                 val umbrellaAdvice = prefs.getString("weather_umbrella_advice", "") ?: ""
                 val tempRange = prefs.getString("weather_temp_range", "--° ~ --°C") ?: "--° ~ --°C"
 
                 val mode = prefs.getString("widget_view_mode", "schedule") ?: "schedule"
                 val daysAhead = prefs.getInt("schedule_days_ahead", 0)
-                val defaultTitle = if (daysAhead == 0) "今日课表" else if (daysAhead == 1) "明日" else "${daysAhead}天后"
-                val scheduleTitle = prefs.getString("schedule_title_text", defaultTitle) ?: defaultTitle
-                val todoCount = prefs.getInt("todo_count", 0)
 
                 val views = RemoteViews(context.packageName, R.layout.widget_today_schedule)
 
-                // 1. 设置左侧栏文本
-                views.setTextViewText(R.id.widget_week_text, weekText)
-                views.setTextViewText(R.id.widget_date_text, dateText)
-                views.setTextViewText(R.id.widget_weekday_text, weekdayText)
-
-                views.setTextViewText(R.id.widget_weather_time, weatherTimeWindow)
-                views.setTextViewText(R.id.widget_weather_probability, weatherProbability)
-                // 当天后续没雨时 Dart 侧给空串，这里把整个胶囊隐藏，避免出现空胶囊
-                if (umbrellaAdvice.isBlank()) {
-                    views.setViewVisibility(R.id.widget_umbrella_advice, View.GONE)
-                } else {
-                    views.setViewVisibility(R.id.widget_umbrella_advice, View.VISIBLE)
-                    views.setTextViewText(R.id.widget_umbrella_advice, umbrellaAdvice)
+                // 0. 背景层：风格 / 透明度 / 深浅色 三者组合，现画一张 Bitmap
+                val widgetStyle = prefs.getString("widget_style", WidgetBackground.STYLE_GLASS)
+                    ?: WidgetBackground.STYLE_GLASS
+                val widgetAlpha = prefs.getInt("widget_alpha", 85)
+                val theme = WidgetThemeHelper.themeOf(context)
+                val night = WidgetThemeHelper.isNight(context, theme)
+                val colors = WidgetThemeHelper.colors(context, theme)
+                try {
+                    val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
+                    val widthDp = options.getInt(
+                        AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250
+                    ).toFloat().coerceAtLeast(120f)
+                    val heightDp = options.getInt(
+                        AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 110
+                    ).toFloat().coerceAtLeast(50f)
+                    views.setImageViewBitmap(
+                        R.id.widget_background,
+                        WidgetBackground.build(
+                            context, widgetStyle, widgetAlpha, night, widthDp, heightDp
+                        )
+                    )
+                } catch (t: Throwable) {
+                    Log.w(TAG, "背景绘制失败，保留默认", t)
                 }
-                views.setTextViewText(R.id.widget_temp_range, tempRange)
+
+                // 1. 设置左侧栏文本（颜色按「主题」设置走，而不是只跟系统）
+                views.setTextViewText(R.id.widget_week_text, weekText)
+                views.setTextColor(R.id.widget_week_text, colors.accentRed)
+                views.setTextViewText(R.id.widget_date_text, dateText)
+                views.setTextColor(R.id.widget_date_text, colors.textPrimary)
+                views.setTextViewText(R.id.widget_weekday_text, weekdayText)
+                views.setTextColor(R.id.widget_weekday_text, colors.textMuted)
+
+                // 「X 天后」提示：列表里可能是未来某天的课，不能让人误以为是今天
+                if (mode != "todo" && daysAhead > 0) {
+                    views.setViewVisibility(
+                        R.id.widget_days_ahead_label, View.VISIBLE
+                    )
+                    views.setTextViewText(
+                        R.id.widget_days_ahead_label,
+                        "$daysAhead 天后 · ${WidgetData.weekdayTextForOffset(daysAhead)}"
+                    )
+                    views.setTextColor(
+                        R.id.widget_days_ahead_label, colors.accentRed
+                    )
+                } else {
+                    views.setViewVisibility(
+                        R.id.widget_days_ahead_label, View.GONE
+                    )
+                }
+
+                // 温度独占一行，保证完整显示
+                views.setTextViewText(
+                    R.id.widget_temp_text,
+                    if (tempRange.isBlank()) "--°~--°C" else tempRange
+                )
+                views.setTextColor(R.id.widget_temp_text, colors.textSecondary)
+
+                // 「今日共 X 节课」；展示的是未来某天时不能写「今日」
+                val courseCount = WidgetData.courseCount(prefs)
+                if (mode == "todo") {
+                    views.setViewVisibility(R.id.widget_today_count, View.GONE)
+                } else {
+                    views.setViewVisibility(R.id.widget_today_count, View.VISIBLE)
+                    views.setTextViewText(
+                        R.id.widget_today_count,
+                        if (mode != "todo" && daysAhead > 0) {
+                            "${WidgetData.weekdayTextForOffset(daysAhead)} $courseCount 节课"
+                        } else {
+                            "今日共 $courseCount 节课"
+                        }
+                    )
+                    views.setTextColor(R.id.widget_today_count, colors.textFaint)
+                }
+
+                // 天气一句话：时间窗 + 是否带伞，合并成一行放右栏头部
+                views.setTextViewText(
+                    R.id.widget_weather_text,
+                    WidgetData.weatherLine(weatherTimeWindow, umbrellaAdvice)
+                )
+                views.setTextColor(R.id.widget_weather_text, colors.textSecondary)
 
                 // 2. 根据当前模式设置右侧标题与切换按钮
                 if (mode == "todo") {
-                    views.setTextViewText(R.id.widget_right_title, "待办作业 ($todoCount)")
                     views.setTextViewText(R.id.widget_toggle_btn, "📅 看课表")
                     views.setTextViewText(R.id.widget_empty_title, "🎉 暂无未完成待办")
                     views.setTextViewText(R.id.widget_empty_sub, "作业均已完成，尽情放松 ☕")
                 } else {
-                    views.setTextViewText(R.id.widget_right_title, scheduleTitle)
-                    views.setTextViewText(R.id.widget_toggle_btn, "📝 查待办")
+                   views.setTextViewText(R.id.widget_toggle_btn, "📝 查待办")
                     views.setTextViewText(R.id.widget_empty_title, "✨ 近期均无课程")
                     views.setTextViewText(R.id.widget_empty_sub, "享受轻松大学时光 ☕")
                 }
+
+                views.setTextColor(R.id.widget_toggle_btn, colors.textSecondary)
+                views.setTextColor(R.id.widget_empty_title, colors.textSecondary)
+                views.setTextColor(R.id.widget_empty_sub, colors.textFaint)
 
                 // 3. 绑定模式切换按钮广播
                 val toggleIntent = Intent(context, TodayScheduleWidgetProvider::class.java).apply {
@@ -303,7 +372,7 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                     refreshIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
-                views.setOnClickPendingIntent(R.id.widget_weather_panel, refreshPending)
+                views.setOnClickPendingIntent(R.id.widget_weather_text, refreshPending)
 
                 // 7. 为列表项设置可传递深层跳转 URI 的点击模板 (Android 12+ 需 FLAG_MUTABLE)
                 val listTemplateIntent = Intent(context, MainActivity::class.java).apply {
@@ -326,6 +395,12 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                 // 8. 提交更新并通知列表数据重绘
                 appWidgetManager.updateAppWidget(appWidgetId, views)
                 appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.widget_course_list)
+
+                // 9. 排下一次「到点」刷新（上课/下课/跨天），让状态按分钟翻转
+                WidgetScheduleAlarms.schedule(context)
+
+                // 10. 4×1 紧凑版跟着一起刷
+                TodayCompactWidgetProvider.updateAll(context)
             } catch (t: Throwable) {
                 Log.e(TAG, "updateAppWidget 内部执行异常", t)
             }
@@ -334,7 +409,7 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
         /**
          * 原生离线跨天推演：无需唤醒 Flutter 引擎即可在本地自动推演当前日期、教学周次与目标课程
          */
-        private fun performNativeScheduleRollover(context: Context, prefs: SharedPreferences) {
+        internal fun performNativeScheduleRollover(context: Context, prefs: SharedPreferences) {
             try {
                 val week1MondayStr = prefs.getString("semester_week1_monday", "") ?: ""
                 val allCoursesJsonStr = prefs.getString("semester_all_courses_json", "") ?: ""
@@ -513,6 +588,10 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                         put("textColor", c.textColor)
                         put("status", statusInfo.first)
                         put("statusTag", statusInfo.second)
+                        // 渲染时（getViewAt）会用这两个值现算一次状态，
+                        // 30 分钟一次的 updatePeriodMillis 不至于让「进行中」陈旧太久
+                        put("startMin", periods[startIdx].startMin)
+                        put("endMin", periods[endIdx].endMin)
                         put("linkUri", "litang://schedule")
                     }
                     courseListJson.put(itemObj)

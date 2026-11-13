@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  课程/作业左侧的色条：画成圆头小胶囊，再用 setColorFilter 上色。
+  原来是一条贴边的方角长条，和 14dp 圆角的卡片边缘撞在一起，看着像「糊了一块」。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#1677FF" />
+    <corners android:radius="2dp" />
+</shape>

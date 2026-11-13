@@ -11,6 +11,7 @@ import android.widget.RemoteViewsService
 import es.antonborri.home_widget.HomeWidgetPlugin
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Calendar
 
 /**
  * 为桌面小组件的右半区 ListView 提供数据的服务（支持课表与待办双模式，支持点击深层跳转）
@@ -26,6 +27,12 @@ class TodayScheduleRemoteViewsFactory(private val context: Context) :
 
     private val itemList = ArrayList<ScheduleOrTodoItemData>()
 
+    /** 「距上课」提示的提前量（分钟），由设置页写入，默认 45。 */
+    private var upcomingMinutes: Int = 45
+
+    /** 按「主题」设置取到的颜色；null 时回退系统深浅色。 */
+    private var palette: WidgetColors? = null
+
     data class ScheduleOrTodoItemData(
         val name: String,
         val time: String,
@@ -34,8 +41,26 @@ class TodayScheduleRemoteViewsFactory(private val context: Context) :
         val accentColor: String,
         val status: String,
         val statusTag: String,
-        val linkUri: String
+        val linkUri: String,
+        // 课表条目的起止分钟（0 点起算），-1 表示待办或旧数据
+        val startMin: Int = -1,
+        val endMin: Int = -1
     )
+
+    /** 用「当前时刻 + 起止分钟」现算状态，避免 30 分钟刷新周期导致标签陈旧。 */
+    private fun liveStatus(item: ScheduleOrTodoItemData): Pair<String, String> {
+        if (item.startMin < 0 || item.endMin < 0) {
+            return item.status to item.statusTag
+        }
+        val cal = Calendar.getInstance()
+        val nowMin = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+        return when {
+            nowMin > item.endMin -> "past" to "已结课"
+            nowMin >= item.startMin -> "ongoing" to "进行中 (剩${item.endMin - nowMin}m)"
+            item.startMin - nowMin in 1..upcomingMinutes -> "upcoming" to "距上课${item.startMin - nowMin}m"
+            else -> "upcoming" to ""
+        }
+    }
 
     override fun onCreate() {
         loadData()
@@ -50,6 +75,8 @@ class TodayScheduleRemoteViewsFactory(private val context: Context) :
         try {
             val prefs = HomeWidgetPlugin.getData(context)
             val mode = prefs.getString("widget_view_mode", "schedule") ?: "schedule"
+            upcomingMinutes = prefs.getInt("widget_upcoming_minutes", 45).coerceIn(0, 120)
+            palette = WidgetThemeHelper.colors(context, WidgetThemeHelper.themeOf(context))
             val jsonKey = if (mode == "todo") "todos_json" else "courses_json"
             val jsonString = prefs.getString(jsonKey, null) ?: return
             val array = JSONArray(jsonString)
@@ -65,7 +92,9 @@ class TodayScheduleRemoteViewsFactory(private val context: Context) :
                         accentColor = obj.optString("accentColor", "#1677FF"),
                         status = obj.optString("status", "upcoming"),
                         statusTag = obj.optString("statusTag", ""),
-                        linkUri = obj.optString("linkUri", "")
+                        linkUri = obj.optString("linkUri", ""),
+                        startMin = obj.optInt("startMin", -1),
+                        endMin = obj.optInt("endMin", -1)
                     )
                 )
             }
@@ -87,6 +116,10 @@ class TodayScheduleRemoteViewsFactory(private val context: Context) :
 
         try {
             val item = itemList[position]
+            val colors = palette
+                ?: WidgetThemeHelper.colors(context, WidgetTheme.SYSTEM)
+            // 状态按渲染时刻现算（课表条目带 startMin/endMin），待办沿用推演时给的状态
+            val (statusValue, statusTagText) = liveStatus(item)
             val views = RemoteViews(context.packageName, R.layout.widget_course_item)
 
             // 1. 设置主标题与时间/截止
@@ -98,47 +131,47 @@ class TodayScheduleRemoteViewsFactory(private val context: Context) :
             // 2. 动态设置左侧色条（课表莫兰迪色 / 待办紧急度色）
             try {
                 val color = Color.parseColor(item.accentColor)
-                views.setInt(R.id.item_accent_bar, "setBackgroundColor", color)
+                views.setInt(R.id.item_accent_bar, "setColorFilter", color)
             } catch (_: Throwable) {
-                views.setInt(R.id.item_accent_bar, "setBackgroundColor", Color.parseColor("#1677FF"))
+                views.setInt(R.id.item_accent_bar, "setColorFilter", Color.parseColor("#1677FF"))
             }
 
             // 3. 根据状态设置强调、临期或淡化
-            when (item.status) {
+            when (statusValue) {
                 "past" -> {
                     // 已结束
-                    views.setTextColor(R.id.item_course_name, Color.parseColor("#A0AEC0"))
-                    views.setTextColor(R.id.item_course_room, Color.parseColor("#CBD5E0"))
-                    views.setTextColor(R.id.item_course_time, Color.parseColor("#CBD5E0"))
+                    views.setTextColor(R.id.item_course_name, colors.statusPast)
+                    views.setTextColor(R.id.item_course_room, colors.textFaint)
+                    views.setTextColor(R.id.item_course_time, colors.textFaint)
                 }
                 "urgent" -> {
                     // 待办紧急临期（24小时内）
-                    views.setTextColor(R.id.item_course_name, Color.parseColor("#1A202C"))
-                    views.setTextColor(R.id.item_course_room, Color.parseColor("#4A5568"))
-                    views.setTextColor(R.id.item_course_time, Color.parseColor("#CF1322"))
+                    views.setTextColor(R.id.item_course_name, colors.textPrimary)
+                    views.setTextColor(R.id.item_course_room, colors.textSecondary)
+                    views.setTextColor(R.id.item_course_time, colors.statusUrgent)
                 }
                 "near" -> {
                     // 待办临近（3天内）
-                    views.setTextColor(R.id.item_course_name, Color.parseColor("#1A202C"))
-                    views.setTextColor(R.id.item_course_room, Color.parseColor("#4A5568"))
-                    views.setTextColor(R.id.item_course_time, Color.parseColor("#D97706"))
+                    views.setTextColor(R.id.item_course_name, colors.textPrimary)
+                    views.setTextColor(R.id.item_course_room, colors.textSecondary)
+                    views.setTextColor(R.id.item_course_time, colors.statusNear)
                 }
                 else -> {
-                    views.setTextColor(R.id.item_course_name, Color.parseColor("#1A202C"))
-                    views.setTextColor(R.id.item_course_room, Color.parseColor("#4A5568"))
-                    views.setTextColor(R.id.item_course_time, Color.parseColor("#718096"))
+                    views.setTextColor(R.id.item_course_name, colors.textPrimary)
+                    views.setTextColor(R.id.item_course_room, colors.textSecondary)
+                    views.setTextColor(R.id.item_course_time, colors.textMuted)
                 }
             }
 
             // 4. 状态角标（如 "进行中 (剩20m)" / "明日" / "临期" / "待办"）
-            if (item.statusTag.isNotEmpty()) {
+            if (statusTagText.isNotEmpty()) {
                 views.setViewVisibility(R.id.item_course_status, View.VISIBLE)
-                views.setTextViewText(R.id.item_course_status, item.statusTag)
-                when (item.status) {
-                    "urgent" -> views.setTextColor(R.id.item_course_status, Color.parseColor("#CF1322"))
-                    "ongoing" -> views.setTextColor(R.id.item_course_status, Color.parseColor("#2B6CB0"))
-                    "past" -> views.setTextColor(R.id.item_course_status, Color.parseColor("#A0AEC0"))
-                    else -> views.setTextColor(R.id.item_course_status, Color.parseColor("#D97706"))
+                views.setTextViewText(R.id.item_course_status, statusTagText)
+                when (statusValue) {
+                    "urgent" -> views.setTextColor(R.id.item_course_status, colors.statusUrgent)
+                    "ongoing" -> views.setTextColor(R.id.item_course_status, colors.statusOngoing)
+                    "past" -> views.setTextColor(R.id.item_course_status, colors.statusPast)
+                    else -> views.setTextColor(R.id.item_course_status, colors.statusNear)
                 }
             } else {
                 views.setViewVisibility(R.id.item_course_status, View.GONE)

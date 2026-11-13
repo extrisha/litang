@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'widgets/app_motion.dart';
+
 /// 上理红白配色。主色为占位的绛红，后续按校徽实际取色微调。
 class AppColors {
   static const Color usstRed = Color(0xFFA31C1C);
@@ -118,6 +120,17 @@ class AppTheme {
       navigationBarTheme: const NavigationBarThemeData(
         backgroundColor: Colors.white,
         indicatorColor: AppColors.redTint,
+      ),
+      // 全局页面转场：淡入 + 轻微右滑。调用点（MaterialPageRoute）不用改，
+      // iOS 仍走系统原生的 Cupertino 返回手势，保证边缘右滑可用。
+      // 没列的平台（iOS / macOS）继续用框架默认转场，边缘返回手势不受影响。
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: <TargetPlatform, PageTransitionsBuilder>{
+          TargetPlatform.android: AppPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: AppPageTransitionsBuilder(),
+          TargetPlatform.linux: AppPageTransitionsBuilder(),
+          TargetPlatform.windows: AppPageTransitionsBuilder(),
+        },
       ),
     );
   }

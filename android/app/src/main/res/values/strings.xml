@@ -2,5 +2,6 @@
 <resources>
     <string name="app_name">理堂</string>
     <string name="widget_name">今日课表与天气</string>
-    <string name="widget_description">展示今日课表（可滑动）与降水带伞决策</string>
+    <string name="widget_description">展示今天的课表与天气提示</string>
+    <string name="widget_name_compact">下一节课</string>
 </resources>
