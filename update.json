@@ -1,9 +1,9 @@
 {
-  "version": "0.7.2",
-  "versionCode": 51,
+  "version": "0.7.3-alpha",
+  "versionCode": 56,
   "minVersionCode": 0,
-  "notes": "升级 0.7.2（build 51）：一网畅学签到修复雷达定位偏差，新增自主签到支持；学习通作业与课程列表改用更稳的解析方式；桌面小组件课程时间改用主课表作息，天气「带伞」提示只在当天后续有雨时出现；移除校园跑（高校体育）功能，避免影响官方 App 登录状态。",
-  "apk_github": "https://github.com/extrisha/litang/releases/latest/download/app-release.apk",
-  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.7.2/app-release.apk",
-  "sha256": "81bab3b83c3b6c557f4ece34db5369c9da76e3d56694fc34d88d6b7cfcf1d75b"
+  "notes": "0.7.3-alpha 测试版：桌面小组件改版——4×2 左栏改为「日期 + 温度 + 今日共几节」，天气并到右栏头部一行（带伞提示纯文字），右栏合并为一整块面板并用细灰线分隔；新增 4×1 紧凑版，只显示当前/下一节课；未来日期的课程会标注「X 天后 · 周几」，待办模式下不再出现该提示；外观设置支持磨砂/纯透明/实心、透明度、默认视图、到点提示与浅色/深色/跟随系统；上课/下课/零点自动刷新；全 App 统一页面转场与按压反馈。",
+  "apk_github": "https://github.com/extrisha/litang/releases/download/0.7.3-alpha/app-release.apk",
+  "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.7.3-alpha/app-release.apk",
+  "sha256": "fd069390bc77c42cf61e927b5206f44cb59d6732c2178860f4990a954ec76ad8"
 }
