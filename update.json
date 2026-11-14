@@ -1,9 +1,9 @@
 {
   "version": "0.7.3-alpha",
-  "versionCode": 59,
+  "versionCode": 60,
   "minVersionCode": 0,
-  "notes": "0.7.3-alpha 测试版：深色主题下小组件列表换成更深的灰底（不再复用浅色面板）；天气抓取加固——Open-Meteo 字段为 null 不再让整次抓取失败、后台冷启动超时放宽到 12 秒、兜底数据不覆盖旧天气；小组件每 2 小时后台刷新天气；左栏点一下即可刷新；修复未来日期课程误标已结课、上完的课从列表移除。",
+  "notes": "0.7.3-alpha 测试版：小组件天气改由 Android 原生抓取（不再依赖 Flutter 后台引擎），点左栏或每 2 小时都会真的更新；设置页新增「天气」卡片，可看上次成功时间/失败原因并手动「立即抓取」；深色主题下右栏面板换成深灰；修复未来日期课程被误标已结课、上完的课从列表移除；4×1 紧凑版；外观可设风格/透明度/主题/默认视图/到点提示。",
   "apk_github": "https://github.com/extrisha/litang/releases/download/0.7.3-alpha/app-release.apk",
   "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.7.3-alpha/app-release.apk",
-  "sha256": "8aff290ffaa20bcacda89335b893a8bdaf55f2028b805e6f501e03ebca460f4a"
+  "sha256": "4b02abc2cc71cc3a366ad3188f182defb389efa33021007294559d424549eb3f"
 }
