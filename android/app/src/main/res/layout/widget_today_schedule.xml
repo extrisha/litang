@@ -194,8 +194,9 @@
                 android:textStyle="bold"
                 android:visibility="gone" />
 
-            <!-- 一整块面板：列表与空态都在里面 -->
+            <!-- 一整块面板：列表与空态都在里面（深浅主题用两张 drawable 切换） -->
             <LinearLayout
+                android:id="@+id/widget_list_panel"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"

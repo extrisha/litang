@@ -139,6 +139,11 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
         }
     }
 
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        WidgetWeatherAlarms.cancelIfOrphaned(context)
+    }
+
     companion object {
         private const val TAG = "TodayWidgetProvider"
         const val ACTION_REFRESH_SCHEDULE = "com.example.project_usst.ACTION_REFRESH_SCHEDULE"
@@ -252,6 +257,20 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                     Log.w(TAG, "背景绘制失败，保留默认", t)
                 }
 
+                // 右栏面板：深色主题用更暗的一张 drawable，别复用浅色那张
+                try {
+                    views.setInt(
+                        R.id.widget_list_panel,
+                        "setBackgroundResource",
+                        if (night) {
+                            R.drawable.widget_list_panel_dark
+                        } else {
+                            R.drawable.widget_list_panel
+                        }
+                    )
+                } catch (_: Throwable) {
+                }
+
                 // 1. 设置左侧栏文本（颜色按「主题」设置走，而不是只跟系统）
                 views.setTextViewText(R.id.widget_week_text, weekText)
                 views.setTextColor(R.id.widget_week_text, colors.accentRed)
@@ -285,18 +304,20 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                 )
                 views.setTextColor(R.id.widget_temp_text, colors.textSecondary)
 
-                // 「今日共 X 节课」；展示的是未来某天时不能写「今日」
+                // 「今日共 X 节课」；上完的课不再计入，展示未来某天时不写「今日」
                 val courseCount = WidgetData.courseCount(prefs)
+                val remaining = if (daysAhead > 0) courseCount else WidgetData.remainingCount(prefs)
                 if (mode == "todo") {
                     views.setViewVisibility(R.id.widget_today_count, View.GONE)
                 } else {
                     views.setViewVisibility(R.id.widget_today_count, View.VISIBLE)
                     views.setTextViewText(
                         R.id.widget_today_count,
-                        if (mode != "todo" && daysAhead > 0) {
-                            "${WidgetData.weekdayTextForOffset(daysAhead)} $courseCount 节课"
-                        } else {
-                            "今日共 $courseCount 节课"
+                        when {
+                            daysAhead > 0 ->
+                                "${WidgetData.weekdayTextForOffset(daysAhead)} $courseCount 节课"
+                            remaining > 0 -> "今日还剩 $remaining 节"
+                            else -> "今日课程已结束"
                         }
                     )
                     views.setTextColor(R.id.widget_today_count, colors.textFaint)
@@ -314,6 +335,10 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                     views.setTextViewText(R.id.widget_toggle_btn, "📅 看课表")
                     views.setTextViewText(R.id.widget_empty_title, "🎉 暂无未完成待办")
                     views.setTextViewText(R.id.widget_empty_sub, "作业均已完成，尽情放松 ☕")
+                } else if (daysAhead == 0 && courseCount > 0 && remaining == 0) {
+                    views.setTextViewText(R.id.widget_toggle_btn, "📝 查待办")
+                    views.setTextViewText(R.id.widget_empty_title, "今日课程已结束")
+                    views.setTextViewText(R.id.widget_empty_sub, "今天的课都上完了 ☕")
                 } else {
                    views.setTextViewText(R.id.widget_toggle_btn, "📝 查待办")
                     views.setTextViewText(R.id.widget_empty_title, "✨ 近期均无课程")
@@ -358,7 +383,6 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
                 views.setOnClickPendingIntent(R.id.widget_date_panel, pendingLaunch)
-                views.setOnClickPendingIntent(R.id.widget_left_panel, pendingLaunch)
                 views.setOnClickPendingIntent(R.id.widget_course_empty, pendingLaunch)
 
                 // 6. 点击天气卡片触发就地静默刷新（方案 B）
@@ -373,6 +397,8 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
                 views.setOnClickPendingIntent(R.id.widget_weather_text, refreshPending)
+                // 左栏（除日期那一小块）也是刷新热区：和以前一样，点一下就静默刷新
+                views.setOnClickPendingIntent(R.id.widget_left_panel, refreshPending)
 
                 // 7. 为列表项设置可传递深层跳转 URI 的点击模板 (Android 12+ 需 FLAG_MUTABLE)
                 val listTemplateIntent = Intent(context, MainActivity::class.java).apply {
@@ -398,6 +424,8 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
 
                 // 9. 排下一次「到点」刷新（上课/下课/跨天），让状态按分钟翻转
                 WidgetScheduleAlarms.schedule(context)
+                // 9.1 后台天气：每 2 小时拉一次，避免「暂无气象信息」或几小时前的旧数据
+                WidgetWeatherAlarms.schedule(context)
 
                 // 10. 4×1 紧凑版跟着一起刷
                 TodayCompactWidgetProvider.updateAll(context)

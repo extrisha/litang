@@ -15,6 +15,7 @@ class WeatherSummary {
     required this.tempRange,
     required this.iconType,
     required this.updatedAt,
+    this.isFallback = false,
   });
 
   /// 是否有雨或雪
@@ -40,6 +41,10 @@ class WeatherSummary {
 
   final DateTime updatedAt;
 
+  /// 是否是离线兜底数据。为 true 时不要写进小组件，否则会把上一次的有效
+  /// 天气覆盖成「暂无气象信息」。
+  final bool isFallback;
+
   /// 离线或默认兜底数据
   factory WeatherSummary.fallback() {
     return WeatherSummary(
@@ -51,6 +56,7 @@ class WeatherSummary {
       tempRange: '--° ~ --°C',
       iconType: 'cloudy',
       updatedAt: DateTime.now(),
+      isFallback: true,
     );
   }
 
@@ -112,26 +118,52 @@ class WeatherService {
       throw Exception('Open-Meteo 数据格式异常');
     }
 
-    final hourly = data['hourly'] as Map<String, dynamic>;
-    final times = List<String>.from(hourly['time'] as List);
-    final temps = List<num>.from(hourly['temperature_2m'] as List);
-    final precipProbs = List<num>.from(
-      hourly['precipitation_probability'] as List,
-    );
-    final precips = List<num>.from(hourly['precipitation'] as List);
-    final codes = List<int>.from(hourly['weather_code'] as List);
+    return parseOpenMeteo(data);
+  }
 
-    if (times.isEmpty) {
-      return WeatherSummary.fallback();
+  /// 把 Open-Meteo 的响应解析成 [WeatherSummary]。
+  ///
+  /// 单独抽出来是因为这里的字段经常是 **null**：`precipitation_probability`
+  /// 只在部分模式覆盖的地区有值，某些小时会直接给 null；以前用
+  /// `List<num>.from(...)` 会抛 `type 'Null' is not a subtype of 'num'`，
+  /// 整次抓取被当成失败，小组件就退化成「暂无气象信息」。
+  @visibleForTesting
+  static WeatherSummary parseOpenMeteo(Map<String, dynamic> data) {
+    final hourly = data['hourly'];
+    if (hourly is! Map) {
+      throw const FormatException('Open-Meteo 数据缺少 hourly');
+    }
+
+    final times = _asStrings(hourly['time']);
+    final temps = _asNumbers(hourly['temperature_2m']);
+    if (times.isEmpty || temps.isEmpty) {
+      throw const FormatException('Open-Meteo 逐小时数据为空');
     }
 
     return summarize(
       times: times,
       temps: temps,
-      precipProbs: precipProbs,
-      precips: precips,
-      codes: codes,
+      precipProbs: _asNumbers(hourly['precipitation_probability']),
+      precips: _asNumbers(hourly['precipitation']),
+      codes: _asNumbers(hourly['weather_code']).map((v) => v.toInt()).toList(),
     );
+  }
+
+  /// null / 非数字一律当 0，长度不足时由 [summarize] 的越界保护兜住。
+  static List<num> _asNumbers(Object? raw) {
+    if (raw is! List) return const <num>[];
+    return <num>[
+      for (final item in raw)
+        if (item is num) item else 0,
+    ];
+  }
+
+  static List<String> _asStrings(Object? raw) {
+    if (raw is! List) return const <String>[];
+    return <String>[
+      for (final item in raw)
+        if (item is String && item.isNotEmpty) item,
+    ];
   }
 
   /// 把逐小时数据归纳成小组件要的「今天带不带伞」。

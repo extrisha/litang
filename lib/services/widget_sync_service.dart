@@ -90,7 +90,15 @@ class WidgetSyncService {
       final weather =
           await (weatherLoader?.call(force) ??
                   WeatherService.instance.getTodayWeather(forceRefresh: force))
-              .timeout(const Duration(seconds: 8));
+              // 后台 isolate 是冷启动，DNS + TLS 建连比前台慢，
+              // 8 秒偶尔不够，失败一次就会被当成「没有天气」
+              .timeout(const Duration(seconds: 12));
+      // 离线兜底数据会把上一次的有效天气覆盖成「暂无气象信息」，
+      // 宁可显示几小时前的旧数据，也不要显示占位符。
+      if (weather.isFallback) {
+        debugPrint('[WidgetSyncService] 天气取到兜底值，保留上一次的数据');
+        return;
+      }
       await _write<bool>('weather_has_rain', weather.hasRainOrSnow);
       await _write<String>('weather_time_window', weather.rainTimeWindow);
       await _write<String>('weather_probability', weather.probabilityText);

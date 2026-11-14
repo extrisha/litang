@@ -102,4 +102,47 @@ void main() {
       }
     });
   });
+
+  group('Open-Meteo 响应解析', () {
+    test('precipitation_probability 里的 null 不会让整次抓取失败', () {
+      // 上海一带这个字段经常是 null，以前会抛
+      // type 'Null' is not a subtype of type 'num'
+      final summary = WeatherService.parseOpenMeteo(<String, dynamic>{
+        'hourly': <String, dynamic>{
+          'time': <String>[
+            for (var h = 0; h < 24; h++)
+              '2026-11-12T${h.toString().padLeft(2, '0')}:00',
+          ],
+          'temperature_2m': <dynamic>[for (var h = 0; h < 24; h++) 10 + h % 5],
+          'precipitation_probability': <dynamic>[
+            for (var h = 0; h < 24; h++) null,
+          ],
+          'precipitation': <dynamic>[for (var h = 0; h < 24; h++) null],
+          'weather_code': <dynamic>[for (var h = 0; h < 24; h++) 0],
+        },
+      });
+      expect(summary.isFallback, isFalse);
+      expect(summary.tempRange, contains('°'));
+      expect(summary.rainTimeWindow, isNotEmpty);
+    });
+
+    test('逐小时数据为空时抛错，让调用方保留上一次的天气', () {
+      expect(
+        () => WeatherService.parseOpenMeteo(<String, dynamic>{
+          'hourly': <String, dynamic>{
+            'time': <String>[],
+            'temperature_2m': <num>[],
+          },
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('缺少 hourly 字段时抛错', () {
+      expect(
+        () => WeatherService.parseOpenMeteo(<String, dynamic>{}),
+        throwsA(isA<FormatException>()),
+      );
+    });
+  });
 }

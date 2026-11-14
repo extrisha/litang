@@ -33,6 +33,11 @@ class TodayCompactWidgetProvider : AppWidgetProvider() {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
     }
 
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        WidgetWeatherAlarms.cancelIfOrphaned(context)
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == TodayScheduleWidgetProvider.ACTION_REFRESH_SCHEDULE) {

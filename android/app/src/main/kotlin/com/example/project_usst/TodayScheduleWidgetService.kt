@@ -30,6 +30,12 @@ class TodayScheduleRemoteViewsFactory(private val context: Context) :
     /** 「距上课」提示的提前量（分钟），由设置页写入，默认 45。 */
     private var upcomingMinutes: Int = 45
 
+    /**
+     * 列表里是几天后的课。大于 0 时 `startMin/endMin` 只代表钟点、不代表今天，
+     * 不能拿当前时刻去比，否则未来某天的课会被标成「已结课」。
+     */
+    private var daysAhead: Int = 0
+
     /** 按「主题」设置取到的颜色；null 时回退系统深浅色。 */
     private var palette: WidgetColors? = null
 
@@ -50,6 +56,10 @@ class TodayScheduleRemoteViewsFactory(private val context: Context) :
     /** 用「当前时刻 + 起止分钟」现算状态，避免 30 分钟刷新周期导致标签陈旧。 */
     private fun liveStatus(item: ScheduleOrTodoItemData): Pair<String, String> {
         if (item.startMin < 0 || item.endMin < 0) {
+            return item.status to item.statusTag
+        }
+        // 未来某天的课：钟点没有日期含义，直接用快照里的状态
+        if (daysAhead > 0) {
             return item.status to item.statusTag
         }
         val cal = Calendar.getInstance()
@@ -76,13 +86,23 @@ class TodayScheduleRemoteViewsFactory(private val context: Context) :
             val prefs = HomeWidgetPlugin.getData(context)
             val mode = prefs.getString("widget_view_mode", "schedule") ?: "schedule"
             upcomingMinutes = prefs.getInt("widget_upcoming_minutes", 45).coerceIn(0, 120)
+            daysAhead = prefs.getInt("schedule_days_ahead", 0).coerceAtLeast(0)
             palette = WidgetThemeHelper.colors(context, WidgetThemeHelper.themeOf(context))
             val jsonKey = if (mode == "todo") "todos_json" else "courses_json"
             val jsonString = prefs.getString(jsonKey, null) ?: return
             val array = JSONArray(jsonString)
 
+            // 今天的课一旦上完就不再出现在列表里（而不是淡化显示「已结课」）
+            val nowMin = WidgetData.nowMinuteOfDay()
+            val hideFinished = mode != "todo" && daysAhead == 0
+
             for (i in 0 until array.length()) {
                 val obj: JSONObject = array.getJSONObject(i)
+                val startMin = obj.optInt("startMin", -1)
+                val endMin = obj.optInt("endMin", -1)
+                if (hideFinished && startMin >= 0 && endMin in 0 until nowMin) {
+                    continue
+                }
                 itemList.add(
                     ScheduleOrTodoItemData(
                         name = obj.optString("name", "未命名"),
@@ -93,8 +113,8 @@ class TodayScheduleRemoteViewsFactory(private val context: Context) :
                         status = obj.optString("status", "upcoming"),
                         statusTag = obj.optString("statusTag", ""),
                         linkUri = obj.optString("linkUri", ""),
-                        startMin = obj.optInt("startMin", -1),
-                        endMin = obj.optInt("endMin", -1)
+                        startMin = startMin,
+                        endMin = endMin
                     )
                 )
             }

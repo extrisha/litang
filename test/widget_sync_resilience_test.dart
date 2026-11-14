@@ -59,9 +59,35 @@ void main() {
     expect(writes.containsKey('weather_icon_type'), isFalse);
     await Future.wait([service.syncTodayWidget(), service.syncTodayWidget()]);
     expect(weatherCalls, 1);
-    weather.complete(WeatherSummary.fallback());
+    weather.complete(
+      WeatherSummary(
+        hasRainOrSnow: false,
+        weatherStatus: '多云',
+        rainTimeWindow: '全天无雨',
+        probabilityText: '全天干爽',
+        umbrellaAdvice: '',
+        tempRange: '16° ~ 25°',
+        iconType: 'cloudy',
+        updatedAt: DateTime(2026, 11, 14, 12),
+      ),
+    );
     await service.syncTodayWidget(awaitWeather: true);
     expect(writes['weather_icon_type'], 'cloudy');
+  });
+
+  test('天气兜底值不覆盖上一次的有效数据', () async {
+    final writes = <String, Object?>{'weather_time_window': '15:00 起降雨'};
+    final service = WidgetSyncService(
+      identityLoader: () async => 'A',
+      weatherLoader: (_) async => WeatherSummary.fallback(),
+      saveData: (key, value) async {
+        writes[key] = value;
+      },
+      notifyWidget: () async {},
+    );
+    await service.syncTodayWidget(awaitWeather: true);
+    expect(writes['weather_time_window'], '15:00 起降雨');
+    expect(writes.containsKey('weather_icon_type'), isFalse);
   });
 
   test('账号在写入中切换时旧快照中止，最终只发布新账号待办', () async {

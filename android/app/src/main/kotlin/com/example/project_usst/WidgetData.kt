@@ -92,6 +92,26 @@ object WidgetData {
         }
     }
 
+    /** 今天还没上完的课程条数（未来某天时等于总条数）。 */
+    fun remainingCount(prefs: SharedPreferences): Int {
+        if (daysAhead(prefs) > 0) return courseCount(prefs)
+        val raw = prefs.getString("courses_json", "") ?: ""
+        if (raw.isEmpty()) return 0
+        val now = nowMinuteOfDay()
+        return try {
+            val array = JSONArray(raw)
+            var count = 0
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val end = obj.optInt("endMin", -1)
+                if (end < 0 || end >= now) count++
+            }
+            count
+        } catch (_: Throwable) {
+            0
+        }
+    }
+
     /**
      * 右栏头部那一句天气：`15:00 起降雨 · 带伞`。
      *
