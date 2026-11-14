@@ -1,9 +1,9 @@
 {
   "version": "0.7.3-alpha",
-  "versionCode": 56,
+  "versionCode": 59,
   "minVersionCode": 0,
-  "notes": "0.7.3-alpha 测试版：桌面小组件改版——4×2 左栏改为「日期 + 温度 + 今日共几节」，天气并到右栏头部一行（带伞提示纯文字），右栏合并为一整块面板并用细灰线分隔；新增 4×1 紧凑版，只显示当前/下一节课；未来日期的课程会标注「X 天后 · 周几」，待办模式下不再出现该提示；外观设置支持磨砂/纯透明/实心、透明度、默认视图、到点提示与浅色/深色/跟随系统；上课/下课/零点自动刷新；全 App 统一页面转场与按压反馈。",
+  "notes": "0.7.3-alpha 测试版：深色主题下小组件列表换成更深的灰底（不再复用浅色面板）；天气抓取加固——Open-Meteo 字段为 null 不再让整次抓取失败、后台冷启动超时放宽到 12 秒、兜底数据不覆盖旧天气；小组件每 2 小时后台刷新天气；左栏点一下即可刷新；修复未来日期课程误标已结课、上完的课从列表移除。",
   "apk_github": "https://github.com/extrisha/litang/releases/download/0.7.3-alpha/app-release.apk",
   "apk_gitee": "https://gitee.com/extrisha/litang/releases/download/0.7.3-alpha/app-release.apk",
-  "sha256": "fd069390bc77c42cf61e927b5206f44cb59d6732c2178860f4990a954ec76ad8"
+  "sha256": "8aff290ffaa20bcacda89335b893a8bdaf55f2028b805e6f501e03ebca460f4a"
 }
