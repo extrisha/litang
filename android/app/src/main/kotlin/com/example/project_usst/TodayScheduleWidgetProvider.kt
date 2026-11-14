@@ -37,6 +37,8 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
     ) {
         try {
             val prefs = HomeWidgetPlugin.getData(context)
+            // 系统每 30 分钟叫一次 onUpdate：顺手把过期的天气换掉
+            WeatherFetcher.refreshIfStale(context)
             performNativeScheduleRollover(context, prefs)
         } catch (t: Throwable) {
             Log.e(TAG, "onUpdate 原生跨天推演异常", t)
@@ -79,42 +81,45 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
             }
 
             // 点击天气卡片触发就地刷新（方案 B）
-            if (intent.action == ACTION_REFRESH_SCHEDULE) {
-                val prefs = HomeWidgetPlugin.getData(context)
-                // 1. 本地原生跨天推演立竿见影执行
-                performNativeScheduleRollover(context, prefs)
-
-                // 2. 界面即时刷新
-                val thisWidget = ComponentName(context, TodayScheduleWidgetProvider::class.java)
-                val allIds = appWidgetManager.getAppWidgetIds(thisWidget)
-                for (id in allIds) {
+            if (intent.action == ACTION_REFRESH_SCHEDULE ||
+                intent.action == ACTION_WEATHER_TICK
+            ) {
+                val showToast = intent.action == ACTION_REFRESH_SCHEDULE
+                if (showToast) {
                     try {
-                        updateAppWidget(context, appWidgetManager, id)
-                        appWidgetManager.notifyAppWidgetViewDataChanged(id, R.id.widget_course_list)
+                        Toast.makeText(context, "理堂：正在刷新天气…", Toast.LENGTH_SHORT).show()
+                    } catch (_: Throwable) {
+                    }
+                }
+                // 抓取要走网络：用 goAsync 把广播的 10 秒预算延长，放到后台线程做
+                val pending = goAsync()
+                Thread {
+                    try {
+                        WeatherFetcher.refresh(context)
+                        val prefs = HomeWidgetPlugin.getData(context)
+                        performNativeScheduleRollover(context, prefs)
+                        updateAll(context)
+                        // 顺带让 Flutter 补一次课表/待办（失败无妨，天气已经写过盘了）
+                        if (showToast) {
+                            try {
+                                context.sendBroadcast(
+                                    Intent(
+                                        context,
+                                        HomeWidgetBackgroundReceiver::class.java
+                                    ).apply {
+                                        action = "es.antonborri.home_widget.action.BACKGROUND"
+                                        data = Uri.parse("litang://refresh")
+                                    }
+                                )
+                            } catch (_: Throwable) {
+                            }
+                        }
                     } catch (t: Throwable) {
-                        Log.e(TAG, "刷新小组件异常 (id: $id)", t)
+                        Log.e(TAG, "刷新天气异常", t)
+                    } finally {
+                        pending.finish()
                     }
-                }
-
-                // 3. 4×1 紧凑版没有自己的闹钟，靠这里一起刷；
-                //    桌面上只放了 4×1 时，上面那个循环是空的，必须显式调用。
-                TodayCompactWidgetProvider.updateAll(context)
-
-                // 4. 轻量级系统 Toast 提示用户
-                try {
-                    Toast.makeText(context, "理堂：正在刷新天气与课表...", Toast.LENGTH_SHORT).show()
-                } catch (_: Throwable) {}
-
-                // 5. 触发后台同步服务（通过 WorkManager / HomeWidgetBackgroundReceiver 静默拉取 Open-Meteo 天气）
-                try {
-                    val bgIntent = Intent(context, HomeWidgetBackgroundReceiver::class.java).apply {
-                        action = "es.antonborri.home_widget.action.BACKGROUND"
-                        data = Uri.parse("litang://refresh")
-                    }
-                    context.sendBroadcast(bgIntent)
-                } catch (t: Throwable) {
-                    Log.e(TAG, "触发后台同步广播失败", t)
-                }
+                }.start()
                 return
             }
 
@@ -147,6 +152,24 @@ class TodayScheduleWidgetProvider : AppWidgetProvider() {
     companion object {
         private const val TAG = "TodayWidgetProvider"
         const val ACTION_REFRESH_SCHEDULE = "com.example.project_usst.ACTION_REFRESH_SCHEDULE"
+        const val ACTION_WEATHER_TICK = "com.example.project_usst.ACTION_WEATHER_TICK"
+
+        /** 把 4×2 和 4×1 都重绘一遍。 */
+        fun updateAll(context: Context) {
+            try {
+                val manager = AppWidgetManager.getInstance(context)
+                val component = ComponentName(
+                    context, TodayScheduleWidgetProvider::class.java
+                )
+                for (id in manager.getAppWidgetIds(component)) {
+                    updateAppWidget(context, manager, id)
+                    manager.notifyAppWidgetViewDataChanged(id, R.id.widget_course_list)
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "重绘 4×2 失败", t)
+            }
+            TodayCompactWidgetProvider.updateAll(context)
+        }
         const val ACTION_TOGGLE_VIEW_MODE = "com.example.project_usst.ACTION_TOGGLE_VIEW_MODE"
 
         /** 课表里的一节：起止分钟（0 点起算）。 */

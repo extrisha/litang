@@ -20,6 +20,11 @@ class _WidgetSettingsPageState extends State<WidgetSettingsPage> {
   WidgetAppearance _appearance = WidgetAppearance.defaults;
   bool _loading = true;
 
+  /// 上次天气抓取成功的时间戳（毫秒）与最近一次失败原因。
+  int? _weatherSyncedAt;
+  String? _weatherError;
+  bool _refreshing = false;
+
   @override
   void initState() {
     super.initState();
@@ -36,6 +41,13 @@ class _WidgetSettingsPageState extends State<WidgetSettingsPage> {
         'widget_upcoming_minutes',
       );
       final rawTheme = await HomeWidget.getWidgetData<String>('widget_theme');
+      _weatherSyncedAt = await HomeWidget.getWidgetData<int>(
+        'weather_synced_at',
+      );
+      _weatherError = await HomeWidget.getWidgetData<String>(
+        'weather_last_error',
+      );
+
       appearance = WidgetAppearance.fromPrefs(
         rawStyle,
         rawAlpha,
@@ -50,6 +62,28 @@ class _WidgetSettingsPageState extends State<WidgetSettingsPage> {
     setState(() {
       _appearance = appearance;
       _loading = false;
+    });
+  }
+
+  /// 触发一次原生抓取：把「上次成功时间」清零，Provider 的 onUpdate 就会去抓。
+  Future<void> _refreshWeatherNow() async {
+    setState(() => _refreshing = true);
+    try {
+      await HomeWidget.saveWidgetData<int>('weather_synced_at', 0);
+      await HomeWidget.updateWidget(
+        name: WidgetSyncService.androidWidgetProvider,
+        androidName: WidgetSyncService.androidWidgetProvider,
+      );
+    } catch (_) {}
+    await Future<void>.delayed(const Duration(seconds: 4));
+    if (!mounted) return;
+    final syncedAt = await HomeWidget.getWidgetData<int>('weather_synced_at');
+    final error = await HomeWidget.getWidgetData<String>('weather_last_error');
+    if (!mounted) return;
+    setState(() {
+      _weatherSyncedAt = syncedAt;
+      _weatherError = error;
+      _refreshing = false;
     });
   }
 
@@ -230,6 +264,40 @@ class _WidgetSettingsPageState extends State<WidgetSettingsPage> {
                 ),
                 const SizedBox(height: 12),
                 _card(
+                  title: '天气',
+                  children: <Widget>[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                      child: Text(
+                        _weatherStatusText(),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          height: 1.5,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: _refreshing ? null : _refreshWeatherNow,
+                          icon: _refreshing
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.refresh, size: 18),
+                          label: Text(_refreshing ? '正在抓取…' : '立即抓取天气'),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _card(
                   title: '说明',
                   children: <Widget>[
                     const Padding(
@@ -258,6 +326,24 @@ class _WidgetSettingsPageState extends State<WidgetSettingsPage> {
               ],
             ),
     );
+  }
+
+  String _weatherStatusText() {
+    final syncedAt = _weatherSyncedAt;
+    final buffer = StringBuffer();
+    if (syncedAt == null || syncedAt == 0) {
+      buffer.write('还没有成功抓取过天气。');
+    } else {
+      final at = DateTime.fromMillisecondsSinceEpoch(syncedAt);
+      String two(int v) => v.toString().padLeft(2, '0');
+      buffer.write('上次成功：${two(at.month)}-${two(at.day)} '
+          '${two(at.hour)}:${two(at.minute)}');
+    }
+    final error = _weatherError;
+    if (error != null && error.isNotEmpty) {
+      buffer.write('\n最近一次失败：$error');
+    }
+    return buffer.toString();
   }
 
   Widget _card({required String title, required List<Widget> children}) {

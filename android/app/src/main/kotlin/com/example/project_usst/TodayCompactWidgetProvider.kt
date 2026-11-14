@@ -26,6 +26,7 @@ class TodayCompactWidgetProvider : AppWidgetProvider() {
         appWidgetIds: IntArray
     ) {
         val prefs = HomeWidgetPlugin.getData(context)
+        WeatherFetcher.refreshIfStale(context)
         TodayScheduleWidgetProvider.performNativeScheduleRollover(context, prefs)
         for (id in appWidgetIds) {
             updateAppWidget(context, appWidgetManager, id)

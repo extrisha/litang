@@ -79,9 +79,11 @@ object WidgetWeatherAlarms {
         PendingIntent.getBroadcast(
             context,
             REQUEST_CODE,
-            Intent(context, HomeWidgetBackgroundReceiver::class.java).apply {
-                action = "es.antonborri.home_widget.action.BACKGROUND"
-                data = Uri.parse("litang://refresh")
+            // 直接打到小组件 Provider 做原生抓取；
+            // 不再经 home_widget 的后台 worker（国产系统上容易被省电策略掐掉）
+            Intent(context, TodayScheduleWidgetProvider::class.java).apply {
+                action = TodayScheduleWidgetProvider.ACTION_WEATHER_TICK
+                data = Uri.parse("litang://weather-tick")
             },
             flags
         )
